@@ -1,0 +1,128 @@
+[
+  {
+    "model": 1662740,
+    "version": 3349565,
+    "title": "Lenovo UltraReal",
+    "workflow": false,
+    "source": "https://civitai.red/models/1662740?modelVersionId=3349565"
+  },
+  {
+    "model": 1551668,
+    "version": 3354434,
+    "title": "SamsungCam UltraReal",
+    "workflow": false,
+    "source": "https://civitai.red/models/1551668?modelVersionId=3354434"
+  },
+  {
+    "model": 2728005,
+    "version": 3431103,
+    "title": "PureLens Realism",
+    "workflow": false,
+    "source": "https://civitai.red/models/2728005?modelVersionId=3431103"
+  },
+  {
+    "model": 2960871,
+    "version": 3354330,
+    "title": "Qwen 2.1 · versão 3354330",
+    "workflow": false,
+    "source": "https://civitai.red/models/2960871?modelVersionId=3354330"
+  },
+  {
+    "model": 3012015,
+    "version": 3441588,
+    "title": "Candid Amateur iPhone",
+    "workflow": false,
+    "source": "https://civitai.red/models/3012015?modelVersionId=3441588"
+  },
+  {
+    "model": 2983159,
+    "version": 3381922,
+    "title": "Outfit Swap Consistency",
+    "workflow": false,
+    "source": "https://civitai.red/models/2983159?modelVersionId=3381922"
+  },
+  {
+    "model": 2954355,
+    "version": 3346363,
+    "title": "Qwen 2.1 · versão 3346363",
+    "workflow": false,
+    "source": "https://civitai.red/models/2954355?modelVersionId=3346363"
+  },
+  {
+    "model": 2790570,
+    "version": 3357747,
+    "title": "Casual Snapshot Realism",
+    "workflow": false,
+    "source": "https://civitai.red/models/2790570?modelVersionId=3357747"
+  },
+  {
+    "model": 2995618,
+    "version": 3397409,
+    "title": "Qwen AniEdit",
+    "workflow": false,
+    "source": "https://civitai.red/models/2995618?modelVersionId=3397409"
+  },
+  {
+    "model": 2736538,
+    "version": 3360462,
+    "title": "Anime Illustration Style",
+    "workflow": false,
+    "source": "https://civitai.red/models/2736538?modelVersionId=3360462"
+  },
+  {
+    "model": 958009,
+    "version": 3407259,
+    "title": "Redcraft",
+    "workflow": false,
+    "source": "https://civitai.red/models/958009?modelVersionId=3407259"
+  },
+  {
+    "model": 2975820,
+    "version": 3372758,
+    "title": "Qwen 2.1 Edit · versão 3372758",
+    "workflow": true,
+    "source": "https://civitai.red/models/2975820?modelVersionId=3372758"
+  },
+  {
+    "model": 3000390,
+    "version": 3403624,
+    "title": "Inpaint · Click to Mask",
+    "workflow": true,
+    "source": "https://civitai.red/models/3000390?modelVersionId=3403624"
+  },
+  {
+    "model": 2983126,
+    "version": 3383775,
+    "title": "Outfit Swap · Virtual Try-On",
+    "workflow": true,
+    "source": "https://civitai.red/models/2983126?modelVersionId=3383775"
+  },
+  {
+    "model": 2966883,
+    "version": 3371209,
+    "title": "Rotate · Outpaint",
+    "workflow": true,
+    "source": "https://civitai.red/models/2966883?modelVersionId=3371209"
+  },
+  {
+    "model": 2986253,
+    "version": 3404643,
+    "title": "Character Sheet Designer",
+    "workflow": true,
+    "source": "https://civitai.red/models/2986253?modelVersionId=3404643"
+  },
+  {
+    "model": 3000002,
+    "version": 3419155,
+    "title": "Turbo Multi-Image Edit",
+    "workflow": true,
+    "source": "https://civitai.red/models/3000002?modelVersionId=3419155"
+  },
+  {
+    "model": 2954120,
+    "version": 3346090,
+    "title": "Qwen 2.1 · versão 3346090",
+    "workflow": false,
+    "source": "https://civitai.red/models/2954120?modelVersionId=3346090"
+  }
+]
