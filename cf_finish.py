@@ -215,3 +215,32 @@ def video_sequence(paths, order, ratio, fit, mute, directory):
         destination.unlink(missing_ok=True)
         raise
     return str(destination), f"{len(paths)} clipes · {width} × {height} · 24 fps · {sum(durations):.2f} s de entrada"
+
+
+def compare_images(before_path, after_path, directory):
+    if not before_path or not after_path:
+        raise ValueError("Envie as duas imagens para comparar.")
+    images = []
+    for path in (before_path, after_path):
+        with Image.open(path) as opened:
+            images.append(ImageOps.exif_transpose(opened).convert("RGBA"))
+    before, after = images
+    scale = min(1, 1600 / max(after.size))
+    canvas_size = tuple(max(1, round(edge * scale)) for edge in after.size)
+    aligned = []
+    for image in images:
+        scale = min(canvas_size[0] / image.width, canvas_size[1] / image.height)
+        fitted_size = tuple(max(1, round(edge * scale)) for edge in image.size)
+        fitted = image.resize(fitted_size, Image.Resampling.LANCZOS)
+        canvas = Image.new("RGBA", canvas_size, "#17171e")
+        canvas.alpha_composite(fitted, ((canvas.width - fitted.width) // 2,
+                                        (canvas.height - fitted.height) // 2))
+        aligned.append(canvas.convert("RGB"))
+    separator = 4
+    sheet = Image.new("RGB", (2 * canvas_size[0] + separator, canvas_size[1]), "#ffffff")
+    sheet.paste(aligned[0], (0, 0))
+    sheet.paste(aligned[1], (canvas_size[0] + separator, 0))
+    destination = output_path(directory, "comparacao", ".png")
+    sheet.save(destination)
+    status = f"Antes {before.width} × {before.height} · Depois {after.width} × {after.height}"
+    return tuple(aligned), str(destination), status

@@ -6,6 +6,7 @@ from functools import partial
 import unicodedata
 from urllib.parse import urlparse, parse_qs
 import requests, torch, gradio as gr
+from gradio import processing_utils
 from PIL import Image, ImageFilter
 import numpy as np
 import zipfile
@@ -468,36 +469,13 @@ def ambiente():
     running=current_config[0] if current_config else 'Nenhum modelo carregado'
     return f'{gpu} | Espaço livre: {disk.free/1024**3:.1f} GiB | {credentials} | Modelo em memória: {running}'
 
-def listar_historico():
-    out=[]
-    for p in sorted(OUT.glob('*.json'),key=lambda x:x.stat().st_mtime,reverse=True)[:150]:
-        try:
-            data=json.loads(p.read_text())
-            if not isinstance(data,dict) or 'final' not in data: continue
-            final=Path(data['final'])
-            if final.parent.resolve()!=OUT.resolve() or not final.is_file(): continue
-            label=f"{time.strftime('%d/%m %H:%M:%S',time.localtime(p.stat().st_mtime))} · seed {data.get('seed','?')} · {str(data.get('prompt',''))[:65]}"
-            out.append((label,p.name))
-        except (OSError,ValueError): continue
-    return gr.update(choices=out,value=None)
-
-def abrir_historico(item):
-    if not item: return None,''
-    try:
-        p=OUT/Path(item).name; data=json.loads(p.read_text()); final=Path(data['final'])
-        if final.parent.resolve()!=OUT.resolve() or not final.is_file(): raise ValueError('Arquivo de saída indisponível.')
-        return str(final),json.dumps(data,ensure_ascii=False,indent=2)
-    except (OSError,ValueError,KeyError): raise gr.Error('Não consegui abrir este registro.')
-
-
-
-
 # The preceding notebook cell extracts the workflow bundle.
 STUDIO_MODULES = Path(__file__).resolve().parent / 'workflows'
 import cf_seedvr2 as seedvr2
 import cf_workflows as workflows
 import cf_wan as wan
 import cf_finish as finish
+import cf_history as history
 import cf_region as region
 import cf_openjutsu as openjutsu
 
@@ -544,6 +522,7 @@ APP_CARDS = (
     ('Melhorar', 'Upscale de imagem', 'Amplie fotos e ilustrações com o Real-ESRGAN.', 'Real-ESRGAN', 'upscale-rapido', ''),
     ('Melhorar', 'Upscale de imagem ou vídeo', 'Recupere detalhe e amplie com SeedVR2.', 'SeedVR2 · INT8', 'seedvr2', ''),
     ('Identidade', 'Trocar personagem · OpenJutsu', 'Aplique uma referência a um clipe com um worker H3 preparado.', 'H3 · classe 96 GB', 'openjutsu', ''),
+    ('Melhorar', 'Comparar imagens', 'Deslize entre antes e depois e salve a comparação lado a lado.', 'Imagem · CPU', 'comparar', ''),
     ('Melhorar', finish.LOOK, 'Aplique um look com intensidade ajustável e compare com a foto de entrada.', 'Imagem · CPU', 'acabamento', finish.LOOK),
     ('Imagem', finish.FRAME, 'Prepare a foto para feed, stories ou paisagem e exporte em PNG, JPEG ou WebP.', 'Imagem · CPU', 'acabamento', finish.FRAME),
     ('Vídeo', finish.CLIP, 'Recorte o trecho e ajuste a proporção, com áudio opcional.', 'Vídeo · CPU', 'montagem', finish.CLIP),
@@ -756,6 +735,81 @@ def finish_sequence(media, order, ratio, fit, mute, progress=gr.Progress()):
         raise gr.Error(str(exc)) from exc
 
 
+def list_history(kind, query):
+    try:
+        entries = history.choices(OUT, kind, query)
+    except OSError as exc:
+        raise gr.Error('Não consegui ler a pasta de saídas. Confira se o Drive continua montado.') from exc
+    count = len(entries)
+    if not count:
+        status = 'Nenhum resultado para este filtro.'
+    elif count == history.MAX_RESULTS:
+        status = f'{count} resultados mais recentes. Use a busca para encontrar outros.'
+    else:
+        status = '1 resultado' if count == 1 else f'{count} resultados'
+    return gr.update(choices=entries, value=None), status
+
+
+def history_video_preview(path):
+    # Gradio may transcode a preview in place. Keep that copy separate from the saved output.
+    if processing_utils.ffmpeg_installed() and not processing_utils.video_is_playable(str(path)):
+        cache = Path(hist_video.GRADIO_CACHE) / 'clonfield-previews'
+        return processing_utils.save_file_to_cache(path, cache_dir=str(cache))
+    return str(path)
+
+
+def history_preview(key):
+    if not key:
+        return (*(gr.update(value=None, visible=False) for _ in range(3)), None, '',
+                gr.update(visible=False), gr.update(visible=False), gr.update(visible=False))
+    try:
+        path = history.resolve_media(OUT, key)
+    except (OSError, ValueError) as exc:
+        raise gr.Error(str(exc)) from exc
+    kind = history.media_type(path)
+    title, data = history.describe(OUT.resolve(), path, {})
+    preview = history_video_preview(path) if kind == 'Vídeo' else str(path)
+    previews = [gr.update(value=preview if kind == media else None, visible=kind == media)
+                for media in history.TYPES[1:]]
+    details = json.dumps(data, ensure_ascii=False, indent=2) if data else title
+    return (*previews, str(path), details, gr.update(visible=kind == 'Imagem'),
+            gr.update(visible=kind == 'Vídeo'), gr.update(visible=bool(history.qwen_pair(path))))
+
+
+def history_route(destination, key):
+    try:
+        path = history.resolve_media(OUT, key)
+        kind = history.media_type(path)
+        if destination == 'seedvr2' and kind in ('Imagem', 'Vídeo'):
+            return gr.Tabs(selected=destination), str(path), kind
+        if destination == 'acabamento' and kind == 'Imagem':
+            return send_to_finish(destination, finish.LOOK, str(path))
+        if destination == 'montagem' and kind == 'Vídeo':
+            return send_to_finish(destination, finish.CLIP, history_video_preview(path))
+        if destination == 'video' and kind == 'Imagem':
+            return animate_image(str(path))
+        if destination == 'comparar':
+            pair = history.qwen_pair(path)
+            if pair:
+                return open_comparison(*pair)
+    except (OSError, ValueError) as exc:
+        raise gr.Error(str(exc)) from exc
+    raise gr.Error('Esse resultado não é compatível com a ferramenta escolhida.')
+
+
+def compare_images(before, after):
+    try:
+        return finish.compare_images(before, after, OUT)
+    except (OSError, ValueError) as exc:
+        raise gr.Error(str(exc)) from exc
+
+
+def open_comparison(before, after):
+    if not before or not after:
+        raise gr.Error('Gere o resultado para comparar com o original.')
+    return gr.Tabs(selected='comparar'), before, after, None, None, ''
+
+
 CSS = """
 .gradio-container {max-width: 1500px !important; background: #111217 !important;}
 #hero {padding: 1rem 1.3rem; border:1px solid #38303a; border-radius:14px; background:linear-gradient(110deg,#25171c,#17171e);}
@@ -875,7 +929,9 @@ with gr.Blocks(title='ClonField Studio',theme=gr.themes.Soft(primary_hue='red',n
                 with gr.Column():
                     region_result = gr.Image(label='Foto editada', type='filepath', interactive=False)
                     region_file = gr.File(label='Baixar PNG')
-                    region_to_finish = gr.Button('Abrir foto em Acabamento', size='sm')
+                    with gr.Row():
+                        region_to_finish = gr.Button('Abrir foto em Acabamento', size='sm')
+                        region_compare = gr.Button('Comparar antes e depois', size='sm')
                     region_status = gr.Textbox(label='Detalhes', interactive=False)
             region_go.click(edit_region, [region_source, region_mask, region_prompt, region_size, region_padding,
                                            region_feather, region_steps, region_seed],
@@ -1027,11 +1083,51 @@ with gr.Blocks(title='ClonField Studio',theme=gr.themes.Soft(primary_hue='red',n
                     down=gr.Button('Baixar por link');dm=gr.Textbox(label='Resultado',interactive=False)
                     down.click(baixar,[link,token],[dm,choices,token]);gr.Button('Atualizar arquivos locais').click(atualizar,None,choices)
             gr.Markdown('Use links Civitai com `modelVersionId`. Arquivos e modelos têm licenças e requisitos próprios.')
-        with gr.Tab('Histórico'):
-            gr.Markdown('### Resultados desta pasta\nCom o Drive montado, os resultados também permanecem após a sessão.')
-            hist_reload=gr.Button('Atualizar histórico');hist_list=gr.Dropdown(label='Escolher resultado');hist_img=gr.Image(label='Imagem',type='filepath');hist_meta=gr.Textbox(label='Parâmetros',lines=10)
-            hist_finish = gr.Button('Abrir em Acabamento', size='sm')
-            hist_reload.click(listar_historico,None,hist_list);hist_list.change(abrir_historico,hist_list,[hist_img,hist_meta])
+        with gr.Tab('Histórico', id='historico') as history_tab:
+            gr.Markdown('### Acervo de resultados\nEncontre as mídias produzidas no Studio e abra em outra ferramenta. '
+                        'Use o Drive no Colab para guardar os resultados entre sessões.')
+            with gr.Row():
+                with gr.Column(scale=2):
+                    hist_kind = gr.Radio(history.TYPES, value='Todas', label='Tipo de mídia')
+                    hist_query = gr.Textbox(label='Busca', placeholder='Ex.: Qwen, sequência, seed, trecho do prompt')
+                    hist_reload = gr.Button('Buscar e atualizar', variant='primary')
+                    hist_list = gr.Dropdown(label='Resultados recentes', filterable=True)
+                    hist_count = gr.Markdown()
+                    with gr.Accordion('Detalhes da saída', open=False):
+                        hist_meta = gr.Textbox(label='Parâmetros ou origem', lines=6, interactive=False)
+                with gr.Column(scale=3):
+                    hist_img = gr.Image(label='Imagem', interactive=False, visible=False)
+                    hist_video = gr.Video(label='Vídeo', interactive=False, visible=False)
+                    hist_audio = gr.Audio(label='Áudio', interactive=False, visible=False)
+                    hist_download = gr.File(label='Baixar mídia')
+                    with gr.Row(visible=False) as hist_image_actions:
+                        hist_finish = gr.Button('Acabamento', size='sm')
+                        hist_animate = gr.Button('Animar foto', size='sm')
+                        hist_image_upscale = gr.Button('Upscale SeedVR2', size='sm')
+                        hist_compare = gr.Button('Comparar original e final', size='sm', visible=False)
+                    with gr.Row(visible=False) as hist_video_actions:
+                        hist_cut = gr.Button('Abrir em Montagem', size='sm')
+                        hist_video_upscale = gr.Button('Upscale SeedVR2', size='sm')
+            for event in (history_tab.select, hist_kind.input, hist_reload.click, hist_query.submit):
+                event(list_history, [hist_kind, hist_query], [hist_list, hist_count], api_name=False)
+            hist_list.change(history_preview, hist_list, [hist_img, hist_video, hist_audio, hist_download,
+                             hist_meta, hist_image_actions, hist_video_actions, hist_compare], api_name=False)
+        with gr.Tab('Comparar', id='comparar'):
+            gr.Markdown('### Antes e depois\nArraste a divisão para inspecionar as diferenças. '
+                        'As prévias usam a proporção da segunda imagem, com margens quando necessário.')
+            with gr.Row():
+                with gr.Column():
+                    with gr.Row():
+                        compare_before = gr.Image(type='filepath', image_mode=None, label='Antes', sources=['upload'])
+                        compare_after = gr.Image(type='filepath', image_mode=None, label='Depois', sources=['upload'])
+                    compare_go = gr.Button('Comparar imagens', variant='primary')
+                with gr.Column():
+                    compare_slider = gr.ImageSlider(label='Antes / depois', interactive=False, format='png')
+                    compare_file = gr.File(label='Baixar prancha lado a lado')
+                    compare_status = gr.Textbox(label='Dimensões', interactive=False)
+            compare_outputs = [compare_slider, compare_file, compare_status]
+            compare_go.click(compare_images, [compare_before, compare_after], compare_outputs,
+                             api_name='comparar_imagens')
         with gr.Tab('Upscale rápido', id='upscale-rapido'):
             mfile=gr.File(label='Imagem',file_types=['image'],type='filepath');mmode=gr.Dropdown(choices=['Nenhum','Lanczos (rápido, sem IA)']+list(UP_MODELS),value='RealESRGAN_x4plus (fotografia)',label='Método')
             with gr.Row():
@@ -1130,8 +1226,17 @@ with gr.Blocks(title='ClonField Studio',theme=gr.themes.Soft(primary_hue='red',n
     sequence_to_finish.click(partial(send_to_finish, 'montagem', finish.CLIP), sequence_result,
                              finish_video_route, queue=False, api_name=False)
     to_image_finish.click(finish_gallery, [gallery, gallery_index], finish_image_route, queue=False, api_name=False)
-    hist_finish.click(partial(send_to_finish, 'acabamento', finish.LOOK), hist_img, finish_image_route,
-                      queue=False, api_name=False)
+    compare_route = [main_tabs, compare_before, compare_after, *compare_outputs]
+    region_compare.click(open_comparison, [region_source, region_result], compare_route, queue=False, api_name=False)
+    for button, destination, route in (
+        (hist_finish, 'acabamento', finish_image_route),
+        (hist_cut, 'montagem', finish_video_route),
+        (hist_animate, 'video', [main_tabs, video_mode, video_image]),
+        (hist_image_upscale, 'seedvr2', [main_tabs, inp, kind]),
+        (hist_video_upscale, 'seedvr2', [main_tabs, inp, kind]),
+        (hist_compare, 'comparar', compare_route),
+    ):
+        button.click(partial(history_route, destination), hist_list, route, queue=False, api_name=False)
     to_clip_finish.click(partial(send_to_finish, 'montagem', finish.CLIP), video_preview, finish_video_route,
                          queue=False, api_name=False)
     finish_clip_extract.click(partial(send_to_finish, 'montagem', finish.STILL), finish_video_output,

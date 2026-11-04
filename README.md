@@ -12,10 +12,12 @@ Estúdio Gradio para criar imagens, editar fotos, animar referências e montar c
 | Editar região | Retocar uma área marcada por máscara com margem de contexto, suavização e exportação no tamanho da foto | [Qwen-Image-2.1 + Pillow](cf_region.py) |
 | Vídeo | Animar foto ou gerar clipe por texto | [Wan 2.2 5B](cf_wan.py) |
 | Upscale | Real-ESRGAN para imagem e SeedVR2 INT8 para imagem ou vídeo | [SeedVR2](cf_seedvr2.py) · [Real-ESRGAN](studio_app.py) |
+| Comparar | Controle deslizante de antes e depois e exportação lado a lado em PNG | [Comparação com Pillow](cf_finish.py) |
 | Acabamento | Cor e contraste, enquadramento e exportação em PNG, JPEG ou WebP | [Pillow](cf_finish.py) |
 | Montagem | Corte, extração de quadro, prancha de cenas e sequência de até oito clipes com ordem e proporção ajustáveis | [FFmpeg](cf_finish.py) |
 | Identidade em vídeo | Trocar personagem com referência em um worker H3 preparado. Perfil upstream de classe 96 GB | [OpenJutsu](docs/OPENJUTSU.md) |
 | Workflows | Seis grafos de referência e execução de grafos no formato ComfyUI API JSON | [Grafos](workflows/) · [Executor](cf_workflows.py) |
+| Histórico | Busca por mídia, prompt e ferramenta. Abre saídas em Acabamento, Montagem, Wan ou SeedVR2 | [Acervo](cf_history.py) |
 | Biblioteca | Catálogo de LoRAs do Hugging Face e 18 versões fixadas do Civitai | [Catálogo Civitai](assets.json) · [Instalador](cf_assets.py) |
 
 ## Rodar no Colab
@@ -24,6 +26,12 @@ Estúdio Gradio para criar imagens, editar fotos, animar referências e montar c
 2. Cadastre `CIVITAI_TOKEN` e `HF_TOKEN` em Secrets no Colab e dê acesso ao notebook. Use credenciais de leitura.
 3. Execute as células na ordem. O notebook atualiza este repo por fast-forward, baixa os recursos Civitai selecionados na célula, prepara o ComfyUI e inicia o Gradio. O Colab mostra a URL e a senha da sessão.
 4. Abra **Explorar** e escolha uma ferramenta. Os pesos do Qwen são carregados ao gerar.
+
+## Reaproveitar resultados
+
+Abra **Histórico** para localizar imagens, vídeos e áudios já salvos. O acervo lê a pasta de saídas atual, inclusive mídias de execuções anteriores que continuam nessa pasta. No Colab, monte o Drive para manter esse acervo entre sessões. Imagens podem seguir para **Acabamento**, **Animar foto** ou **SeedVR2**. Vídeos podem seguir para **Montagem** ou **SeedVR2**.
+
+Quando uma geração do Qwen tiver o original e a versão pós-processada, **Comparar original e final** abre os dois arquivos. Também é possível abrir a comparação a partir de **Editar região** ou enviar duas imagens pela aba **Comparar**. Cada lado da prancha usa a proporção da segunda imagem e mantém a imagem inteira. O lado maior de cada painel tem até 1600 px.
 
 ## Resolução do Qwen
 
