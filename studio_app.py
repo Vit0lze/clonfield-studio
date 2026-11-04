@@ -16,6 +16,18 @@ for p in (LORAS, OUT): p.mkdir(parents=True,exist_ok=True)
 pipe=None; loaded=[]; current_config=None
 QWEN_DEFAULT = 'Qwen/Qwen-Image-2.1'
 QWEN_TURBO = 'Qwen/Qwen-Image-2.1-Turbo'
+DEFAULT_SIZE = '768 × 768 · Inicial'
+IMAGE_SIZES = {
+    '512 × 512 · Rascunho': (512, 512),
+    DEFAULT_SIZE: (768, 768),
+    '1024 × 1024 · Quadrado': (1024, 1024),
+    '1344 × 768 · Paisagem': (1344, 768),
+    '768 × 1344 · Vertical': (768, 1344),
+    '1536 × 1536 · Alta': (1536, 1536),
+    '2048 × 2048 · Alta': (2048, 2048),
+    '2752 × 1536 · Alta paisagem': (2752, 1536),
+    '1536 × 2752 · Alta vertical': (1536, 2752),
+}
 SEEDVR2_POST = 'SeedVR2 INT8'
 CATALOGO = [{'repo': 'Viggle/Qwen-Image-2.1-viggle-turbo', 'revision': '009a44a895ef85f7e643c80fdca9543795248867', 'file': 'Qwen-Image-2.1-viggle-turbo-4step-lora-r64.safetensors'}, {'repo': 'Viggle/Qwen-Image-2.1-viggle-turbo', 'revision': '009a44a895ef85f7e643c80fdca9543795248867', 'file': 'Qwen-Image-2.1-viggle-turbo-v0.2-5step-lora-r128.safetensors'}, {'repo': 'Viggle/Qwen-Image-2.1-viggle-turbo', 'revision': '009a44a895ef85f7e643c80fdca9543795248867', 'file': 'Qwen-Image-2.1-viggle-turbo-v0.2-5step-lora-r256.safetensors'}, {'repo': 'Viggle/Qwen-Image-2.1-viggle-turbo', 'revision': '009a44a895ef85f7e643c80fdca9543795248867', 'file': 'Qwen-Image-2.1-viggle-turbo-v0.2.1-6step-lora-r128.safetensors'}, {'repo': 'Viggle/Qwen-Image-2.1-viggle-turbo', 'revision': '009a44a895ef85f7e643c80fdca9543795248867', 'file': 'Qwen-Image-2.1-viggle-turbo-v0.2.1-6step-lora-r256.safetensors'}, {'repo': 'Viggle/Qwen-Image-2.1-viggle-turbo', 'revision': '009a44a895ef85f7e643c80fdca9543795248867', 'file': 'Qwen-Image-2.1-viggle-turbo-v0.3-6step-lora-r128.safetensors'}, {'repo': 'Viggle/Qwen-Image-2.1-viggle-turbo', 'revision': '009a44a895ef85f7e643c80fdca9543795248867', 'file': 'Qwen-Image-2.1-viggle-turbo-v0.3-6step-lora-r256.safetensors'}, {'repo': 'Alissonerdx/BFS-Best-Face-Swap', 'revision': '0ca3913ade4b4ada458d60c232354e8586c4c181', 'file': 'bfs_body_swap_v1.0_qwen_2.1.safetensors'}, {'repo': 'Alissonerdx/BFS-Best-Face-Swap', 'revision': '0ca3913ade4b4ada458d60c232354e8586c4c181', 'file': 'bfs_head_swap_v1_ltx2_ic_lora_12000_train_3.safetensors'}, {'repo': 'Alissonerdx/BFS-Best-Face-Swap', 'revision': '0ca3913ade4b4ada458d60c232354e8586c4c181', 'file': 'bfs_head_swap_v1_ltx2_ic_lora_5000.safetensors'}, {'repo': 'Alissonerdx/BFS-Best-Face-Swap', 'revision': '0ca3913ade4b4ada458d60c232354e8586c4c181', 'file': 'bfs_head_swap_v1_ltx2_ic_lora_6000.safetensors'}, {'repo': 'Alissonerdx/BFS-Best-Face-Swap', 'revision': '0ca3913ade4b4ada458d60c232354e8586c4c181', 'file': 'bfs_head_v1.1_alternative_qwen_2.1.safetensors'}, {'repo': 'Alissonerdx/BFS-Best-Face-Swap', 'revision': '0ca3913ade4b4ada458d60c232354e8586c4c181', 'file': 'bfs_head_v1.1_qwen_2.1.safetensors'}, {'repo': 'Alissonerdx/BFS-Best-Face-Swap', 'revision': '0ca3913ade4b4ada458d60c232354e8586c4c181', 'file': 'bfs_head_v1_qwen_2.1.safetensors'}, {'repo': 'Comfy-Org/SCAIL-2', 'revision': 'fe3c728bc793ba21ca674688f822afb709ad44fb', 'file': 'loras/wan2.1_SCAIL_2_DPO_lora_bf16.safetensors'}, {'repo': 'Comfy-Org/SCAIL-2', 'revision': 'fe3c728bc793ba21ca674688f822afb709ad44fb', 'file': 'loras/wan2.1_SCAIL_2_relight_lora_bf16.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_darkbrush.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_dotmatrix.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_kidsdrawing.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_neondrip.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_rainywindow.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_retroanime.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_softwatercolor.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_style_reference.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_sunsetblur.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_turbo_lora_rank_64_bf16.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_vintagetarot.safetensors'}]
 CATALOGO_BY_ID = {f"{r['repo']} :: {r['file']}":r for r in CATALOGO}
@@ -234,6 +246,21 @@ def pos_manual(file, modo, escala, tile, pad, device, nitidez):
     except Exception as e:
         traceback.print_exc(); raise gr.Error(f'Falhou o pós-processamento: {e}. Se faltou VRAM, selecione CPU ou blocos menores.')
 
+def clear_qwen_adapters():
+    global loaded
+    if loaded:
+        if hasattr(pipe, 'unload_lora_weights'):
+            pipe.unload_lora_weights()
+        else:
+            for name in loaded:
+                pipe.transformer.delete_adapters(name)
+        loaded = []
+
+
+def image_size(preset):
+    return IMAGE_SIZES.get(preset, (gr.skip(), gr.skip()))
+
+
 def gerar(prompt, negative, files, width, height, steps, cfg, seed, nimgs, choices, weights, transparent, kv_cache, sigmas, modo, escala, tile, pad, device, nitidez, model, quant, offload, curated, composite_scene, mask_file, feather, progress=gr.Progress()):
     global loaded, pipe
     if not prompt or not prompt.strip(): raise gr.Error('Escreva um prompt.')
@@ -256,12 +283,8 @@ def gerar(prompt, negative, files, width, height, steps, cfg, seed, nimgs, choic
         choices=list(dict.fromkeys((choices or [])+[Path(CATALOGO_BY_ID[k]['file']).name for k in curated]))
     progress(0.2,desc='Modelo preparado; iniciando geração…')
     try:
-        if loaded:
-            if hasattr(pipe,'unload_lora_weights'): pipe.unload_lora_weights()
-            else:
-                for name in loaded: pipe.transformer.delete_adapters(name)
-            loaded=[]
-        vals=[float(x.strip()) for x in weights.split(',') if x.strip()]
+        clear_qwen_adapters()
+        vals = vals_pre
         for i,name in enumerate(choices or []):
             path=LORAS/Path(name).name; adapter=f'lora_{i}'
             if hasattr(pipe,'load_lora_weights'): pipe.load_lora_weights(str(path.parent),weight_name=path.name,adapter_name=adapter)
@@ -357,9 +380,12 @@ def gerar(prompt, negative, files, width, height, steps, cfg, seed, nimgs, choic
             for p in dict.fromkeys(originais+paths+[str(Path(x).with_suffix('.json')) for x in originais]): z.write(p,arcname=Path(p).name)
         return paths,originais,json.dumps({**meta,'arquivos_finais':paths,'originais':originais,'avisos':report},ensure_ascii=False,indent=2),str(archive)
     except Exception as e:
+        traceback.print_exc()
         if isinstance(e, torch.cuda.OutOfMemoryError):
             phase('cuda_oom')
-        traceback.print_exc(); raise gr.Error(f'Falha na geração: {e}. Veja logs no Colab; verifique formato da LoRA e memória disponível.')
+            raise gr.Error(f'VRAM insuficiente ao gerar em {int(width)} × {int(height)}. '
+                           'Experimente um tamanho menor ou reduza as referências.') from e
+        raise gr.Error(f'Falha na geração: {e}. Veja logs no Colab; verifique formato da LoRA e memória disponível.') from e
     finally:
         if torch.cuda.is_available(): torch.cuda.empty_cache()
 
@@ -472,6 +498,7 @@ import cf_seedvr2 as seedvr2
 import cf_workflows as workflows
 import cf_wan as wan
 import cf_finish as finish
+import cf_region as region
 import cf_openjutsu as openjutsu
 
 
@@ -510,6 +537,7 @@ def reopen_seedvr2(job_id, progress=gr.Progress()):
 APP_CARDS = (
     ('Imagem', 'Criar imagem', 'Transforme uma descrição em imagem.', 'Qwen 2.1', 'criar', ''),
     ('Imagem', 'Editar com referências', 'Descreva o que muda e o que precisa ser preservado.', 'Qwen 2.1', 'criar', 'editar'),
+    ('Imagem', 'Editar região', 'Use uma máscara para retocar só uma área e manter o tamanho da foto.', 'Qwen 2.1', 'regiao', ''),
     ('Identidade', 'Retrato por referência', 'Use duas imagens para guiar a identidade e a composição.', 'Qwen 2.1', 'criar', 'retrato'),
     ('Vídeo', wan.IMAGE_MODE, 'Anime uma foto com instruções de movimento e câmera.', 'Wan 2.2 · 5B', 'video', wan.IMAGE_MODE),
     ('Vídeo', wan.TEXT_MODE, 'Crie um clipe curto descrevendo a cena.', 'Wan 2.2 · 5B', 'video', wan.TEXT_MODE),
@@ -520,6 +548,7 @@ APP_CARDS = (
     ('Imagem', finish.FRAME, 'Prepare a foto para feed, stories ou paisagem e exporte em PNG, JPEG ou WebP.', 'Imagem · CPU', 'acabamento', finish.FRAME),
     ('Vídeo', finish.CLIP, 'Recorte o trecho e ajuste a proporção, com áudio opcional.', 'Vídeo · CPU', 'montagem', finish.CLIP),
     ('Vídeo', finish.STILL, 'Salve um quadro de um ponto do clipe como PNG.', 'Vídeo · CPU', 'montagem', finish.STILL),
+    ('Vídeo', 'Montar sequência', 'Junte clipes em uma ordem escolhida e exporte um único MP4.', 'Vídeo · CPU', 'sequencia', ''),
     ('Vídeo', finish.BOARD, 'Veja seis momentos de um trecho em uma prancha com timecodes.', 'Vídeo · CPU', 'montagem', finish.BOARD),
 )
 ORIGINALS = {
@@ -675,6 +704,58 @@ def finish_clip(media, mode, start, duration, ratio, fit, mute, progress=gr.Prog
         raise gr.Error(str(exc)) from exc
 
 
+def edit_region(source, mask, prompt, size, padding, feather, steps, seed, progress=gr.Progress()):
+    if not prompt or not prompt.strip():
+        raise gr.Error('Descreva a alteração na região.')
+    try:
+        original, stencil, bounds, reference = region.prepare(source, mask, size, int(padding))
+    except (OSError, ValueError) as exc:
+        raise gr.Error(str(exc)) from exc
+
+    progress(0.05, desc='Preparando Qwen base em NF4…')
+    iniciar(QWEN_DEFAULT, True, False)
+    width, height = reference.size
+    seed = int(seed)
+    if seed < 0:
+        seed = random.randrange(2**32)
+    steps = int(steps)
+
+    def on_step(_pipe, step, _timestep, kwargs):
+        progress(0.2 + 0.7 * (step + 1) / steps, desc=f'Editando a região · passo {step+1}/{steps}')
+        return kwargs
+
+    try:
+        clear_qwen_adapters()
+        phase('qwen_region_inference')
+        edit = pipe(prompt=prompt.strip(), image=reference, width=width, height=height,
+                    num_inference_steps=steps, true_cfg_scale=1, use_kv_cache=True,
+                    generator=torch.Generator('cpu').manual_seed(seed),
+                    callback_on_step_end=on_step).images[0]
+        progress(0.95, desc='Compondo sobre a imagem original…')
+        result = region.composite(original, stencil, bounds, edit, feather)
+        destination = finish.output_path(OUT, 'regiao', '.png')
+        result.save(destination)
+        status = f'{original.width} × {original.height} · recorte Qwen {width} × {height} · seed {seed}'
+        return str(destination), str(destination), status
+    except torch.cuda.OutOfMemoryError as exc:
+        phase('cuda_oom')
+        raise gr.Error(f'VRAM insuficiente para o recorte de {width} × {height}. Reduza o tamanho do recorte.') from exc
+    except (OSError, ValueError, RuntimeError) as exc:
+        traceback.print_exc()
+        raise gr.Error(f'Falha na edição da região: {exc}') from exc
+    finally:
+        torch.cuda.empty_cache()
+
+
+def finish_sequence(media, order, ratio, fit, mute, progress=gr.Progress()):
+    try:
+        progress(0.1, desc='Analisando os clipes e montando a sequência…')
+        path, status = finish.video_sequence(media, order, ratio, fit, mute, OUT)
+        return path, path, status
+    except (OSError, ValueError) as exc:
+        raise gr.Error(str(exc)) from exc
+
+
 CSS = """
 .gradio-container {max-width: 1500px !important; background: #111217 !important;}
 #hero {padding: 1rem 1.3rem; border:1px solid #38303a; border-radius:14px; background:linear-gradient(110deg,#25171c,#17171e);}
@@ -730,8 +811,14 @@ with gr.Blocks(title='ClonField Studio',theme=gr.themes.Soft(primary_hue='red',n
                     with gr.Row():
                         model=gr.Dropdown([QWEN_DEFAULT,QWEN_TURBO],value=QWEN_DEFAULT,allow_custom_value=True,label='Modelo Diffusers')
                         num=gr.Slider(1,4,value=1,step=1,label='Variações')
+                    size_preset = gr.Dropdown([*IMAGE_SIZES, 'Personalizado'], value=DEFAULT_SIZE, label='Resolução',
+                                              info='Tamanhos maiores usam mais VRAM. O máximo na T4 depende da sessão e das referências.')
                     with gr.Row():
-                        w=gr.Slider(256,2048,value=512,step=32,label='Largura'); h=gr.Slider(256,2048,value=512,step=32,label='Altura')
+                        w = gr.Slider(256, 2752, value=768, step=32, label='Largura')
+                        h = gr.Slider(256, 2752, value=768, step=32, label='Altura')
+                    size_preset.input(image_size, size_preset, [w, h], queue=False, api_name=False)
+                    for dimension in (w, h):
+                        dimension.input(lambda: 'Personalizado', None, size_preset, queue=False, api_name=False)
                     with gr.Accordion('LoRAs',open=False):
                         choices=gr.Dropdown(choices=nomes(),multiselect=True,label='Arquivos locais')
                         curated=gr.Dropdown(choices=list(CATALOGO_BY_ID),multiselect=True,label='Catálogo • baixar ao gerar',filterable=True)
@@ -770,6 +857,30 @@ with gr.Blocks(title='ClonField Studio',theme=gr.themes.Soft(primary_hue='red',n
             model.input(model_defaults, model, [steps, cfg], queue=False)
             generate = run.click(gerar,[prompt,neg,imgs,w,h,steps,cfg,seed,num,choices,weights,transparent,kv_cache,sigmas,modo,escala,tile,pad,device,nitidez,model,quant,offload,curated,composite_scene,mask_file,feather],[gallery,originals,meta,download_zip],api_name='gerar', concurrency_id='gpu', concurrency_limit=1)
             generate.success(lambda: 0, None, gallery_index, queue=False, api_name=False)
+        with gr.Tab('Editar região', id='regiao'):
+            gr.Markdown('Branco na máscara define a área editável. O Qwen trabalha no recorte, e o restante da foto é preservado.')
+            with gr.Row():
+                with gr.Column():
+                    with gr.Row():
+                        region_source = gr.Image(type='filepath', format='png', label='Imagem original', sources=['upload'])
+                        region_mask = gr.Image(type='filepath', format='png', label='Máscara em tons de cinza', sources=['upload'])
+                    region_prompt = gr.Textbox(label='Alteração', placeholder='Troque a luminária por uma de latão.', lines=3)
+                    with gr.Accordion('Ajustes do recorte', open=False):
+                        region_size = gr.Dropdown(list(region.SIZES), value=768, label='Lado maior do recorte')
+                        region_padding = gr.Slider(0, 256, value=96, step=8, label='Margem de contexto (px)')
+                        region_feather = gr.Slider(0, 64, value=8, step=1, label='Suavização dentro da máscara (px)')
+                        region_steps = gr.Slider(1, 80, value=40, step=1, label='Passos')
+                        region_seed = gr.Number(value=-1, precision=0, label='Seed • -1 aleatório')
+                    region_go = gr.Button('Editar área marcada', variant='primary')
+                with gr.Column():
+                    region_result = gr.Image(label='Foto editada', type='filepath', interactive=False)
+                    region_file = gr.File(label='Baixar PNG')
+                    region_to_finish = gr.Button('Abrir foto em Acabamento', size='sm')
+                    region_status = gr.Textbox(label='Detalhes', interactive=False)
+            region_go.click(edit_region, [region_source, region_mask, region_prompt, region_size, region_padding,
+                                           region_feather, region_steps, region_seed],
+                            [region_result, region_file, region_status], api_name='editar_regiao',
+                            concurrency_id='gpu', concurrency_limit=1)
         with gr.Tab('Vídeo', id='video'):
             with gr.Row():
                 with gr.Column():
@@ -877,6 +988,26 @@ with gr.Blocks(title='ClonField Studio',theme=gr.themes.Soft(primary_hue='red',n
                                     finish_length, clip_ratio, clip_fit, clip_mute],
                                     [finish_video_output, finish_clip_image, finish_clip_download, finish_clip_status],
                                     api_name='montagem_video')
+        with gr.Tab('Sequência', id='sequencia'):
+            with gr.Row():
+                with gr.Column():
+                    sequence_input = gr.File(label='Clipes • 2 a 8', file_count='multiple',
+                                             file_types=['video'], type='filepath')
+                    sequence_order = gr.Textbox(label='Ordem dos clipes', placeholder='Ex.: 2, 1, 3',
+                                                info='Deixe em branco para seguir a lista de arquivos.')
+                    sequence_ratio = gr.Dropdown(list(finish.SEQUENCE_SIZES), value='Paisagem · 16:9', label='Proporção')
+                    sequence_fit = gr.Radio(['Preencher', 'Manter imagem inteira'],
+                                            value='Manter imagem inteira', label='Encaixe')
+                    sequence_mute = gr.Checkbox(label='Exportar sem áudio')
+                    sequence_go = gr.Button('Montar sequência', variant='primary')
+                with gr.Column():
+                    sequence_result = gr.Video(label='Sequência final')
+                    sequence_file = gr.File(label='Baixar MP4')
+                    sequence_to_finish = gr.Button('Abrir sequência em Montagem', size='sm')
+                    sequence_status = gr.Textbox(label='Detalhes', interactive=False)
+            sequence_go.click(finish_sequence, [sequence_input, sequence_order, sequence_ratio, sequence_fit,
+                                                sequence_mute], [sequence_result, sequence_file, sequence_status],
+                              api_name='montar_sequencia')
         with gr.Tab('Biblioteca'):
             gr.Markdown('### Componentes\nLoRAs selecionadas em Criar são baixadas ao iniciar o job. Você também pode preparar arquivos manualmente.')
             with gr.Row():
@@ -972,7 +1103,7 @@ with gr.Blocks(title='ClonField Studio',theme=gr.themes.Soft(primary_hue='red',n
             gr.Markdown('### Ambiente\nOs Secrets são carregados no Colab antes de iniciar esta interface. Os valores não aparecem aqui.')
             env_status=gr.Textbox(value=ambiente,label='Estado local',interactive=False,lines=3)
             gr.Button('Atualizar diagnóstico').click(ambiente,None,env_status)
-            gr.Markdown("""**Hugging Face:** use o Secret `HF_TOKEN`. **Civitai:** use `CIVITAI_TOKEN`. Modelos públicos podem funcionar sem eles.\n\n**Armazenamento:** ative o Drive na célula indicada se quiser preservar arquivos.\n\n**T4:** o padrão é 512×512, uma imagem e NF4 carregado direto na GPU. O offload é opcional e usa RAM do sistema.\n\n**SeedVR2:** usa ComfyUI no mesmo Colab. Os jobs e resultados ficam no diretório de saída do Studio.""")
+            gr.Markdown("""**Hugging Face:** use o Secret `HF_TOKEN`. **Civitai:** use `CIVITAI_TOKEN`. Modelos públicos podem funcionar sem eles.\n\n**Armazenamento:** ative o Drive na célula indicada se quiser preservar arquivos.\n\n**T4:** a aba Criar começa em 768×768, uma imagem e NF4 carregado direto na GPU. A sondagem usa 512×512. O offload é opcional e usa RAM do sistema.\n\n**SeedVR2:** usa ComfyUI no mesmo Colab. Os jobs e resultados ficam no diretório de saída do Studio.""")
 
     for button, entry in zip(card_buttons, APP_CARDS):
         target, preset = entry[-2:]
@@ -994,6 +1125,10 @@ with gr.Blocks(title='ClonField Studio',theme=gr.themes.Soft(primary_hue='red',n
     finish_image_route = [main_tabs, finish_image_mode, look_options, frame_options, finish_image_input]
     finish_video_route = [main_tabs, finish_video_mode, finish_length, clip_frame_options,
                           finish_video_input, finish_start]
+    region_to_finish.click(partial(send_to_finish, 'acabamento', finish.LOOK), region_result,
+                           finish_image_route, queue=False, api_name=False)
+    sequence_to_finish.click(partial(send_to_finish, 'montagem', finish.CLIP), sequence_result,
+                             finish_video_route, queue=False, api_name=False)
     to_image_finish.click(finish_gallery, [gallery, gallery_index], finish_image_route, queue=False, api_name=False)
     hist_finish.click(partial(send_to_finish, 'acabamento', finish.LOOK), hist_img, finish_image_route,
                       queue=False, api_name=False)

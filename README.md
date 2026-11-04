@@ -1,19 +1,36 @@
 # ClonField Studio
 
-Estúdio Gradio para Colab com Qwen-Image-2.1, Wan, SeedVR2, Real-ESRGAN, acabamento de imagem, montagem de vídeo e execução de grafos ComfyUI.
+Estúdio Gradio para criar imagens, editar fotos, animar referências e montar clipes no Colab. Na aba **Explorar**, filtre por Imagem, Identidade, Vídeo ou Melhorar e abra a ferramenta pelo cartão.
 
 [![Abrir no Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Vit0lze/clonfield-studio/blob/main/ClonField_Colab.ipynb)
 
+## Ferramentas
+
+| Área | O que tem na interface | Implementação |
+| --- | --- | --- |
+| Criar | Texto para imagem, edição com referências, retrato por referência, LoRAs, prompt negativo, composição por máscara e upscale após gerar | [Qwen-Image-2.1 / Turbo](studio_app.py) |
+| Editar região | Retocar uma área marcada por máscara com margem de contexto, suavização e exportação no tamanho da foto | [Qwen-Image-2.1 + Pillow](cf_region.py) |
+| Vídeo | Animar foto ou gerar clipe por texto | [Wan 2.2 5B](cf_wan.py) |
+| Upscale | Real-ESRGAN para imagem e SeedVR2 INT8 para imagem ou vídeo | [SeedVR2](cf_seedvr2.py) · [Real-ESRGAN](studio_app.py) |
+| Acabamento | Cor e contraste, enquadramento e exportação em PNG, JPEG ou WebP | [Pillow](cf_finish.py) |
+| Montagem | Corte, extração de quadro, prancha de cenas e sequência de até oito clipes com ordem e proporção ajustáveis | [FFmpeg](cf_finish.py) |
+| Identidade em vídeo | Trocar personagem com referência em um worker H3 preparado. Perfil upstream de classe 96 GB | [OpenJutsu](docs/OPENJUTSU.md) |
+| Workflows | Seis grafos de referência e execução de grafos no formato ComfyUI API JSON | [Grafos](workflows/) · [Executor](cf_workflows.py) |
+| Biblioteca | Catálogo de LoRAs do Hugging Face e 18 versões fixadas do Civitai | [Catálogo Civitai](assets.json) · [Instalador](cf_assets.py) |
+
+## Rodar no Colab
+
 1. Abra o notebook e selecione um runtime GPU.
-2. Cadastre `CIVITAI_TOKEN` e `HF_TOKEN` em Secrets no Colab e dê acesso ao notebook. Use credenciais novas, de leitura.
-3. Execute as células na ordem. O notebook clona ou atualiza este repo com fast-forward, baixa as versões Civitai solicitadas para a pasta de trabalho, prepara o ComfyUI e inicia o Gradio.
-4. O modo de diagnóstico da última célula roda uma geração mínima do Qwen e registra os eventos em `/content/clonfield_runtime/logs/diagnostico-*.jsonl`.
+2. Cadastre `CIVITAI_TOKEN` e `HF_TOKEN` em Secrets no Colab e dê acesso ao notebook. Use credenciais de leitura.
+3. Execute as células na ordem. O notebook atualiza este repo por fast-forward, baixa os recursos Civitai selecionados na célula, prepara o ComfyUI e inicia o Gradio. O Colab mostra a URL e a senha da sessão.
+4. Abra **Explorar** e escolha uma ferramenta. Os pesos do Qwen são carregados ao gerar.
 
-## Componentes
+## Resolução do Qwen
 
-- [Workflows](workflows/) reúne os seis grafos de referência com nomes neutros nos slots de mídia. Abra os arquivos visuais no ComfyUI e exporte como API JSON quando quiser enviá-los pelo Studio.
-- [Catálogo Civitai](assets.json) fixa as 18 versões pedidas. O instalador baixa o artefato compatível divulgado no metadado de cada versão e confere SHA-256 quando fornecido. LoRAs reconhecidas vão para `loras/`. Os demais arquivos ficam em `civitai/models/` ou `civitai/workflows/`. Para repetir só uma versão use `python cf_assets.py --version NUMERO`.
-- [OpenJutsu](docs/OPENJUTSU.md) usa o código upstream preservado em `vendor/openjutsu/`, com adaptador local e licenças incluídas. O perfil H3 do upstream foi validado na classe de 96 GB.
-- [Diagnóstico do Qwen](docs/DIAGNOSTICO.md) explica o que se pode concluir do encerramento anterior e como reproduzir com evidência.
+**Criar** começa em **768 × 768**, NF4, uma imagem por execução. O seletor inclui 1024 × 1024, 1536 × 1536, 2048 × 2048 e 2752 × 1536 com opção vertical. Também dá para ajustar largura e altura manualmente. O [model card oficial](https://huggingface.co/Qwen/Qwen-Image-2.1) mostra exemplos em 2048 × 2048 e 2752 × 1536. O máximo prático no Colab depende da GPU, das imagens de referência e da memória da sessão.
 
-O compartilhamento do Gradio usa senha aleatória da sessão. Logs e pesos ficam no runtime. Os termos dos modelos e dos grafos de terceiros se aplicam aos respectivos arquivos.
+A [sondagem do Colab](docs/DIAGNOSTICO.md) usa 512 × 512 e dois passos para localizar falhas de inicialização ou inferência. Ela gera logs em `/content/clonfield_runtime/logs/`.
+
+## Arquivos e integrações
+
+Os grafos visuais em [workflows/](workflows/) podem ser abertos no ComfyUI e exportados como API JSON para execução no Studio. O instalador Civitai verifica SHA-256 quando informado no metadado. Para repetir uma versão, rode `python cf_assets.py --version NUMERO`. Logs e pesos ficam no runtime. Os termos de cada modelo e grafo se aplicam aos respectivos arquivos.

@@ -158,3 +158,60 @@ def video_edit(path, mode, start, duration, ratio, fit, mute, directory):
         destination.unlink(missing_ok=True)
         raise
     return str(destination), None, f"Clipe de {length:.2f} s · {ratio} · {'sem áudio' if mute else 'áudio da fonte, quando disponível'}."
+
+
+SEQUENCE_SIZES = {"Paisagem · 16:9": (1280, 720), "Vertical · 9:16": (720, 1280),
+                  "Quadrado · 1:1": (720, 720)}
+
+
+def video_sequence(paths, order, ratio, fit, mute, directory):
+    if not paths or not 2 <= len(paths) <= 8:
+        raise ValueError("Envie de 2 a 8 clipes.")
+    if ratio not in SEQUENCE_SIZES or fit not in ("Preencher", "Manter imagem inteira"):
+        raise ValueError("Escolha um formato e um encaixe disponíveis.")
+    indexes = range(1, len(paths) + 1)
+    if order.strip():
+        try:
+            indexes = [int(part.strip()) for part in order.split(",")]
+        except ValueError:
+            raise ValueError("Use números separados por vírgula para definir a ordem.") from None
+        if sorted(indexes) != list(range(1, len(paths) + 1)):
+            raise ValueError("Use o número de cada clipe exatamente uma vez.")
+    paths = [str(paths[index - 1]) for index in indexes]
+    durations = [video_duration(path) for path in paths]
+    if sum(durations) > 180:
+        raise ValueError("A sequência pode ter até 180 s no total.")
+
+    width, height = SEQUENCE_SIZES[ratio]
+    if fit == "Preencher":
+        framing = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
+    else:
+        framing = (f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2,"
+                   f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2")
+
+    args = ["ffmpeg", "-v", "error", "-nostdin", "-y", "-filter_complex_threads", "2"]
+    filters, segments = [], []
+    for i, (path, duration) in enumerate(zip(paths, durations)):
+        args += ["-threads", "2", "-i", path]
+        filters.append(f"[{i}:v:0]{framing},setsar=1,fps=24,format=yuv420p,setpts=PTS-STARTPTS[v{i}]")
+        segments.append(f"[v{i}]")
+        if not mute:
+            audio = media_command(["ffprobe", "-v", "error", "-select_streams", "a:0",
+                                   "-show_entries", "stream=index", "-of", "csv=p=0", path], 20)
+            track = f"[{i}:a:0]" if audio.strip() else "anullsrc=r=48000:cl=stereo,"
+            filters.append(f"{track}aformat=sample_rates=48000:channel_layouts=stereo,"
+                           f"asetpts=PTS-STARTPTS,apad,atrim=duration={duration:.9f}[a{i}]")
+            segments.append(f"[a{i}]")
+    filters.append(f"{''.join(segments)}concat=n={len(paths)}:v=1:a={int(not mute)}[video]"
+                   + ("" if mute else "[audio]"))
+    args += ["-filter_complex", ";".join(filters), "-map", "[video]"]
+    if not mute:
+        args += ["-map", "[audio]", "-c:a", "aac", "-b:a", "192k"]
+    destination = output_path(directory, "sequencia", ".mp4")
+    try:
+        media_command(args + ["-c:v", "libx264", "-threads", "2", "-preset", "veryfast",
+                              "-movflags", "+faststart", str(destination)], 600)
+    except ValueError:
+        destination.unlink(missing_ok=True)
+        raise
+    return str(destination), f"{len(paths)} clipes · {width} × {height} · 24 fps · {sum(durations):.2f} s de entrada"
