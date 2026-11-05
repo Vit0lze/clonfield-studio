@@ -27,7 +27,7 @@ Estúdio Gradio para criar imagens, editar fotos, animar referências e montar c
 
 1. Abra o notebook e selecione um runtime GPU.
 2. Cadastre `CIVITAI_TOKEN` e `HF_TOKEN` em Secrets no Colab e dê acesso ao notebook. Use credenciais de leitura.
-3. Execute as células na ordem. O notebook atualiza este repo por fast-forward, baixa os recursos Civitai selecionados na célula, prepara o ComfyUI e inicia o Gradio. O Colab mostra a URL e a senha da sessão.
+3. Execute as células na ordem. O notebook atualiza este repo por fast-forward, prepara o ComfyUI e inicia o Gradio. A célula opcional do Civitai só baixa versões se você preencher `VERSOES_CIVITAI`; a lista começa vazia. O Colab mostra a URL e a senha da sessão.
 4. Abra **Explorar** e escolha uma ferramenta. Os pesos do Qwen são carregados ao gerar.
 
 ## Civitai e Bancada

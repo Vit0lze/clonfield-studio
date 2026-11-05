@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import time
 from pathlib import Path, PurePosixPath
 from urllib.parse import urljoin, urlsplit
 
@@ -72,12 +73,20 @@ def fetch(session, entry, token, root):
             url = parsed._replace(netloc="civitai.com").geturl()
         import hashlib
         digest = hashlib.sha256()
+        print(f"{version}: iniciando transferência de {name}", flush=True)
         with request(session, url, token, stream=True) as response, partial.open("wb") as output:
             if response.headers.get("Content-Type", "").startswith(("text/html", "text/plain")):
                 raise ValueError("O servidor retornou uma página em vez do arquivo.")
+            received = 0
+            last_report = time.monotonic()
             for chunk in response.iter_content(1024 * 1024):
                 output.write(chunk)
                 digest.update(chunk)
+                received += len(chunk)
+                now = time.monotonic()
+                if now - last_report >= 5:
+                    print(f"{version}: {received / 1024**2:.1f} MiB recebidos", flush=True)
+                    last_report = now
         if not partial.stat().st_size:
             raise ValueError("Arquivo vazio.")
         if expected and digest.hexdigest().casefold() != expected.casefold():
@@ -97,11 +106,17 @@ def main():
     if not token:
         print("CIVITAI_TOKEN ausente. Downloads Civitai pulados.")
         return
+    entries = catalog()
+    requested = set(args.version or [])
+    unknown = requested - {entry["version"] for entry in entries}
+    if unknown:
+        parser.error("versões fora do catálogo fixado: " + ", ".join(map(str, sorted(unknown))))
+    selected = [entry for entry in entries if not requested or entry["version"] in requested]
+    print(f"Civitai: preparando {len(selected)} versão(ões).", flush=True)
     failed = 0
     with requests.Session() as session:
-        for entry in catalog():
-            if args.version and entry["version"] not in args.version:
-                continue
+        for index, entry in enumerate(selected, 1):
+            print(f'[{index}/{len(selected)}] {entry["version"]}: consultando versão', flush=True)
             try:
                 dest = fetch(session, entry, token, args.root)
                 print(f'{entry["version"]}: {dest.relative_to(args.root)}', flush=True)
