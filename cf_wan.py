@@ -63,8 +63,7 @@ def make_graph(mode, image, prompt, negative, size, frames, steps, seed):
 
 
 def prepare(session, graph, progress, *, image):
-    from huggingface_hub import hf_hub_download
-    from huggingface_hub.errors import HfHubHTTPError
+    import cf_download
 
     schemas = require_nodes(session, graph)
     directory = Path(os.environ.get("CLONFIELD_COMFY_MODELS", "/content/ComfyUI/models"))
@@ -75,15 +74,12 @@ def prepare(session, graph, progress, *, image):
         choices = combo[0] if isinstance(combo[0], list) else combo[1].get("options", [])
         if name in choices:
             continue
-        progress(0.1, desc=f"Baixando {name}")
-        try:
-            source = hf_hub_download(repo, "split_files/" + filename,
-                                     local_dir=directory / ".clonfield-downloads",
-                                     token=os.environ.get("HF_TOKEN") or None)
-        except HfHubHTTPError as exc:
-            raise ValueError(f"O Hugging Face não entregou o peso {name}. Confira a conexão e o acesso.") from exc
         target = directory / filename
-        target.parent.mkdir(parents=True, exist_ok=True)
-        Path(source).replace(target)
+        if not (target.is_file() and target.stat().st_size):
+            try:
+                cf_download.fetch_hf(repo, "split_files/" + filename, target,
+                                     token=os.environ.get("HF_TOKEN") or None, progress=progress)
+            except cf_download.DownloadError as exc:
+                raise ValueError(str(exc)) from None
     if "56" in graph:
         graph["56"]["inputs"]["image"] = upload_input(session, image)

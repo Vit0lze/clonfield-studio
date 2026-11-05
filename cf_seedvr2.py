@@ -70,11 +70,17 @@ def make_graph(kind, filename, profile, scale, seed, tile, video_chunk):
 
 
 
-def install_weights(profile, directory, token):
-    from huggingface_hub import hf_hub_download
+def install_weights(profile, directory, token, progress=None):
+    import cf_download
 
     for filename in ("vae/" + VAE, "diffusion_models/" + PROFILES[profile]):
-        hf_hub_download(REPO, filename, revision=REVISION, local_dir=directory, token=token or None)
+        target = Path(directory) / filename
+        if target.is_file() and target.stat().st_size:
+            continue
+        try:
+            cf_download.fetch_hf(REPO, filename, target, revision=REVISION, token=token or None, progress=progress)
+        except cf_download.DownloadError as exc:
+            raise ValueError(str(exc)) from None
 
 
 def probe_media(path, kind):
@@ -224,7 +230,7 @@ def prepare_weights(session, graph, model, progress):
         return
     progress(0.12, desc=f"Baixando SeedVR2 {model}")
     models = Path(os.environ.get("CLONFIELD_COMFY_MODELS", "/content/ComfyUI/models"))
-    install_weights(model, models, os.environ.get("HF_TOKEN"))
+    install_weights(model, models, os.environ.get("HF_TOKEN"), progress)
     missing = missing_weights(session, graph)
     if missing:
         raise ValueError(f"O worker ainda não vê {', '.join(missing)} no diretório {models}.")

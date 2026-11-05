@@ -15,6 +15,7 @@ IMAGE_SUFFIXES = {".png", ".jpeg", ".jpg", ".webp", ".gif", ".avif", ".bmp"}
 VIDEO_SUFFIXES = {".mp4", ".webm", ".mkv", ".mov", ".avi"}
 AUDIO_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".opus"}
 MEDIA_SUFFIXES = IMAGE_SUFFIXES | VIDEO_SUFFIXES | AUDIO_SUFFIXES
+_last_family = [None]
 MEDIA_INPUTS = {"LoadImage": "image", "LoadImageMask": "image", "LoadVideo": "file", "LoadAudio": "audio"}
 
 
@@ -87,15 +88,81 @@ def open_worker_socket(connections, client_id):
         return None
 
 
+class Control:
+    """Lets another thread cancel a running ComfyUI job and tells it why it stopped."""
+
+    def __init__(self):
+        self.cancelled = False
+        self.prompt_id = None
+
+    def cancel(self, session=None):
+        self.cancelled = True
+        interrupt(self.prompt_id)
+
+
+def interrupt(prompt_id=None):
+    """Stop the running prompt and drop it from the pending queue. Safe to call when nothing runs."""
+    try:
+        with requests.Session() as session:
+            session.trust_env = False
+            session.post(f"{SERVER}/interrupt", json={"prompt_id": prompt_id} if prompt_id else {}, timeout=5)
+            if prompt_id:
+                session.post(f"{SERVER}/queue", json={"delete": [prompt_id]}, timeout=5)
+    except requests.RequestException:
+        pass
+
+
+def clear_orphans():
+    """Called at startup: a previous session may have left prompts that would block new ones for hours."""
+    try:
+        with requests.Session() as session:
+            session.trust_env = False
+            session.post(f"{SERVER}/queue", json={"clear": True}, timeout=5)
+            session.post(f"{SERVER}/interrupt", json={}, timeout=5)
+    except requests.RequestException:
+        pass
+
+
+def free_models(session, unload=True):
+    try:
+        session.post(f"{SERVER}/free", json={"unload_models": unload, "free_memory": unload}, timeout=10)
+    except requests.RequestException:
+        pass
+
+
+def queue_state(session, prompt_id):
+    """Return ('running'|'pending', position) or (None, None) when ComfyUI no longer knows the prompt."""
+    data = session.get(f"{SERVER}/queue", timeout=10).json()
+    for entry in data.get("queue_running", []):
+        if len(entry) > 1 and entry[1] == prompt_id:
+            return "running", 0
+    for position, entry in enumerate(sorted(data.get("queue_pending", []), key=lambda e: e[0]), 1):
+        if len(entry) > 1 and entry[1] == prompt_id:
+            return "pending", position
+    return None, None
+
+
+def worker_log_tail(lines=12):
+    from pathlib import Path as _Path
+    import os as _os
+    log = _Path(_os.environ.get("CLONFIELD_COMFY_LOG", "/content/clonfield_runtime/comfyui.log"))
+    try:
+        return " | ".join(log.read_text(errors="replace").strip().splitlines()[-lines:])[-900:]
+    except OSError:
+        return ""
+
+
 def wait_events(socket, duration, prompt_id, graph, progress):
+    """Listen to the worker for up to `duration`. Returns True when an event for this prompt arrived."""
     from websockets.exceptions import WebSocketException
 
     deadline = time.monotonic() + duration
+    seen = False
     while (remaining := deadline - time.monotonic()) > 0:
         try:
             raw = socket.recv(timeout=remaining)
         except TimeoutError:
-            return
+            return seen
         except WebSocketException as exc:
             raise ConnectionError("WebSocket do ComfyUI desconectado") from exc
         if not isinstance(raw, str):
@@ -109,13 +176,14 @@ def wait_events(socket, duration, prompt_id, graph, progress):
         data = event.get("data")
         if not isinstance(data, dict) or data.get("prompt_id") != prompt_id:
             continue
+        seen = True
         kind = event.get("type")
         if kind in ("execution_success", "execution_error", "execution_interrupted"):
-            return
+            return seen
         if kind == "executing":
             node = data.get("node")
             if node is None:
-                return
+                return seen
             label = graph.get(str(node), {}).get("class_type", f"nó {node}")
             progress(0.25, desc=f"ComfyUI · {label}")
         elif kind == "progress":
@@ -123,39 +191,85 @@ def wait_events(socket, duration, prompt_id, graph, progress):
             if isinstance(current, int) and isinstance(total, int) and 0 <= current <= total and total > 0:
                 label = graph.get(str(data.get("node")), {}).get("class_type", "ComfyUI")
                 progress(0.3 + 0.55 * current / total, desc=f"{label} · passo {current}/{total}")
+    return seen
 
 
-def collect(session, folder, job, timeout, progress=None, socket=None, graph=None):
+class Stalled(RuntimeError):
+    pass
+
+
+def collect(session, folder, job, timeout, progress=None, socket=None, graph=None, control=None, stall=900):
+    """Wait for the prompt, reporting queue position, and stop early when the worker is gone, the prompt
+    vanished, the user cancelled, or nothing has moved for `stall` seconds while it runs."""
     start = time.monotonic()
     deadline = start + timeout
-    next_report = start + 10
+    last_move = start
+    next_report = start
+    failures = 0
+    absent = 0
+    say = progress or (lambda *args, **kwargs: None)
     try:
         while time.monotonic() < deadline:
-            response = session.get(f"{SERVER}/history/{job['prompt_id']}", timeout=20)
-            response.raise_for_status()
-            history = response.json().get(job["prompt_id"])
+            if control is not None and control.cancelled:
+                job.update(status="cancelado", message="Cancelado por você.")
+                persist(folder, job)
+                return job
+            try:
+                response = session.get(f"{SERVER}/history/{job['prompt_id']}", timeout=20)
+                response.raise_for_status()
+                history = response.json().get(job["prompt_id"])
+                failures = 0
+            except requests.RequestException as exc:
+                failures += 1
+                if failures >= 3:
+                    tail = worker_log_tail()
+                    raise WorkerDown("O worker ComfyUI parou de responder." + (f" Últimas linhas: {tail}" if tail else "")) from exc
+                time.sleep(2)
+                continue
             if history:
                 break
             now = time.monotonic()
-            if progress is not None and now >= next_report:
-                progress(0.2, desc=f"ComfyUI ainda processando ou na fila · {now - start:.0f} s")
+            try:
+                where, position = queue_state(session, job["prompt_id"])
+            except (requests.RequestException, ValueError):
+                where, position = "running", 0
+            if where is None:
+                absent += 1
+                if absent >= 3:
+                    raise WorkerDown("O ComfyUI perdeu este job (não está na fila nem no histórico). "
+                                           "Provável reinício do worker; envie de novo.")
+            else:
+                absent = 0
+            if where == "pending":
+                last_move = now
+                if now >= next_report:
+                    say(0.2, desc=f"Na fila do ComfyUI · posição {position} · {now - start:.0f} s")
+                    next_report = now + 5
+            elif where == "running" and now >= next_report:
+                say(0.25, desc=f"ComfyUI executando · {now - start:.0f} s")
                 next_report = now + 10
             delay = min(2, max(0, deadline - time.monotonic()))
             if socket is None:
                 time.sleep(delay)
+                if where == "running":
+                    last_move = now  # sem WebSocket não há como medir; o limite geral continua valendo
             else:
                 try:
-                    wait_events(socket, delay, job["prompt_id"], graph, progress)
+                    if wait_events(socket, delay, job["prompt_id"], graph, say):
+                        last_move = time.monotonic()
                 except OSError:
                     socket = None
-                    progress(0.2, desc="WebSocket desconectado; acompanhando pelo histórico do ComfyUI")
+                    say(0.2, desc="WebSocket desconectado; acompanhando pelo histórico do ComfyUI")
+            if where == "running" and socket is not None and time.monotonic() - last_move > stall:
+                interrupt(job["prompt_id"])
+                raise Stalled(f"Sem progresso há {stall // 60} min; o job foi interrompido. "
+                              "Reduza a resolução ou use um modelo mais leve.")
         else:
             raise TimeoutError("O resultado ainda está no worker. Use Retomar coleta.")
         status = history.get("status") or {}
         if status.get("status_str") == "error":
             raise WorkerError(status.get("messages") or [])
-        if progress is not None:
-            progress(0.9, desc="Recebendo os arquivos do ComfyUI")
+        say(0.9, desc="Recebendo os arquivos do ComfyUI")
         for name, subfolder, kind in dict.fromkeys(media_entries(history)):
             key = hashlib.sha256(json.dumps([name, subfolder, kind]).encode()).hexdigest()[:16]
             dest = folder / (key + Path(name).suffix.lower())
@@ -178,7 +292,11 @@ def collect(session, folder, job, timeout, progress=None, socket=None, graph=Non
                 job["results"].append(dest.name)
                 persist(folder, job)
     except WorkerError as exc:
-        job.update(status="falhou", message=str(exc))
+        interrupted = "interrupt" in str(exc).lower()
+        job.update(status="cancelado" if interrupted and control is not None and control.cancelled else "falhou",
+                   message=str(exc))
+    except (Stalled, WorkerDown) as exc:
+        job.update(status="travado" if isinstance(exc, Stalled) else "falhou", message=str(exc))
     except (requests.RequestException, OSError, ValueError) as exc:
         job.update(status="aguardando_coleta", message=str(exc))
     else:
@@ -186,6 +304,10 @@ def collect(session, folder, job, timeout, progress=None, socket=None, graph=Non
         job.update(status="concluído", message=message)
     persist(folder, job)
     return job
+
+
+class WorkerDown(RuntimeError):
+    pass
 
 
 def require_nodes(session, graph):
@@ -198,7 +320,7 @@ def require_nodes(session, graph):
     return schemas
 
 
-def run(graph, output_dir, progress, files=None, prepare=None, title=None):
+def run(graph, output_dir, progress, files=None, prepare=None, title=None, control=None, family=None, stall=900):
     folder = Path(output_dir) / ("workflow_" + uuid.uuid4().hex)
     folder.mkdir(parents=True)
     job = {"id": folder.name, "status": "preparando", "results": []}
@@ -209,6 +331,9 @@ def run(graph, output_dir, progress, files=None, prepare=None, title=None):
         session.trust_env = False
         socket = None
         try:
+            if family is not None and family != _last_family[0]:
+                free_models(session)
+            _last_family[0] = family
             if prepare:
                 prepare(session, graph, progress)
             else:
@@ -232,6 +357,8 @@ def run(graph, output_dir, progress, files=None, prepare=None, title=None):
                 persist(folder, job)
                 return job
             job.update(status="enviado", prompt_id=response.json()["prompt_id"])
+            if control is not None:
+                control.prompt_id = job["prompt_id"]
         except (requests.RequestException, OSError, ValueError, KeyError) as exc:
             if job["status"] == "enviando":
                 job.update(status="envio_indeterminado", message=f"{exc}. Verifique a fila no ComfyUI.")
@@ -241,7 +368,7 @@ def run(graph, output_dir, progress, files=None, prepare=None, title=None):
             return job
         persist(folder, job)
         progress(0.2, desc=f"Aguardando ComfyUI · {job['prompt_id']}")
-        return collect(session, folder, job, 3600, progress, socket, graph)
+        return collect(session, folder, job, 3600, progress, socket, graph, control, stall)
 
 
 def recent(output_dir):

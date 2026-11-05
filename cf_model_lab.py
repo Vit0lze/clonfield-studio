@@ -11,6 +11,7 @@ from pathlib import Path
 import requests
 
 import cf_civitai as civitai
+import cf_download as download
 from cf_workflows import require_nodes
 
 QWEN = "Comfy-Org/Qwen-Image-2.1"
@@ -286,15 +287,13 @@ def stage_local(directory, name, source):
 
 
 def prepare(session, graph, progress, *, sources, uploads, pending=(), asset_directory=None):
-    from huggingface_hub import hf_hub_download
-    from huggingface_hub.errors import HfHubHTTPError
     from cf_seedvr2 import upload_input
 
     progress(0.05, desc="Verificando nós do ComfyUI")
     worker_schema(session, graph, check_files=False)
     for entry in pending:
         progress(0.08, desc=f'Baixando Civitai · versão {entry["version"]}')
-        civitai.install(entry, asset_directory)
+        civitai.install(entry, asset_directory, progress)
     root = models_root()
     for directory, name, source in sources:
         target = root / directory / name
@@ -302,12 +301,13 @@ def prepare(session, graph, progress, *, sources, uploads, pending=(), asset_dir
             continue
         progress(0.12, desc=f"Preparando {name}")
         if isinstance(source, tuple):
-            repo, filename = source
+            repo, filename, *revision = source
             try:
-                source = Path(hf_hub_download(repo, filename, revision=REVISIONS[repo],
-                                              token=os.getenv("HF_TOKEN") or None))
-            except HfHubHTTPError:
-                raise ValueError(f"O Hugging Face não entregou {name}. Confira o acesso a {repo} e o Secret HF_TOKEN.") from None
+                download.fetch_hf(repo, filename, target, revision=(revision or [REVISIONS.get(repo, "main")])[0],
+                                  token=os.getenv("HF_TOKEN") or None, progress=progress)
+            except download.DownloadError as exc:
+                raise ValueError(f"{exc} Confira o acesso a {repo} e o Secret HF_TOKEN.") from None
+            continue
         stage_local(directory, name, source)
     worker_schema(session, graph, check_files=True)
     if uploads:

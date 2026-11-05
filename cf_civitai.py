@@ -1,6 +1,7 @@
 """Browse compatible Civitai files and keep a manifest of local installs."""
 
 import hashlib
+import time
 import io
 import json
 import os
@@ -391,7 +392,7 @@ def asset_path(entry, directory):
     return directory / "files" / f'{entry["version"]}-{entry["file"]}-{safe_stem}{name.suffix.lower()}'
 
 
-def install(entry, directory):
+def install(entry, directory, progress=None):
     role = entry["role"]
     dest = asset_path(entry, directory)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -404,9 +405,16 @@ def install(entry, directory):
                 with requests.Session() as session, request(session, entry["download"], os.getenv("CIVITAI_TOKEN"), stream=True) as response:
                     if response.headers.get("Content-Type", "").startswith(("text/", "application/json")):
                         raise ValueError("O servidor devolveu uma página em vez de um arquivo.")
+                    got, window = 0, time.monotonic()
+                    total = int(response.headers.get("Content-Length") or 0)
                     for chunk in response.iter_content(1024 * 1024):
                         digest.update(chunk)
                         output.write(chunk)
+                        got += len(chunk)
+                        if progress and time.monotonic() - window >= 1:
+                            window = time.monotonic()
+                            share = f"{got / total:.0%} de {got / 1024**2 if not total else total / 1024**2:.0f} MB" if total else f"{got / 1024**2:.0f} MB"
+                            progress(0.1, desc=f"Baixando do Civitai · {share}")
                 output.flush()
                 if not temporary.stat().st_size or (checksum and digest.hexdigest() != checksum.lower()):
                     raise ValueError("Arquivo vazio ou SHA-256 diferente do publicado.")
