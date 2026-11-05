@@ -16,14 +16,16 @@ def catalog():
     return json.loads((ROOT / "assets.json").read_text())
 
 
-def request(session, url, token, stream=False):
+def request(session, url, token, stream=False, byte_range=None, timeout=(20, 120)):
     # Only send the Civitai bearer to the original API origin, never to a CDN.
     for _ in range(7):
         target = urlsplit(url)
         if target.scheme != "https" or target.username or target.password:
             raise ValueError("Redirecionamento inválido.")
-        headers = {"Authorization": f"Bearer {token}"} if target.netloc == "civitai.com" else {}
-        response = session.get(url, headers=headers, allow_redirects=False, stream=stream, timeout=(20, 120))
+        headers = {"Authorization": f"Bearer {token}"} if token and target.netloc == "civitai.com" else {}
+        if byte_range:
+            headers.update({"Range": byte_range, "Accept-Encoding": "identity"})
+        response = session.get(url, headers=headers, allow_redirects=False, stream=stream, timeout=timeout)
         if response.is_redirect:
             url = urljoin(url, response.headers["Location"])
             response.close()

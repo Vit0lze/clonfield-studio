@@ -476,6 +476,7 @@ import cf_workflows as workflows
 import cf_wan as wan
 import cf_finish as finish
 import cf_history as history
+import cf_lab_ui
 import cf_region as region
 import cf_openjutsu as openjutsu
 
@@ -513,6 +514,9 @@ def reopen_seedvr2(job_id, progress=gr.Progress()):
 
 
 APP_CARDS = (
+    ('Imagem', 'Bancada de modelos', 'Combine checkpoints, difusão, LoRAs, VAE e encoders e gere pelo ComfyUI.', 'Qwen · FLUX · Krea · Z-Image', 'bancada', ''),
+    ('Imagem', 'Direção de cena', 'Monte um prompt com câmera, ação, luz e o papel de cada referência.', 'Prompt · CPU', 'direcao', ''),
+    ('Melhorar', 'Catálogo Civitai', 'Encontre arquivos compatíveis e use imagens de exemplo como referência.', 'Biblioteca online', 'civitai', ''),
     ('Imagem', 'Criar imagem', 'Transforme uma descrição em imagem.', 'Qwen 2.1', 'criar', ''),
     ('Imagem', 'Editar com referências', 'Descreva o que muda e o que precisa ser preservado.', 'Qwen 2.1', 'criar', 'editar'),
     ('Imagem', 'Editar região', 'Use uma máscara para retocar só uma área e manter o tamanho da foto.', 'Qwen 2.1', 'regiao', ''),
@@ -1064,6 +1068,8 @@ with gr.Blocks(title='ClonField Studio',theme=gr.themes.Soft(primary_hue='red',n
             sequence_go.click(finish_sequence, [sequence_input, sequence_order, sequence_ratio, sequence_fit,
                                                 sequence_mute], [sequence_result, sequence_file, sequence_status],
                               api_name='montar_sequencia')
+        civ_workflow_button, civ_workflow_open, civ_workflow_inputs = cf_lab_ui.render(
+            main_tabs, BASE / 'civitai' / 'lab', OUT, workflow_result, unload_qwen)
         with gr.Tab('Biblioteca'):
             gr.Markdown('### Componentes\nLoRAs selecionadas em Criar são baixadas ao iniciar o job. Você também pode preparar arquivos manualmente.')
             with gr.Row():
@@ -1177,6 +1183,7 @@ with gr.Blocks(title='ClonField Studio',theme=gr.themes.Soft(primary_hue='red',n
                 gr.Button('Abrir arquivo').click(open_civitai_workflow, civ_file, civ_download, api_name=False)
             with gr.Accordion('Executar API JSON no ComfyUI local',open=False):
                 wf = gr.File(file_types=['.json'], type='filepath', label='Workflow API JSON')
+                civ_workflow_button.click(civ_workflow_open, civ_workflow_inputs, [main_tabs, wf], api_name=False)
                 wm = gr.File(type='filepath', file_count='multiple', file_types=['image', 'video', 'audio'],
                              label='Mídias de entrada (opcional)')
                 gr.Markdown('Anexe arquivos com os mesmos nomes usados nos nós nativos de entrada do grafo.')

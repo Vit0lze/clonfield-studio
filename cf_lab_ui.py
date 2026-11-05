@@ -1,0 +1,332 @@
+"""Gradio screens for the model bench, Civitai catalog and scene direction."""
+
+from concurrent.futures import ThreadPoolExecutor
+from functools import wraps
+from pathlib import Path
+import tempfile
+
+import gradio as gr
+import requests
+
+import cf_civitai as civitai
+import cf_model_lab as lab
+import cf_workflows as workflows
+
+PRESET_CHOICES = [(preset.title, preset.key) for preset in lab.PRESETS.values()]
+EXTRA_ROLES = ("ControlNet", "Embedding", "CLIP Vision", "Motion Module", "Workflow")
+BENCH_ROLES = ("Difusão", "Checkpoint", "Encoder", "VAE", "LoRA", "Upscaler")
+
+
+def handle_errors(callback):
+    @wraps(callback)
+    def call(*args, **kwargs):
+        try:
+            return callback(*args, **kwargs)
+        except requests.RequestException:
+            raise gr.Error("Não foi possível completar a conexão com o serviço.") from None
+        except (OSError, ValueError, KeyError) as exc:
+            raise gr.Error(str(exc)) from exc
+    return call
+
+
+def render(main_tabs, directory, output_dir, result_view, release_qwen):
+    def choices(preset_key, role, pending=None, current=None):
+        preset = lab.PRESETS[preset_key]
+        records = civitai.inventory(directory, preset, role)
+        options = [(f'{data["title"]} · {data["revision"]} · {data["name"]}', key)
+                   for key, data, _ in records]
+        installed = {key for _, key in options}
+        options += [(f'Baixar ao gerar · {entry["title"]} · {entry["revision"]} · {entry["name"]}', key)
+                    for key, entry in (pending or {}).items()
+                    if key not in installed and entry["preset"] == preset_key and entry["role"] == role]
+        keys = {key for _, key in options}
+        selected = [key for key in current or [] if key in keys] if role == "LoRA" else (
+            current if current in keys else None)
+        return gr.update(choices=options, value=selected, visible=role in preset.roles)
+
+    def catalog_roles(preset_key):
+        options = [*lab.PRESETS[preset_key].roles, *EXTRA_ROLES]
+        return gr.update(choices=options, value="LoRA")
+
+    @handle_errors
+    def list_catalog(preset_key, role, query, cursor, previous=None):
+        entries, next_cursor = civitai.search(lab.PRESETS[preset_key], role, query, cursor)
+        if cursor and previous:
+            entries = [*previous.values(), *entries]
+        # Keep exact version/file choices in per-session state. UI values are just identifiers.
+        records = {f'{entry["version"]}:{entry["file"]}': entry for entry in entries}
+        labels = [(f'{entry["title"][:75]} · {entry["revision"][:42]} · {entry["name"][:90]}', key)
+                  for key, entry in records.items()]
+        target = lab.PRESETS[preset_key].title
+        status = (f"{len(labels)} arquivos para {target} · {role}. Compatibilidade verificada antes da listagem."
+                  if labels else f"Nenhum {role} com compatibilidade verificável para {target} nesta página.")
+        if next_cursor:
+            status += " Você pode consultar a próxima página."
+        return gr.update(choices=labels, value=None), records, next_cursor, status, gr.update(interactive=bool(next_cursor))
+
+    def clear_catalog():
+        return gr.update(choices=[], value=None), {}, None, "", gr.update(interactive=False)
+
+    @handle_errors
+    def show_file(key, records):
+        entry = (records or {}).get(key)
+        if not entry:
+            return ""
+        size = entry.get("size_kb")
+        size = f" · {float(size) / 1024:.1f} MiB" if size else ""
+        checksum = " · SHA-256 publicado" if entry.get("sha256") else ""
+        return f'{entry["role"]} · {entry["base"] or "base independente"} · versão {entry["version"]}{size}{checksum}'
+
+    def get_entry(key, records, preset_key, role):
+        entry = (records or {}).get(key)
+        if not entry or entry["preset"] != preset_key or entry["role"] != role:
+            raise ValueError("Busque e escolha um arquivo para o preset e o componente atuais.")
+        return entry
+
+    @handle_errors
+    def install_asset(key, records, preset_key, role, progress=gr.Progress()):
+        entry = get_entry(key, records, preset_key, role)
+        progress(0.15, desc=f'Baixando a versão {entry["version"]}')
+        path = civitai.install(entry, directory)
+        if entry["role"] in EXTRA_ROLES and entry["role"] != "Workflow":
+            lab.stage_local(civitai.ROLE_TYPES[entry["role"]], path.name, path)
+            return f"Disponível no ComfyUI como {path.name}. Use um grafo que ofereça o loader correspondente."
+        if entry["role"] == "Workflow":
+            return f"Salvo como {path.name}. Use a aba Workflows para revisar e executar API JSON."
+        return f"Instalado: {path.name}. Abra o mesmo preset na Bancada e atualize a lista de componentes."
+
+    @handle_errors
+    def show_images(key, records, preset_key, role, progress=gr.Progress()):
+        entry = get_entry(key, records, preset_key, role)
+        progress(0.1, desc="Buscando exemplos da versão")
+        images = civitai.previews(entry)
+
+        def fetch_image(image):
+            try:
+                path = civitai.fetch_image(image["url"], Path(tempfile.gettempdir()) / "clonfield-civitai", image["id"])
+                return path, f'Civitai · imagem {image["id"]}'
+            except (ValueError, KeyError):
+                return None
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            gallery = [item for item in pool.map(fetch_image, images) if item]
+        return gallery, [path for path, _ in gallery], None, (
+            f"{len(gallery)} imagens desta versão." if gallery else "Nenhum exemplo disponível para esta versão.")
+
+    def select_image(paths, evt: gr.SelectData):
+        index = evt.index
+        return paths[index] if evt.selected and isinstance(index, int) and 0 <= index < len(paths or []) else None
+
+    @handle_errors
+    def send_image(path):
+        if not path or not Path(path).is_file():
+            raise ValueError("Escolha uma imagem da galeria.")
+        return gr.Tabs(selected="bancada"), "qwen21", gr.update(value=[path], visible=True)
+
+    @handle_errors
+    def open_workflow(key, records, preset_key, role):
+        entry = get_entry(key, records, preset_key, role)
+        if entry["role"] != "Workflow" or Path(entry["name"]).suffix.lower() != ".json":
+            raise ValueError("Escolha um workflow API JSON. ZIP e PNG ficam disponíveis como arquivos para revisão.")
+        path = civitai.install(entry, directory)
+        workflows.read_graph(path)
+        return gr.Tabs(selected="workflows"), str(path)
+
+    def lab_fields(preset_key, pending=None):
+        preset = lab.PRESETS[preset_key]
+        notes = (f"Até {preset.refs} referências." if preset.refs else "Este preset gera a partir de texto.")
+        if preset.key == "qwen21":
+            notes += " Em edição, a primeira referência recebe o recorte central da proporção escolhida."
+        if preset.key == "flux3":
+            notes += " Use o expansor local ou escreva uma legenda visual completa."
+        if not preset.clip_type:
+            notes += " Instale e selecione um checkpoint desta família."
+        size = 512 if preset.key == "sd15" else 768
+        return (preset.steps, preset.cfg, size, size, gr.update(value=None, visible=bool(preset.refs)),
+                gr.update(value=preset.key == "flux3", visible=preset.key == "flux3"), notes,
+                *(choices(preset_key, role, pending) for role in BENCH_ROLES))
+
+    def refresh_lab(preset_key, pending, *values):
+        return [choices(preset_key, role, pending, value) for role, value in zip(BENCH_ROLES, values)]
+
+    @handle_errors
+    def assign_asset(key, records, preset_key, role, saved, active_preset, *values):
+        entry = get_entry(key, records, preset_key, role)
+        role, target = entry["role"], entry["preset"]
+        if role not in lab.PRESETS[target].roles:
+            raise ValueError("Esse tipo usa o botão Instalar e um grafo próprio no ComfyUI.")
+        entry_key = civitai.asset_key(entry)
+        saved = {**(saved or {}), entry_key: entry}
+        if active_preset == target:
+            parameters = [gr.skip()] * 7
+            selected = dict(zip(BENCH_ROLES, values))
+        else:
+            parameters = lab_fields(target, saved)[:7]
+            selected = {}
+        if role == "LoRA":
+            adapters = list(dict.fromkeys([*(selected.get(role) or []), entry_key]))
+            if len(adapters) > 4:
+                raise ValueError("Remova uma LoRA da Bancada antes de adicionar outra.")
+            selected[role] = adapters
+        else:
+            selected[role] = entry_key
+        return (gr.Tabs(selected="bancada"), target, saved, *parameters,
+                *(choices(target, item, saved, selected.get(item)) for item in BENCH_ROLES))
+
+    def plan(preset_key, prompt, negative, width, height, steps, cfg, seed, refs, strength, expand, pending, *values):
+        preset = lab.PRESETS[preset_key]
+        selected = dict(zip(BENCH_ROLES, values))
+        adapters = selected.pop("LoRA")
+        chosen = lab.selections(directory, preset, selected, adapters, pending)
+        names, sources = lab.names_and_sources(preset, chosen, expand)
+        graph, uploads, actual_seed = lab.make_graph(preset, names, prompt, negative, width, height, steps, cfg,
+                                                      seed, refs, strength, expand)
+        queued = [entry for entries in chosen.values() for entry, _ in entries if "download" in entry]
+        return preset, graph, uploads, sources, actual_seed, queued
+
+    @handle_errors
+    def check(*values):
+        _, graph, _, sources, _, _ = plan(*values)
+        with requests.Session() as session:
+            session.trust_env = False
+            lab.worker_schema(session, graph, check_files=False)
+        pending = [name for folder, name, _ in sources if not (lab.models_root() / folder / name).is_file()]
+        status = "Conjunto coerente. Nós e opções conferidos no ComfyUI local."
+        if pending:
+            status += "\nPreparação sob demanda: " + ", ".join(pending)
+        return status + "\nA geração confirma se a combinação carrega e cabe na memória.", graph
+
+    @handle_errors
+    def generate(*values, progress=gr.Progress()):
+        preset, graph, uploads, sources, seed, queued = plan(*values)
+        release_qwen()
+        from functools import partial
+        prepare = partial(lab.prepare, sources=sources, uploads=uploads, pending=queued, asset_directory=directory)
+        job = workflows.run(graph, output_dir, progress, prepare=prepare, title=f"{preset.title} · seed {seed}")
+        images, _, _, files, status = result_view(job)
+        return images, files, status, graph
+
+    @handle_errors
+    def build_direction(subject, action, framing, motion, light, look, references):
+        if not (subject or "").strip():
+            raise ValueError("Descreva o assunto e a cena.")
+        fields = ((None, subject), ("Ação", action), ("Enquadramento", framing), ("Movimento", motion),
+                  ("Luz", light), ("Visual", look), ("Papéis das referências", references))
+        return "\n".join(f"{label}: {value.strip()}" if label else value.strip()
+                         for label, value in fields if (value or "").strip() and value != "Livre")
+
+    with gr.Tab("Catálogo Civitai", id="civitai"):
+        gr.Markdown("Busque por nome ou cole o link de um recurso. O preset e o tipo determinam quais arquivos aparecem.")
+        with gr.Row():
+            cpreset = gr.Dropdown(PRESET_CHOICES, value="qwen21", label="Preset de destino")
+            crole = gr.Dropdown([*lab.PRESETS["qwen21"].roles, *EXTRA_ROLES], value="LoRA", label="Componente")
+            query = gr.Textbox(label="Busca", placeholder="Nome ou https://civitai.com/models/…")
+        with gr.Row():
+            search_button = gr.Button("Buscar compatíveis", variant="primary")
+            more = gr.Button("Próxima página", interactive=False)
+        pick = gr.Dropdown(label="Arquivos compatíveis · versão exata", filterable=True)
+        state, cursor = gr.State({}), gr.State(None)
+        cstatus = gr.Textbox(label="Busca", interactive=False)
+        details = gr.Textbox(label="Componente", interactive=False)
+        with gr.Row():
+            use_asset = gr.Button("Usar na Bancada · baixar ao gerar", variant="primary")
+            install = gr.Button("Instalar agora")
+            previews = gr.Button("Ver imagens da versão")
+            open_graph = gr.Button("Abrir API JSON em Workflows")
+        installed = gr.Textbox(label="Instalação", interactive=False)
+        preview_gallery = gr.Gallery(label="Imagens do Civitai", columns=4, object_fit="contain")
+        paths, selected_path = gr.State([]), gr.State(None)
+        pstatus = gr.Markdown()
+        send = gr.Button("Usar imagem selecionada como referência no Qwen · Bancada")
+        catalog_outputs = [pick, state, cursor, cstatus, more]
+        cpreset.input(catalog_roles, cpreset, crole, queue=False, api_name=False)
+        for event in (cpreset.input, crole.input, query.input):
+            event(clear_catalog, None, catalog_outputs, queue=False, api_name=False)
+        for event in (search_button.click, query.submit):
+            event(lambda p, r, q: list_catalog(p, r, q, None), [cpreset, crole, query], catalog_outputs,
+                  api_name=False, concurrency_id="civitai", concurrency_limit=1)
+        more.click(list_catalog, [cpreset, crole, query, cursor, state], catalog_outputs, api_name=False,
+                   concurrency_id="civitai", concurrency_limit=1)
+        pick.change(show_file, [pick, state], details, queue=False, api_name=False)
+        pick.change(lambda: ([], [], None, ""), None, [preview_gallery, paths, selected_path, pstatus],
+                    queue=False, api_name=False)
+        install.click(install_asset, [pick, state, cpreset, crole], installed, api_name=False, concurrency_id="civitai", concurrency_limit=1)
+        previews.click(show_images, [pick, state, cpreset, crole], [preview_gallery, paths, selected_path, pstatus],
+                       api_name=False, concurrency_id="civitai", concurrency_limit=1)
+        preview_gallery.select(select_image, paths, selected_path, queue=False, api_name=False)
+
+    with gr.Tab("Bancada de modelos", id="bancada"):
+        with gr.Row():
+            with gr.Column():
+                preset = gr.Dropdown(PRESET_CHOICES, value="qwen21", label="Preset")
+                pending_assets = gr.State({})
+                notes = gr.Markdown("Até 3 referências. Em edição, a primeira recebe o recorte central da proporção escolhida.")
+                prompt = gr.Textbox(label="Prompt", lines=4)
+                refs = gr.File(label="Referências na ordem enviada", type="filepath", file_types=["image"], file_count="multiple")
+                with gr.Row():
+                    width = gr.Slider(256, 2048, step=32, value=768, label="Largura")
+                    height = gr.Slider(256, 2048, step=32, value=768, label="Altura")
+                with gr.Accordion("Componentes instalados", open=False):
+                    components = [gr.Dropdown(label=role, multiselect=role == "LoRA",
+                                              visible=role in lab.PRESETS["qwen21"].roles)
+                                  for role in BENCH_ROLES]
+                    strength = gr.Slider(-2, 2, value=.8, step=.05, label="Peso comum das LoRAs")
+                    refresh = gr.Button("Atualizar arquivos instalados")
+                    gr.Markdown("Slots vazios usam os componentes do preset, quando disponíveis.")
+                with gr.Accordion("Parâmetros", open=False):
+                    negative = gr.Textbox(label="Negativo (CFG acima de 1)")
+                    with gr.Row():
+                        steps = gr.Slider(1, 80, step=1, value=40, label="Passos")
+                        cfg = gr.Slider(1, 12, step=.1, value=1, label="CFG")
+                        seed = gr.Number(value=-1, precision=0, label="Seed (-1 aleatória)")
+                    expand = gr.Checkbox(value=False, visible=False, label="Expansor de prompt local FLUX.3")
+                with gr.Row():
+                    preflight = gr.Button("Checar conjunto")
+                    run = gr.Button("Gerar imagem", variant="primary")
+            with gr.Column():
+                results = gr.Gallery(label="Imagens", format="png")
+                downloads = gr.File(label="Baixar arquivos", file_count="multiple")
+                status = gr.Textbox(label="Estado", interactive=False, lines=4)
+                with gr.Accordion("Grafo API enviado ao ComfyUI", open=False):
+                    graph_view = gr.JSON(label="Grafo")
+        preset_outputs = [steps, cfg, width, height, refs, expand, notes, *components]
+        preset.input(lab_fields, [preset, pending_assets], preset_outputs, queue=False, api_name=False)
+        refresh.click(refresh_lab, [preset, pending_assets, *components], components, queue=False, api_name=False)
+        use_asset.click(assign_asset, [pick, state, cpreset, crole, pending_assets, preset, *components],
+                        [main_tabs, preset, pending_assets, *preset_outputs], queue=False, api_name=False)
+        inputs = [preset, prompt, negative, width, height, steps, cfg, seed, refs, strength, expand,
+                  pending_assets, *components]
+        preflight.click(check, inputs, [status, graph_view], api_name="checar_conjunto")
+        run.click(generate, inputs, [results, downloads, status, graph_view], api_name="bancada_gerar",
+                  concurrency_id="gpu", concurrency_limit=1)
+        link_reference = send.click(send_image, selected_path, [main_tabs, preset, refs], queue=False, api_name=False)
+        # Restore the Qwen sampling/slots and retain the catalog image passed above.
+        lab_output_without_refs = [steps, cfg, width, height, expand, notes, *components]
+        def reset_qwen_fields(saved):
+            fields = lab_fields("qwen21", saved)
+            return (*fields[:4], *fields[5:])
+
+        link_reference.success(reset_qwen_fields, pending_assets, lab_output_without_refs, queue=False, api_name=False)
+
+    with gr.Tab("Direção de cena", id="direcao"):
+        gr.Markdown("Organize sujeito, ação, câmera, luz e referências em um prompt editável.")
+        subject = gr.Textbox(label="Sujeito e cena", lines=2)
+        action = gr.Textbox(label="Ação e expressão", lines=2)
+        with gr.Row():
+            framing = gr.Dropdown(["Livre", "Plano geral", "Plano médio", "Close", "Macro", "Contra-plongée"],
+                                  value="Livre", label="Enquadramento", allow_custom_value=True)
+            motion = gr.Dropdown(["Livre", "Câmera fixa", "Dolly in", "Pan lateral", "Órbita", "Handheld"],
+                                 value="Livre", label="Movimento para vídeo", allow_custom_value=True)
+        light = gr.Textbox(label="Iluminação", placeholder="Ex.: luz lateral suave e recorte azul")
+        look = gr.Textbox(label="Cor, textura e atmosfera")
+        reference_notes = gr.Textbox(label="Função de cada referência",
+                                     placeholder="Ex.: imagem 1 para composição, imagem 2 para paleta")
+        make = gr.Button("Montar prompt", variant="primary")
+        directed = gr.Textbox(label="Prompt editável", lines=7)
+        to_lab = gr.Button("Enviar à Bancada")
+        make.click(build_direction, [subject, action, framing, motion, light, look, reference_notes],
+                   directed, api_name="direcao_prompt")
+        to_lab.click(lambda value: (gr.Tabs(selected="bancada"), value), directed, [main_tabs, prompt],
+                     queue=False, api_name=False)
+
+    return open_graph, open_workflow, [pick, state, cpreset, crole]

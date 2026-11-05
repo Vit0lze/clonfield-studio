@@ -8,6 +8,9 @@ Estúdio Gradio para criar imagens, editar fotos, animar referências e montar c
 
 | Área | O que tem na interface | Implementação |
 | --- | --- | --- |
+| Bancada de modelos | Presets de Qwen 2.1, FLUX.2/3 Klein, Krea 2 Raw/Turbo, Z-Image Base/Turbo, SDXL e SD 1.5. Permite trocar componentes e ver o grafo | [Presets e executor](cf_model_lab.py) |
+| Catálogo Civitai | Busca compatível com o preset e o slot, escolha de versão/arquivo, instalação sob demanda e galeria de exemplos | [Catálogo](cf_civitai.py) |
+| Direção de cena | Organiza ação, enquadramento, movimento, luz e função das referências em um prompt editável | [Direção](cf_lab_ui.py) |
 | Criar | Texto para imagem, edição com referências, retrato por referência, LoRAs, prompt negativo, composição por máscara e upscale após gerar | [Qwen-Image-2.1 / Turbo](studio_app.py) |
 | Editar região | Retocar uma área marcada por máscara com margem de contexto, suavização e exportação no tamanho da foto | [Qwen-Image-2.1 + Pillow](cf_region.py) |
 | Vídeo | Animar foto ou gerar clipe por texto | [Wan 2.2 5B](cf_wan.py) |
@@ -26,6 +29,17 @@ Estúdio Gradio para criar imagens, editar fotos, animar referências e montar c
 2. Cadastre `CIVITAI_TOKEN` e `HF_TOKEN` em Secrets no Colab e dê acesso ao notebook. Use credenciais de leitura.
 3. Execute as células na ordem. O notebook atualiza este repo por fast-forward, baixa os recursos Civitai selecionados na célula, prepara o ComfyUI e inicia o Gradio. O Colab mostra a URL e a senha da sessão.
 4. Abra **Explorar** e escolha uma ferramenta. Os pesos do Qwen são carregados ao gerar.
+
+## Civitai e Bancada
+
+1. No **Catálogo Civitai**, escolha o preset e o componente. Busque pelo nome ou cole um link de modelo, inclusive com `modelVersionId`.
+2. O Studio filtra por família exata, tipo de componente e formato. Quando o Civitai chama um arquivo de checkpoint e o slot pede difusão separada, o Studio tenta confirmar pelo cabeçalho SafeTensors antes de listar. Candidatos inconclusivos ficam fora da lista. Se a busca não encontrar uma versão específica, tente o link direto.
+3. Use **Usar na Bancada · baixar ao gerar** para selecionar o arquivo sem iniciar o download. **Instalar agora** guarda o arquivo no acervo de componentes. Na versão selecionada, **Ver imagens da versão** abre a galeria. Selecione uma imagem para abrir como referência no preset Qwen da Bancada.
+4. Use **Checar conjunto** para inspecionar o grafo, os nós e as opções do ComfyUI. Ao gerar, o Studio prepara os componentes, verifica a estrutura SafeTensors e o SHA-256 do Civitai quando publicado, e submete o grafo. A execução é que confirma carga, encaixe de memória e qualidade visual.
+
+O formulário da Bancada oferece os slots aplicáveis ao preset. SDXL e SD 1.5 precisam de um checkpoint completo instalado ou selecionado no catálogo. ControlNet, embeddings, CLIP Vision, módulos de movimento e workflows usam seus próprios grafos. Arquivos ZIP/PNG de workflow ficam para revisão manual, e grafos API JSON podem ser abertos na aba Workflows. A Bancada usa o worker ComfyUI da célula do Colab. Alguns pesos, como o FLUX.3, exigem aceitar as condições no Hugging Face e fornecer um token de leitura.
+
+As receitas seguem os [templates do ComfyUI](https://github.com/Comfy-Org/workflow_templates/tree/9a51089f3bcacf84ccceca3907a493027ae32bfa), com o grafo Qwen INT8 reaproveitado do alpha e revisões dos pesos registradas no código. O preset é ponto de partida. Resolução, referências e pós-upscale afetam o pico de memória. O painel de direção adapta a estrutura de prompt da [Higgsfield AI Prompt Skill](https://github.com/OSideMedia/higgsfield-ai-prompt-skill). Os filtros usam a [API de modelos e imagens do Civitai](https://developer.civitai.com/site/reference/).
 
 ## Reaproveitar resultados
 
