@@ -271,6 +271,9 @@ def stage_local(directory, name, source):
     target = models_root() / directory / name
     if target.is_file() and target.stat().st_size:
         return target
+    # Hugging Face snapshots point to cache blobs through relative symlinks.
+    # Resolve the blob before hardlinking it into a different directory.
+    source = Path(source).resolve(strict=True)
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=target.parent) as staging:
         partial = Path(staging) / name

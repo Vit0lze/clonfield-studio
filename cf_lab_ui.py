@@ -290,6 +290,8 @@ def render(main_tabs, directory, output_dir, result_view, release_qwen):
             print(f"[Bancada] {status}", flush=True)
             return gr.skip(), gr.skip(), status, gr.skip()
         report(1, desc=f"Estado final: {job['status']}")
+        if job["status"] != "concluído" and job.get("message"):
+            print(f"[Bancada] {job['message']}", flush=True)
         return images, files, status, graph
 
     @handle_errors
