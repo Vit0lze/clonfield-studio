@@ -820,12 +820,13 @@ def open_comparison(before, after):
 
 
 CSS = """
-.gradio-container {max-width: 1500px !important; background: #111217 !important;}
+.gradio-container {max-width: 1760px !important; margin-inline:auto; background: #111217 !important;}
 #hero {padding: 1rem 1.3rem; border:1px solid #38303a; border-radius:14px; background:linear-gradient(110deg,#25171c,#17171e);}
 #hero h1 {font-size: 2rem; margin:0;}
 #primary button {font-weight:700;}
 #cf-app-grid {display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,254px),1fr)); gap:12px;}
-#cf-app-grid .cf-app-card {justify-content:space-between;}
+#cf-app-grid .cf-app-card {justify-content:space-between; height:100%; box-sizing:border-box;}
+#cf-bench .cf-slot {align-items:end;}
 #cf-app-grid .cf-app-card button {justify-content:flex-start;}
 #cf-app-grid .cf-app-card h3 {font-size:1.08rem;}
 #cf-app-grid .cf-app-card strong {font-size:.76rem; color:#eeabbc;}
@@ -1280,6 +1281,8 @@ if '--probe-qwen' in sys.argv:
 
 import secrets
 import threading
+from starlette.middleware import Middleware
+from cf_portal import PortalLogin
 
 GRADIO_USUARIO = 'clonfield'
 GRADIO_SENHA = secrets.token_urlsafe(16)
@@ -1289,12 +1292,13 @@ print('Iniciando Gradio...', flush=True)
 try:
     demo.launch(share=public, server_name='127.0.0.1', inline=False, inbrowser=False,
                 auth=(GRADIO_USUARIO, GRADIO_SENHA), prevent_thread_lock=True,
-                show_error=True, enable_monitoring=False)
+                show_error=True, enable_monitoring=False, allowed_paths=[str(OUT.resolve())],
+                app_kwargs={"middleware": [Middleware(PortalLogin)]})
     if demo.share_url:
         print('LINK PÚBLICO: ' + demo.share_url, flush=True)
     elif public:
         print('O túnel público falhou. Use o link do Colab se estiver no notebook.', flush=True)
-    print(f'USUÁRIO: {GRADIO_USUARIO} | SENHA: {GRADIO_SENHA}', flush=True)
+    print(f'SENHA DA SESSÃO: {GRADIO_SENHA}', flush=True)
     phase('interface_pronta')
     print(f'CLONFIELD_READY {demo.server_port}', flush=True)
     threading.Event().wait()

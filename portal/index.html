@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="dark">
+  <title>ClonField · Acesso ao Studio</title>
+  <link rel="stylesheet" href="./style.css">
+  <script src="./portal.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div class="brand"><span class="mark" aria-hidden="true">CF</span><span>ClonField Studio</span></div>
+      <h1>Abra sua sessão.</h1>
+      <p>Use o link público e a senha exibidos na última célula do Colab.</p>
+    </header>
+    <form id="connect">
+      <label for="address">Link público do Studio</label>
+      <input id="address" type="url" inputmode="url" placeholder="https://sua-sessao.gradio.live" required>
+      <label for="password">Senha da sessão</label>
+      <div class="password">
+        <input id="password" type="password" autocomplete="off" required>
+        <button id="reveal" class="reveal" type="button" aria-controls="password" aria-pressed="false">Mostrar</button>
+      </div>
+      <button id="submit" class="submit" type="submit">Entrar no Studio <span aria-hidden="true">↗</span></button>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+    </form>
+    <footer>A sessão abre nesta aba. A senha segue direto para o Studio.</footer>
+  </main>
+</body>
+</html>

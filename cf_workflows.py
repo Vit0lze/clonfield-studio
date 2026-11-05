@@ -4,6 +4,7 @@ import hashlib
 import json
 import time
 import uuid
+from contextlib import ExitStack
 from pathlib import Path
 
 import requests
@@ -72,8 +73,62 @@ def bind_uploads(session, graph, files):
             inputs[key] = uploaded_name
 
 
-def collect(session, folder, job, timeout):
-    deadline = time.monotonic() + timeout
+def open_worker_socket(connections, client_id):
+    try:
+        from websockets.exceptions import WebSocketException
+        from websockets.sync.client import connect
+    except ImportError:
+        return None
+    address = SERVER.replace("http://", "ws://", 1).replace("https://", "wss://", 1)
+    try:
+        return connections.enter_context(connect(f"{address}/ws?clientId={client_id}",
+                                                 open_timeout=3, close_timeout=1))
+    except (OSError, WebSocketException):
+        return None
+
+
+def wait_events(socket, duration, prompt_id, graph, progress):
+    from websockets.exceptions import WebSocketException
+
+    deadline = time.monotonic() + duration
+    while (remaining := deadline - time.monotonic()) > 0:
+        try:
+            raw = socket.recv(timeout=remaining)
+        except TimeoutError:
+            return
+        except WebSocketException as exc:
+            raise ConnectionError("WebSocket do ComfyUI desconectado") from exc
+        if not isinstance(raw, str):
+            continue
+        try:
+            event = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        data = event.get("data")
+        if not isinstance(data, dict) or data.get("prompt_id") != prompt_id:
+            continue
+        kind = event.get("type")
+        if kind in ("execution_success", "execution_error", "execution_interrupted"):
+            return
+        if kind == "executing":
+            node = data.get("node")
+            if node is None:
+                return
+            label = graph.get(str(node), {}).get("class_type", f"nó {node}")
+            progress(0.25, desc=f"ComfyUI · {label}")
+        elif kind == "progress":
+            current, total = data.get("value"), data.get("max")
+            if isinstance(current, int) and isinstance(total, int) and 0 <= current <= total and total > 0:
+                label = graph.get(str(data.get("node")), {}).get("class_type", "ComfyUI")
+                progress(0.3 + 0.55 * current / total, desc=f"{label} · passo {current}/{total}")
+
+
+def collect(session, folder, job, timeout, progress=None, socket=None, graph=None):
+    start = time.monotonic()
+    deadline = start + timeout
+    next_report = start + 10
     try:
         while time.monotonic() < deadline:
             response = session.get(f"{SERVER}/history/{job['prompt_id']}", timeout=20)
@@ -81,12 +136,26 @@ def collect(session, folder, job, timeout):
             history = response.json().get(job["prompt_id"])
             if history:
                 break
-            time.sleep(min(2, max(0, deadline - time.monotonic())))
+            now = time.monotonic()
+            if progress is not None and now >= next_report:
+                progress(0.2, desc=f"ComfyUI ainda processando ou na fila · {now - start:.0f} s")
+                next_report = now + 10
+            delay = min(2, max(0, deadline - time.monotonic()))
+            if socket is None:
+                time.sleep(delay)
+            else:
+                try:
+                    wait_events(socket, delay, job["prompt_id"], graph, progress)
+                except OSError:
+                    socket = None
+                    progress(0.2, desc="WebSocket desconectado; acompanhando pelo histórico do ComfyUI")
         else:
             raise TimeoutError("O resultado ainda está no worker. Use Retomar coleta.")
         status = history.get("status") or {}
         if status.get("status_str") == "error":
             raise WorkerError(status.get("messages") or [])
+        if progress is not None:
+            progress(0.9, desc="Recebendo os arquivos do ComfyUI")
         for name, subfolder, kind in dict.fromkeys(media_entries(history)):
             key = hashlib.sha256(json.dumps([name, subfolder, kind]).encode()).hexdigest()[:16]
             dest = folder / (key + Path(name).suffix.lower())
@@ -136,8 +205,9 @@ def run(graph, output_dir, progress, files=None, prepare=None, title=None):
     if title:
         job["title"] = title
     persist(folder, job)
-    with requests.Session() as session:
+    with requests.Session() as session, ExitStack() as connections:
         session.trust_env = False
+        socket = None
         try:
             if prepare:
                 prepare(session, graph, progress)
@@ -146,9 +216,17 @@ def run(graph, output_dir, progress, files=None, prepare=None, title=None):
             if files:
                 progress(0.08, desc="Enviando mídias ao ComfyUI")
                 bind_uploads(session, graph, files)
+            payload = {"prompt": graph}
+            client_id = uuid.uuid4().hex
+            socket = open_worker_socket(connections, client_id)
+            if socket is None:
+                progress(0.16, desc="WebSocket indisponível; acompanhando pelo histórico do ComfyUI")
+            else:
+                payload["client_id"] = client_id
+            progress(0.17, desc="Enviando o grafo ao ComfyUI")
             job["status"] = "enviando"
             persist(folder, job)
-            response = session.post(f"{SERVER}/prompt", json={"prompt": graph}, timeout=25)
+            response = session.post(f"{SERVER}/prompt", json=payload, timeout=25)
             if not response.ok:
                 job.update(status="falhou", message=response.text[:1600])
                 persist(folder, job)
@@ -163,7 +241,7 @@ def run(graph, output_dir, progress, files=None, prepare=None, title=None):
             return job
         persist(folder, job)
         progress(0.2, desc=f"Aguardando ComfyUI · {job['prompt_id']}")
-        return collect(session, folder, job, 3600)
+        return collect(session, folder, job, 3600, progress, socket, graph)
 
 
 def recent(output_dir):

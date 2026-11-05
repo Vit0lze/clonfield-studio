@@ -143,7 +143,8 @@ def names_and_sources(preset, chosen, expand):
     return names, sources
 
 
-def make_graph(preset, names, prompt, negative, width, height, steps, cfg, seed, files, strength, expand):
+def make_graph(preset, names, prompt, negative, width, height, steps, cfg, seed, files, strength, expand,
+               lora_weights=()):
     if not prompt or not prompt.strip():
         raise ValueError("Escreva um prompt.")
     if not all(math.isfinite(x) and int(x) == x and 256 <= x <= 2048 and x % 32 == 0 for x in (width, height)):
@@ -178,9 +179,13 @@ def make_graph(preset, names, prompt, negative, width, height, steps, cfg, seed,
         if "VAE" in names:
             vae = node("VAELoader", vae_name=names["VAE"][0])
 
-    for name in names.get("LoRA", []):
+    for index, name in enumerate(names.get("LoRA", [])):
+        weights = lora_weights[index] if index < len(lora_weights) else (None, None)
+        model_weight, clip_weight = (float(strength if weight is None else weight) for weight in weights)
+        if not -2 <= model_weight <= 2 or not -2 <= clip_weight <= 2:
+            raise ValueError(f"Use pesos de -2 a 2 para a LoRA {index + 1}.")
         model = node("LoraLoader", model=model, clip=clip, lora_name=name,
-                     strength_model=float(strength), strength_clip=float(strength))
+                     strength_model=model_weight, strength_clip=clip_weight)
         clip = [model[0], 1]
     if preset.clip_type == "lumina2":
         model = node("ModelSamplingAuraFlow", model=model, shift=3.0)
@@ -282,6 +287,7 @@ def prepare(session, graph, progress, *, sources, uploads, pending=(), asset_dir
     from huggingface_hub.errors import HfHubHTTPError
     from cf_seedvr2 import upload_input
 
+    progress(0.05, desc="Verificando nós do ComfyUI")
     worker_schema(session, graph, check_files=False)
     for entry in pending:
         progress(0.08, desc=f'Baixando Civitai · versão {entry["version"]}')
@@ -301,5 +307,7 @@ def prepare(session, graph, progress, *, sources, uploads, pending=(), asset_dir
                 raise ValueError(f"O Hugging Face não entregou {name}. Confira o acesso a {repo} e o Secret HF_TOKEN.") from None
         stage_local(directory, name, source)
     worker_schema(session, graph, check_files=True)
+    if uploads:
+        progress(0.15, desc="Enviando referências ao ComfyUI")
     for node, path in uploads.items():
         graph[node]["inputs"]["image"] = upload_input(session, path)

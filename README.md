@@ -27,8 +27,14 @@ Estúdio Gradio para criar imagens, editar fotos, animar referências e montar c
 
 1. Abra o notebook e selecione um runtime GPU.
 2. Cadastre `CIVITAI_TOKEN` e `HF_TOKEN` em Secrets no Colab e dê acesso ao notebook. Use credenciais de leitura.
-3. Execute as células na ordem. O notebook atualiza este repo por fast-forward, prepara o ComfyUI e inicia o Gradio. A célula opcional do Civitai só baixa versões se você preencher `VERSOES_CIVITAI`; a lista começa vazia. O Colab mostra o Gradio na própria célula e imprime as credenciais da sessão. Para um link público, ajuste `LINK_PUBLICO = True` na última célula.
+3. Execute as células na ordem. O notebook atualiza este repo por fast-forward, prepara o ComfyUI e inicia o Gradio. A célula opcional do Civitai só baixa versões se você preencher `VERSOES_CIVITAI`; a lista começa vazia. O Colab imprime o link público do Gradio e a senha da sessão. Se o túnel falhar, o notebook mostra a interface na própria célula.
 4. Abra **Explorar** e escolha uma ferramenta. Os pesos do Qwen são carregados ao gerar.
+
+## Portal no Vercel
+
+Importe este repositório no Vercel e configure **Root Directory** como `portal`, com preset **Other**. O portal é estático e usa o `vercel.json` da pasta. Depois que o Colab imprimir **LINK PÚBLICO** e **SENHA DA SESSÃO**, cole os dois no portal. O navegador envia a senha diretamente ao Gradio e abre o Studio na mesma aba.
+
+Na Bancada, os slots mostram os componentes padrão, e **Procurar mais** abre o catálogo no preset e tipo corretos. Cada LoRA adicionada tem pesos próprios para o modelo e o encoder. O Colab registra o envio, os passos do ComfyUI e o resultado.
 
 ## Civitai e Bancada
 

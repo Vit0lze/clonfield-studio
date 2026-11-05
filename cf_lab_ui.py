@@ -1,9 +1,10 @@
 """Gradio screens for the model bench, Civitai catalog and scene direction."""
 
 from concurrent.futures import ThreadPoolExecutor
-from functools import wraps
+from functools import partial, wraps
 from pathlib import Path
 import tempfile
+import time
 
 import gradio as gr
 import requests
@@ -15,6 +16,8 @@ import cf_workflows as workflows
 PRESET_CHOICES = [(preset.title, preset.key) for preset in lab.PRESETS.values()]
 EXTRA_ROLES = ("ControlNet", "Embedding", "CLIP Vision", "Motion Module", "Workflow")
 BENCH_ROLES = ("Difusão", "Checkpoint", "Encoder", "VAE", "LoRA", "Upscaler")
+DEFAULT_COMPONENT = "__preset__"
+LORA_LIMIT = 4
 
 
 def handle_errors(callback):
@@ -30,7 +33,7 @@ def handle_errors(callback):
 
 
 def render(main_tabs, directory, output_dir, result_view, release_qwen):
-    def choices(preset_key, role, pending=None, current=None):
+    def component_options(preset_key, role, pending=None):
         preset = lab.PRESETS[preset_key]
         records = civitai.inventory(directory, preset, role)
         options = [(f'{data["title"]} · {data["revision"]} · {data["name"]}', key)
@@ -39,10 +42,44 @@ def render(main_tabs, directory, output_dir, result_view, release_qwen):
         options += [(f'Baixar ao gerar · {entry["title"]} · {entry["revision"]} · {entry["name"]}', key)
                     for key, entry in (pending or {}).items()
                     if key not in installed and entry["preset"] == preset_key and entry["role"] == role]
+        if role in preset.files:
+            options.insert(0, (f"Padrão · {Path(preset.files[role][1]).name}", DEFAULT_COMPONENT))
+        elif role == "VAE" and not preset.clip_type:
+            options.insert(0, ("Padrão · VAE do checkpoint", DEFAULT_COMPONENT))
+        elif role == "Upscaler":
+            options.insert(0, ("Nenhum · tamanho original", DEFAULT_COMPONENT))
+        return options
+
+    def choices(preset_key, role, pending=None, current=None):
+        options = component_options(preset_key, role, pending)
         keys = {key for _, key in options}
-        selected = [key for key in current or [] if key in keys] if role == "LoRA" else (
-            current if current in keys else None)
-        return gr.update(choices=options, value=selected, visible=role in preset.roles)
+        if role == "LoRA":
+            selected = [key for key in current or [] if key in keys]
+        else:
+            selected = current if current in keys else DEFAULT_COMPONENT if DEFAULT_COMPONENT in keys else None
+        return gr.update(choices=options, value=selected)
+
+    def browse_role(role, preset_key):
+        return (gr.Tabs(selected="civitai"), preset_key,
+                gr.update(choices=[*lab.PRESETS[preset_key].roles, *EXTRA_ROLES], value=role),
+                "", *clear_catalog())
+
+    def sync_lora_controls(preset_key, pending, keys, previous, *weights):
+        keys = (keys or [])[:LORA_LIMIT]
+        old = dict(zip(previous or [], zip(weights[::2], weights[1::2])))
+        labels = dict((key, label.rsplit(" · ", 1)[-1])
+                      for label, key in component_options(preset_key, "LoRA", pending))
+        panels, numbers = [], []
+        for index in range(LORA_LIMIT):
+            if index < len(keys):
+                key = keys[index]
+                label = f'LoRA {index + 1} · {labels.get(key, key)[:65]}'
+                panels.append(gr.update(label=label, visible=True))
+                numbers.extend(old.get(key, (None, None)))
+            else:
+                panels.append(gr.update(visible=False))
+                numbers.extend((None, None))
+        return (keys, *panels, *numbers)
 
     def catalog_roles(preset_key):
         options = [*lab.PRESETS[preset_key].roles, *EXTRA_ROLES]
@@ -144,7 +181,8 @@ def render(main_tabs, directory, output_dir, result_view, release_qwen):
         size = 512 if preset.key == "sd15" else 768
         return (preset.steps, preset.cfg, size, size, gr.update(value=None, visible=bool(preset.refs)),
                 gr.update(value=preset.key == "flux3", visible=preset.key == "flux3"), notes,
-                *(choices(preset_key, role, pending) for role in BENCH_ROLES))
+                *(choices(preset_key, role, pending) for role in BENCH_ROLES),
+                *(gr.update(visible=role in preset.roles) for role in BENCH_ROLES))
 
     def refresh_lab(preset_key, pending, *values):
         return [choices(preset_key, role, pending, value) for role, value in zip(BENCH_ROLES, values)]
@@ -159,28 +197,38 @@ def render(main_tabs, directory, output_dir, result_view, release_qwen):
         saved = {**(saved or {}), entry_key: entry}
         if active_preset == target:
             parameters = [gr.skip()] * 7
+            rows = [gr.skip()] * len(BENCH_ROLES)
             selected = dict(zip(BENCH_ROLES, values))
         else:
-            parameters = lab_fields(target, saved)[:7]
+            fields = lab_fields(target, saved)
+            parameters = fields[:7]
+            rows = fields[7 + len(BENCH_ROLES):]
             selected = {}
         if role == "LoRA":
             adapters = list(dict.fromkeys([*(selected.get(role) or []), entry_key]))
-            if len(adapters) > 4:
+            if len(adapters) > LORA_LIMIT:
                 raise ValueError("Remova uma LoRA da Bancada antes de adicionar outra.")
             selected[role] = adapters
         else:
             selected[role] = entry_key
         return (gr.Tabs(selected="bancada"), target, saved, *parameters,
-                *(choices(target, item, saved, selected.get(item)) for item in BENCH_ROLES))
+                *(choices(target, item, saved, selected.get(item)) for item in BENCH_ROLES), *rows)
 
     def plan(preset_key, prompt, negative, width, height, steps, cfg, seed, refs, strength, expand, pending, *values):
         preset = lab.PRESETS[preset_key]
-        selected = dict(zip(BENCH_ROLES, values))
-        adapters = selected.pop("LoRA")
+        selected = {role: value for role, value in zip(BENCH_ROLES, values) if value != DEFAULT_COMPONENT}
+        adapters = selected.pop("LoRA", None)
         chosen = lab.selections(directory, preset, selected, adapters, pending)
         names, sources = lab.names_and_sources(preset, chosen, expand)
+        # Bind weights to the LoRA id even if the client has just reordered the selection.
+        weight_fields = values[len(BENCH_ROLES):]
+        weights = {}
+        if weight_fields:
+            order, *numbers = weight_fields
+            weights = dict(zip(order or [], zip(numbers[::2], numbers[1::2])))
+        pairs = [weights.get(key, (None, None)) for key in dict.fromkeys(adapters or [])]
         graph, uploads, actual_seed = lab.make_graph(preset, names, prompt, negative, width, height, steps, cfg,
-                                                      seed, refs, strength, expand)
+                                                      seed, refs, strength, expand, lora_weights=pairs)
         queued = [entry for entries in chosen.values() for entry, _ in entries if "download" in entry]
         return preset, graph, uploads, sources, actual_seed, queued
 
@@ -196,14 +244,34 @@ def render(main_tabs, directory, output_dir, result_view, release_qwen):
             status += "\nPreparação sob demanda: " + ", ".join(pending)
         return status + "\nA geração confirma se a combinação carrega e cabe na memória.", graph
 
-    @handle_errors
-    def generate(*values, progress=gr.Progress()):
-        preset, graph, uploads, sources, seed, queued = plan(*values)
-        release_qwen()
-        from functools import partial
-        prepare = partial(lab.prepare, sources=sources, uploads=uploads, pending=queued, asset_directory=directory)
-        job = workflows.run(graph, output_dir, progress, prepare=prepare, title=f"{preset.title} · seed {seed}")
-        images, _, _, files, status = result_view(job)
+    def acknowledge():
+        print("[Bancada] Clique recebido; aguardando a fila da GPU.", flush=True)
+        return gr.update(value="Job na fila…", interactive=False), "Pedido recebido. Aguardando a fila da GPU."
+
+    def generate(progress=gr.Progress(), *values):
+        # Gradio only injects Progress before the variadic portion of the signature.
+        started = time.monotonic()
+
+        def report(fraction, *, desc):
+            print(f"[Bancada +{time.monotonic() - started:.0f}s] {desc}", flush=True)
+            progress(fraction, desc=desc)
+
+        report(0, desc="Validando o conjunto")
+        try:
+            preset, graph, uploads, sources, seed, queued = plan(*values)
+            release_qwen()
+            prepare = partial(lab.prepare, sources=sources, uploads=uploads, pending=queued, asset_directory=directory)
+            job = workflows.run(graph, output_dir, report, prepare=prepare, title=f"{preset.title} · seed {seed}")
+            images, _, _, files, status = result_view(job)
+        except requests.RequestException:
+            status = "Falha de conexão com o serviço."
+            print(f"[Bancada] {status}", flush=True)
+            return gr.skip(), gr.skip(), status, gr.skip()
+        except (OSError, ValueError, KeyError) as exc:
+            status = f"Falhou: {exc}"
+            print(f"[Bancada] {status}", flush=True)
+            return gr.skip(), gr.skip(), status, gr.skip()
+        report(1, desc=f"Estado final: {job['status']}")
         return images, files, status, graph
 
     @handle_errors
@@ -256,57 +324,85 @@ def render(main_tabs, directory, output_dir, result_view, release_qwen):
         preview_gallery.select(select_image, paths, selected_path, queue=False, api_name=False)
 
     with gr.Tab("Bancada de modelos", id="bancada"):
-        with gr.Row():
-            with gr.Column():
+        with gr.Row(elem_id="cf-bench"):
+            with gr.Column(scale=5, min_width=320):
                 preset = gr.Dropdown(PRESET_CHOICES, value="qwen21", label="Preset")
-                pending_assets = gr.State({})
+                pending_assets, weight_order = gr.State({}), gr.State([])
                 notes = gr.Markdown("Até 3 referências. Em edição, a primeira recebe o recorte central da proporção escolhida.")
                 prompt = gr.Textbox(label="Prompt", lines=4)
+                with gr.Row():
+                    run = gr.Button("Gerar imagem", variant="primary")
+                    preflight = gr.Button("Checar conjunto", size="sm")
                 refs = gr.File(label="Referências na ordem enviada", type="filepath", file_types=["image"], file_count="multiple")
                 with gr.Row():
                     width = gr.Slider(256, 2048, step=32, value=768, label="Largura")
                     height = gr.Slider(256, 2048, step=32, value=768, label="Altura")
-                with gr.Accordion("Componentes instalados", open=False):
-                    components = [gr.Dropdown(label=role, multiselect=role == "LoRA",
-                                              visible=role in lab.PRESETS["qwen21"].roles)
-                                  for role in BENCH_ROLES]
-                    strength = gr.Slider(-2, 2, value=.8, step=.05, label="Peso comum das LoRAs")
-                    refresh = gr.Button("Atualizar arquivos instalados")
-                    gr.Markdown("Slots vazios usam os componentes do preset, quando disponíveis.")
-                with gr.Accordion("Parâmetros", open=False):
+                with gr.Accordion("Componentes do preset", open=True):
+                    components, component_rows, browse = [], [], []
+                    lora_panels, lora_weights = [], []
+                    for role in BENCH_ROLES:
+                        with gr.Row(visible=role in lab.PRESETS["qwen21"].roles, elem_classes=["cf-slot"]) as row:
+                            initial = component_options("qwen21", role)
+                            default = DEFAULT_COMPONENT if any(key == DEFAULT_COMPONENT for _, key in initial) else None
+                            selector = gr.Dropdown(initial, value=[] if role == "LoRA" else default, label=role,
+                                                   multiselect=role == "LoRA", max_choices=LORA_LIMIT if role == "LoRA" else None,
+                                                   min_width=150)
+                            lookup = gr.Button("Procurar mais", size="sm", scale=0, min_width=110)
+                        components.append(selector)
+                        component_rows.append(row)
+                        browse.append(lookup)
+                        if role == "LoRA":
+                            for index in range(LORA_LIMIT):
+                                with gr.Accordion(f"LoRA {index + 1}", open=False, visible=False) as panel:
+                                    with gr.Row():
+                                        lora_weights.append(gr.Number(value=.8, label=f"LoRA {index + 1} · Modelo", minimum=-2, maximum=2))
+                                        lora_weights.append(gr.Number(value=.8, label=f"LoRA {index + 1} · Encoder", minimum=-2, maximum=2))
+                                lora_panels.append(panel)
+                    refresh = gr.Button("Atualizar arquivos instalados", size="sm")
+                with gr.Accordion("Parâmetros avançados", open=False):
                     negative = gr.Textbox(label="Negativo (CFG acima de 1)")
                     with gr.Row():
                         steps = gr.Slider(1, 80, step=1, value=40, label="Passos")
                         cfg = gr.Slider(1, 12, step=.1, value=1, label="CFG")
                         seed = gr.Number(value=-1, precision=0, label="Seed (-1 aleatória)")
+                    strength = gr.Slider(-2, 2, value=.8, step=.05, label="Peso padrão para LoRAs sem ajuste próprio")
                     expand = gr.Checkbox(value=False, visible=False, label="Expansor de prompt local FLUX.3")
-                with gr.Row():
-                    preflight = gr.Button("Checar conjunto")
-                    run = gr.Button("Gerar imagem", variant="primary")
-            with gr.Column():
-                results = gr.Gallery(label="Imagens", format="png")
+            with gr.Column(scale=6, min_width=320):
+                status = gr.Textbox(value="Pronto para gerar.", label="Estado da geração", interactive=False,
+                                    lines=3, max_lines=5)
+                results = gr.Gallery(label="Imagens", format="png", height=420, object_fit="contain")
                 downloads = gr.File(label="Baixar arquivos", file_count="multiple")
-                status = gr.Textbox(label="Estado", interactive=False, lines=4)
                 with gr.Accordion("Grafo API enviado ao ComfyUI", open=False):
                     graph_view = gr.JSON(label="Grafo")
-        preset_outputs = [steps, cfg, width, height, refs, expand, notes, *components]
+        preset_outputs = [steps, cfg, width, height, refs, expand, notes, *components, *component_rows]
         preset.input(lab_fields, [preset, pending_assets], preset_outputs, queue=False, api_name=False)
         refresh.click(refresh_lab, [preset, pending_assets, *components], components, queue=False, api_name=False)
+        for role, lookup in zip(BENCH_ROLES, browse):
+            lookup.click(partial(browse_role, role), preset, [main_tabs, cpreset, crole, query, *catalog_outputs],
+                         queue=False, api_name=False)
         use_asset.click(assign_asset, [pick, state, cpreset, crole, pending_assets, preset, *components],
                         [main_tabs, preset, pending_assets, *preset_outputs], queue=False, api_name=False)
+        lora_selector = components[BENCH_ROLES.index("LoRA")]
+        lora_selector.change(sync_lora_controls, [preset, pending_assets, lora_selector, weight_order, *lora_weights],
+                             [weight_order, *lora_panels, *lora_weights], queue=False, api_name=False)
         inputs = [preset, prompt, negative, width, height, steps, cfg, seed, refs, strength, expand,
-                  pending_assets, *components]
+                  pending_assets, *components, weight_order, *lora_weights]
         preflight.click(check, inputs, [status, graph_view], api_name="checar_conjunto")
-        run.click(generate, inputs, [results, downloads, status, graph_view], api_name="bancada_gerar",
-                  concurrency_id="gpu", concurrency_limit=1)
+        accepted = run.click(acknowledge, None, [run, status], queue=False, api_name=False, trigger_mode="once")
+        job = accepted.success(generate, inputs, [results, downloads, status, graph_view], api_name="bancada_gerar",
+                               concurrency_id="gpu", concurrency_limit=1, show_progress="full", show_progress_on=status)
+        job.then(lambda: gr.update(value="Gerar imagem", interactive=True), None, run, queue=False, api_name=False)
+        job.failure(lambda: "Falha inesperada. Confira o log do Studio antes de tentar novamente.", None, status,
+                    queue=False, api_name=False)
         link_reference = send.click(send_image, selected_path, [main_tabs, preset, refs], queue=False, api_name=False)
-        # Restore the Qwen sampling/slots and retain the catalog image passed above.
-        lab_output_without_refs = [steps, cfg, width, height, expand, notes, *components]
+
         def reset_qwen_fields(saved):
             fields = lab_fields("qwen21", saved)
             return (*fields[:4], *fields[5:])
 
-        link_reference.success(reset_qwen_fields, pending_assets, lab_output_without_refs, queue=False, api_name=False)
+        link_reference.success(reset_qwen_fields, pending_assets,
+                               [steps, cfg, width, height, expand, notes, *components, *component_rows],
+                               queue=False, api_name=False)
 
     with gr.Tab("Direção de cena", id="direcao"):
         gr.Markdown("Organize sujeito, ação, câmera, luz e referências em um prompt editável.")
