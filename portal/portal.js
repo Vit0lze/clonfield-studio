@@ -261,30 +261,33 @@ function selection(target, id, choices, onChange) {
 function catalogCover(card) {
   const cover = element("div", null, "catalog-cover");
   const missing = element("span", "Sem capa disponível");
-  if (!card.cover) {
-    cover.append(missing);
-    return cover;
+  const sources = (card.covers || [card.cover]).filter(Boolean);
+  function showNext() {
+    while (sources.length) {
+      const source = sources.shift();
+      let url;
+      try { url = new URL(source.url); } catch { continue; }
+      if (!["https://image.civitai.com", "https://image-b2.civitai.com"].includes(url.origin)
+          || url.username || url.password) continue;
+      const video = source.type === "video";
+      const media = element(video ? "video" : "img");
+      media.addEventListener("error", showNext, { once: true });
+      if (video) {
+        media.controls = true;
+        media.preload = "metadata";
+        media.playsInline = true;
+      } else {
+        media.alt = card.title;
+        media.loading = "lazy";
+        media.decoding = "async";
+      }
+      media.src = url.href;
+      cover.replaceChildren(media);
+      return;
+    }
+    cover.replaceChildren(missing);
   }
-  let url;
-  try { url = new URL(card.cover.url); } catch { cover.append(missing); return cover; }
-  if (url.origin !== "https://image.civitai.com" || url.username || url.password) {
-    cover.append(missing);
-    return cover;
-  }
-  const video = card.cover.type === "video";
-  const media = element(video ? "video" : "img");
-  media.addEventListener("error", () => cover.replaceChildren(missing), { once: true });
-  if (video) {
-    media.controls = true;
-    media.preload = "metadata";
-    media.playsInline = true;
-  } else {
-    media.alt = card.title;
-    media.loading = "lazy";
-    media.decoding = "async";
-  }
-  media.src = url.href;
-  cover.append(media);
+  showNext();
   return cover;
 }
 function renderCatalog() {
@@ -295,7 +298,7 @@ function renderCatalog() {
   for (const card of results.cards) {
     const block = element("article", null, "catalog-card");
     block.setAttribute("aria-label", card.title);
-    block.append(catalogCover(card));
+    block.append(catalogCover(card), element("h3", card.title, "catalog-title"));
     const footer = element("div", null, "catalog-actions");
     const link = element("a", "Civitai");
     const page = new URL(card.page);
@@ -383,8 +386,11 @@ async function run(name, options = {}) {
     if (epoch !== state.epoch) return;
     if (options.update || ["catalogo_buscar", "catalogo_proxima", "historico_listar"].includes(name)) apply(dependency, output);
     if (["catalogo_buscar", "catalogo_proxima"].includes(name)) {
-      state.catalog = { cards: Array.isArray(output[5]) ? output[5] : [], next: output[4]?.interactive === true };
-      status(output[3] || "Busca concluída.");
+      const cards = Array.isArray(output[5]) ? output[5] : [];
+      state.catalog = { cards, next: output[4]?.interactive === true };
+      const summary = output[3] || "Busca concluída.";
+      const legacyCovers = cards.some(card => !Array.isArray(card.covers) && !card.cover);
+      status(legacyCovers ? `${summary} Atualize e reinicie o Studio no Colab para buscar capas na galeria.` : summary);
     } else if (name === "catalogo_instalar") {
       status(output[0] || "Arquivo baixado.");
       if (options.card) options.card.installed = true;

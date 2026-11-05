@@ -88,6 +88,7 @@ def render(main_tabs, directory, output_dir, result_view, release_qwen):
     @handle_errors
     def list_catalog(preset_key, role, query, cursor, previous=None):
         entries, next_cursor = civitai.search(lab.PRESETS[preset_key], role, query, cursor)
+        page_models = {entry.get("model") for entry in entries}
         if cursor and previous:
             entries = [*previous.values(), *entries]
         # Keep exact version/file choices in per-session state. UI values are just identifiers.
@@ -102,7 +103,7 @@ def render(main_tabs, directory, output_dir, result_view, release_qwen):
         installed = {(data.get("version"), data.get("file"))
                      for _, data, _ in civitai.inventory(directory, lab.PRESETS[preset_key], role)}
         return (gr.update(choices=labels, value=None), records, next_cursor, status,
-                gr.update(interactive=bool(next_cursor)), civitai.catalog_cards(records, installed))
+                gr.update(interactive=bool(next_cursor)), civitai.catalog_cards(records, installed, page_models))
 
     def clear_catalog():
         return gr.update(choices=[], value=None), {}, None, "", gr.update(interactive=False), []

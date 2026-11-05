@@ -29,6 +29,9 @@ QUERY_TYPES = {
     "CLIP Vision": ("CLIPVision",), "Motion Module": ("MotionModule",),
 }
 WEIGHT_SUFFIX = ".safetensors"
+MEDIA_HOSTS = {"image.civitai.com", "image-b2.civitai.com"}
+COVER_IMAGES = {".gif", ".png", ".jpg", ".jpeg", ".webp", ".avif"}
+COVER_LIMIT = 4
 
 
 def normalized(value):
@@ -77,7 +80,7 @@ def matching_files(model, version, preset, role):
     if role != "Upscaler" and normalized(base) not in preset.bases:
         return []
     accepted = []
-    cover = catalog_cover(version.get("images") or [])
+    covers = catalog_covers(version.get("images") or [])
     for file in version.get("files") or []:
         actual_role = file_role(model.get("type"), file)
         ambiguous_split = role == "Difusão" and actual_role == "Checkpoint" and preset.clip_type
@@ -100,7 +103,7 @@ def matching_files(model, version, preset, role):
                          "preset": preset.key, "base": base, "title": str(model.get("name") or "Recurso"),
                          "revision": str(version.get("name") or version["id"]),
                          "model": model.get("id"), "sha256": digest, "size_kb": file.get("sizeKB"),
-                         "download": download, "split_check": bool(ambiguous_split), "cover": cover,
+                         "download": download, "split_check": bool(ambiguous_split), "covers": covers,
                          "availability": version.get("availability")})
     return accepted
 
@@ -171,39 +174,96 @@ def search(preset, role, query, cursor=None):
 
 
 def image_url(value):
-    parsed = urlsplit(str(value or ""))
-    return (parsed.scheme == "https" and parsed.hostname == "image.civitai.com"
-            and not parsed.username and not parsed.password and parsed.netloc == "image.civitai.com")
+    if not isinstance(value, str):
+        return False
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return False
+    return parsed.scheme == "https" and parsed.netloc in MEDIA_HOSTS
 
 
-def catalog_cover(images):
+def catalog_covers(images):
+    covers = []
     for image in images:
         if not isinstance(image, dict):
             continue
         url = image.get("url")
-        if not image_url(url) or image.get("nsfw") or image.get("nsfwLevel") not in (None, 0, 1, "None"):
+        # The model API uses a numeric rating. The image API uses labels and a separate bitmask.
+        if (not image_url(url) or image.get("nsfw") not in (None, False, "false", "None", "PG")
+                or image.get("nsfwLevel") not in (None, 0, 1, "0", "1", "None", "PG")
+                or image.get("browsingLevel") not in (None, 1, "1")):
             continue
-        suffix = Path(urlsplit(url).path).suffix.lower()
-        still = {".gif", ".png", ".jpg", ".jpeg", ".webp", ".avif"}
-        if suffix in {".mp4", ".webm"} or (image.get("type") == "video" and suffix not in still):
-            return {"type": "video", "url": url}
-        if image.get("type", "image") in {"image", "gif", "video"}:
-            return {"type": "image", "url": url}
-    return None
+        parsed = urlsplit(url)
+        suffix = Path(parsed.path).suffix.lower()
+        kind = str(image.get("type") or "image").lower()
+        video = suffix in {".mp4", ".webm"} or (kind == "video" and suffix not in COVER_IMAGES)
+        if video:
+            covers.append({"type": "video", "url": url})
+            thumbnail = image.get("thumbnail")
+            if isinstance(thumbnail, dict) and image_url(thumbnail.get("url")):
+                covers.append({"type": "image", "url": thumbnail["url"]})
+        elif kind in {"image", "gif", "video"}:
+            # Ask the edge CDN for a card-sized still. Keep originals as a fallback
+            # and leave animated GIFs alone.
+            if parsed.netloc == "image.civitai.com" and suffix in COVER_IMAGES - {".gif"}:
+                path = re.sub(r"/original=true(?:,[^/]*)?/", "/width=450,optimized=true/", parsed.path, count=1)
+                if path != parsed.path:
+                    covers.append({"type": "image", "url": parsed._replace(path=path).geturl()})
+            covers.append({"type": "image", "url": url})
+        if len(covers) >= COVER_LIMIT:
+            break
+    return covers[:COVER_LIMIT]
 
 
-def catalog_cards(records, installed):
-    cards = []
-    seen_models = set()
+@lru_cache(maxsize=256)
+def gallery_covers(model, version):
+    # The catalog endpoint's preview sample can be empty even when a gallery has public images.
+    params = {"modelId": model, "nsfw": "None", "limit": 12}
+    with requests.Session() as session, request(
+        session, f"{API}/api/v1/images?{urlencode(params)}", None, timeout=(3, 4)
+    ) as response:
+        data = response.json()
+    images = [image for image in (data.get("items") or []) if isinstance(image, dict)]
+
+    def is_other_version(image):
+        versions = image.get("modelVersionIds")
+        return not isinstance(versions, list) or version not in versions
+
+    images.sort(key=is_other_version)
+    return catalog_covers(images)
+
+
+def catalog_cards(records, installed, page_models):
+    by_model = {}
     for key, entry in records.items():
         model = entry.get("model")
-        if type(model) is not int or model <= 0 or model in seen_models:
+        if type(model) is not int or model <= 0:
             continue
-        seen_models.add(model)
-        cards.append({"key": key, "title": entry["title"], "cover": entry.get("cover"),
-                      "page": f'{API}/models/{model}?modelVersionId={entry["version"]}',
-                      "installed": (entry["version"], entry["file"]) in installed})
-    return cards
+        if model not in by_model:
+            by_model[model] = {"key": key, "title": entry["title"], "covers": [],
+                               "page": f'{API}/models/{model}?modelVersionId={entry["version"]}',
+                               "installed": (entry["version"], entry["file"]) in installed}
+        covers = by_model[model]["covers"]
+        for cover in entry.get("covers") or ():
+            if cover not in covers and len(covers) < COVER_LIMIT:
+                covers.append(cover)
+
+    missing = [(model, card) for model, card in by_model.items()
+               if model in page_models and not card["covers"]]
+
+    def fill(item):
+        model, card = item
+        try:
+            entry = records[card["key"]]
+            card["covers"] = entry["covers"] = gallery_covers(model, entry["version"])
+        except (requests.RequestException, ValueError):
+            pass  # A gallery failure should not hide a compatible resource.
+
+    if missing:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(fill, missing))
+    return list(by_model.values())
 
 
 def previews(entry):
