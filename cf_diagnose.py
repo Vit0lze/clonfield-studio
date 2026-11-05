@@ -14,6 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PHASE = "CLONFIELD_PHASE "
+READY = "CLONFIELD_READY "
 
 
 def fields(path):
@@ -93,13 +94,15 @@ def classify(code, before, after, cuda_oom=False):
     return outcome, deltas
 
 
-def supervise(argv, target):
+def supervise(argv, target, startup_timeout=None):
     target.parent.mkdir(parents=True, exist_ok=True)
     paths = counter_paths(os.getpid())
     before = sample(os.getpid(), paths, "antes")
     phase = "inicialização"
     cuda_oom = False
     done = threading.Event()
+    ready = threading.Event()
+    timed_out = threading.Event()
     write_lock = threading.Lock()
     with target.open("w", encoding="utf-8", buffering=1) as log:
         def record(value):
@@ -107,8 +110,31 @@ def supervise(argv, target):
                 log.write(json.dumps(value, ensure_ascii=False) + "\n")
 
         record({"event": "before", **before})
+        print("ClonField: abrindo o processo do Studio.", flush=True)
         child = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                  text=True, errors="replace", cwd=ROOT)
+        def watch_startup():
+            start = time.monotonic()
+            while not ready.wait(min(10, max(0, startup_timeout - (time.monotonic() - start)))):
+                if done.is_set() or child.poll() is not None:
+                    return
+                elapsed = time.monotonic() - start
+                if elapsed >= startup_timeout:
+                    timed_out.set()
+                    print(f"ClonField: abertura excedeu {startup_timeout:g} s · etapa: {phase}.", flush=True)
+                    child.terminate()
+                    try:
+                        child.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        child.kill()
+                    return
+                print(f"ClonField: aguardando abertura há {elapsed:.0f} s · etapa: {phase}.", flush=True)
+
+        watchdog = None
+        if startup_timeout is not None:
+            watchdog = threading.Thread(target=watch_startup, daemon=True)
+            watchdog.start()
+
         def monitor():
             tick = 0
             while not done.is_set():
@@ -123,6 +149,8 @@ def supervise(argv, target):
         worker.start()
         try:
             for line in child.stdout:
+                if line.startswith(READY):
+                    ready.set()
                 if line.startswith(PHASE):
                     marker = line.removeprefix(PHASE).strip()
                     if re.fullmatch(r"[a-z_]{1,50}", marker):
@@ -140,12 +168,19 @@ def supervise(argv, target):
                 code = child.wait()
         finally:
             done.set()
+            ready.set()
+            if watchdog is not None:
+                watchdog.join()
             worker.join()
             child.stdout.close()
         after = sample(os.getpid(), paths, phase)
         outcome, deltas = classify(code, before, after, cuda_oom)
+        if timed_out.is_set():
+            outcome = "tempo_de_abertura_excedido"
         record({"event": "exit", "returncode": code, "outcome": outcome, "oom_kill_delta": deltas, **after})
     print(f"Diagnóstico: {outcome} · última etapa: {phase} · {target}", flush=True)
+    if timed_out.is_set():
+        return 124
     return 128 + abs(code) if code < 0 else code
 
 
@@ -153,9 +188,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--log", type=Path, default=Path("/content/clonfield_runtime/diagnostico.jsonl"))
     parser.add_argument("--probe", action="store_true")
+    parser.add_argument("--local", action="store_true", help="Abra sem o túnel público do Gradio.")
     args = parser.parse_args()
-    app_args = ["--probe-qwen"] if args.probe else []
-    raise SystemExit(supervise([sys.executable, "-u", str(ROOT / "studio_app.py"), *app_args], args.log))
+    app_args = ["--probe-qwen"] if args.probe else ["--local"] if args.local else []
+    timeout = None if args.probe else 90
+    raise SystemExit(supervise([sys.executable, "-u", str(ROOT / "studio_app.py"), *app_args],
+                              args.log, startup_timeout=timeout))
 
 
 if __name__ == "__main__":

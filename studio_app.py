@@ -1,10 +1,15 @@
 # 3. Iniciar ClonField Studio. Nenhum modelo é carregado até clicar em Gerar.
 print('ClonField: iniciando processo da interface...', flush=True)
-import os, sys, json, time, uuid, random, shutil, traceback, subprocess, socket
+import os, sys, json, time, uuid, random, shutil, traceback, subprocess
 from pathlib import Path
 from functools import partial
 import unicodedata
 from urllib.parse import urlparse, parse_qs
+
+# Gradio checks its own loopback endpoint during launch.
+no_proxy = os.environ.get("no_proxy") or os.environ.get("NO_PROXY") or ""
+os.environ["no_proxy"] = os.environ["NO_PROXY"] = ",".join(filter(None, (no_proxy, "127.0.0.1", "localhost")))
+print("CLONFIELD_PHASE importando_bibliotecas", flush=True)
 import requests, torch, gradio as gr
 from gradio import processing_utils
 from PIL import Image, ImageFilter
@@ -834,7 +839,9 @@ CSS = """
 .cf-app-card h3 {color:#fff; margin:.35rem 0;}
 .cf-app-card p {color:#e2d5e1;}
 """
-with gr.Blocks(title='ClonField Studio',theme=gr.themes.Soft(primary_hue='red',neutral_hue='slate'),css=CSS) as demo:
+phase('montando_interface')
+with gr.Blocks(title='ClonField Studio', theme=gr.themes.Soft(primary_hue='red', neutral_hue='slate'),
+               css=CSS, analytics_enabled=False) as demo:
     gr.Markdown('# ClonField Studio\nCrie, edite e amplie mídia. Os modelos são preparados quando você inicia um job.',elem_id='hero')
     with gr.Tabs(selected='explorar') as main_tabs:
         with gr.Tab('Explorar', id='explorar'):
@@ -1161,7 +1168,7 @@ with gr.Blocks(title='ClonField Studio',theme=gr.themes.Soft(primary_hue='red',n
             execute_seed.click(launch_seedvr2, [inp, kind, model, scale, seed, tile], outputs,
                                api_name='seedvr2', concurrency_id='gpu', concurrency_limit=1)
             with gr.Accordion('Reabrir resultado ou retomar coleta', open=False):
-                past_seedvr2 = gr.Dropdown(choices=seedvr2.recent_jobs(OUT), label='Upscales anteriores')
+                past_seedvr2 = gr.Dropdown(label='Upscales anteriores')
                 gr.Button('Atualizar lista').click(list_seedvr2_jobs, None, past_seedvr2)
                 gr.Button('Abrir job').click(reopen_seedvr2, past_seedvr2, outputs,
                                              concurrency_id='gpu', concurrency_limit=1)
@@ -1176,7 +1183,7 @@ with gr.Blocks(title='ClonField Studio',theme=gr.themes.Soft(primary_hue='red',n
                 family.input(original_choices, family, [original, wfout], queue=False, api_name=False)
                 gr.Button('Baixar grafo original').click(original_download, original, wfout, api_name=False)
             with gr.Accordion('Arquivos baixados do Civitai', open=False):
-                civ_file = gr.Dropdown(downloaded_workflows(), label='Arquivo')
+                civ_file = gr.Dropdown(label='Arquivo')
                 civ_download = gr.File(label='Abrir ou baixar')
                 gr.Button('Atualizar lista').click(
                     lambda: gr.update(choices=downloaded_workflows(), value=None), None, civ_file, api_name=False)
@@ -1198,7 +1205,7 @@ with gr.Blocks(title='ClonField Studio',theme=gr.themes.Soft(primary_hue='red',n
                 workflow_outputs = [wg, wv, wa, wd, wl]
                 go.click(api_workflow, [wf, server, wm], workflow_outputs, concurrency_id='gpu', concurrency_limit=1)
                 with gr.Accordion('Histórico e retomada de workflows', open=False):
-                    old_workflows = gr.Dropdown(choices=workflows.recent(OUT), label='Workflows anteriores')
+                    old_workflows = gr.Dropdown(label='Workflows anteriores')
                     gr.Button('Atualizar lista').click(list_workflow_jobs, None, old_workflows)
                     gr.Button('Abrir ou retomar coleta').click(
                         reopen_workflow, old_workflows, workflow_outputs, concurrency_id='gpu', concurrency_limit=1)
@@ -1272,13 +1279,24 @@ if '--probe-qwen' in sys.argv:
     raise SystemExit(0)
 
 import secrets
-GRADIO_USUARIO='clonfield';GRADIO_SENHA=secrets.token_urlsafe(16)
-print('Iniciando Gradio; aguarde a URL...',flush=True)
-demo.launch(share=True,debug=False,auth=(GRADIO_USUARIO,GRADIO_SENHA),prevent_thread_lock=True,show_error=True)
-url=getattr(demo,'share_url',None)
-print(('LINK DO GRADIO: '+str(url)) if url else 'Sem link público; confira a mensagem de erro acima.',flush=True)
-print('USUÁRIO: '+GRADIO_USUARIO+' | SENHA: '+GRADIO_SENHA,flush=True)
-print('Mantenha esta célula executando.',flush=True)
 import threading
-try:threading.Event().wait()
-finally:demo.close()
+
+GRADIO_USUARIO = 'clonfield'
+GRADIO_SENHA = secrets.token_urlsafe(16)
+public = '--local' not in sys.argv
+phase('abrindo_tunel_publico' if public else 'abrindo_servidor_local')
+print('Iniciando Gradio...', flush=True)
+try:
+    demo.launch(share=public, server_name='127.0.0.1', inline=False, inbrowser=False,
+                auth=(GRADIO_USUARIO, GRADIO_SENHA), prevent_thread_lock=True,
+                show_error=True, enable_monitoring=False)
+    if demo.share_url:
+        print('LINK PÚBLICO: ' + demo.share_url, flush=True)
+    elif public:
+        print('O túnel público falhou. Use o link do Colab se estiver no notebook.', flush=True)
+    print(f'USUÁRIO: {GRADIO_USUARIO} | SENHA: {GRADIO_SENHA}', flush=True)
+    phase('interface_pronta')
+    print(f'CLONFIELD_READY {demo.server_port}', flush=True)
+    threading.Event().wait()
+finally:
+    demo.close()
