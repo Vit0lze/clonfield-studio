@@ -72,7 +72,7 @@ PRESETS = {p.key: p for p in (
         "Difusão": (QWEN, "diffusion_models/qwen_image_2.1_int8_convrot.safetensors"),
         "Encoder": (QWEN, "text_encoders/qwen3vl_8b_int8_convrot.safetensors"),
         "VAE": (QWEN, "vae/qwen_image_2.1_vae_bf16.safetensors"),
-    }, refs=3),
+    }, refs=10),
     Preset("flux2", "FLUX.2 Klein 4B · Distilled", ("Flux.2 Klein 4B",), "flux2", "EmptyFlux2LatentImage", 4, 1, {
         "Difusão": (FLUX2, "split_files/diffusion_models/flux-2-klein-4b.safetensors"),
         "Encoder": (FLUX2, "split_files/text_encoders/qwen_3_4b.safetensors"),

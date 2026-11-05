@@ -33,19 +33,19 @@ QUALITIES = [("draft", "Rascunho", 512), ("standard", "Padrão", None), ("high",
 
 # Qualitative guidance only: sizes of these checkpoints are not published in the presets.
 MODEL_INFO = {
-    "qwen21": dict(tagline="Edição fiel e texto legível em imagem", weight="pesado", min_vram=24, speed=2, quality=5,
+    "qwen21": dict(name="Qwen Image 2.1", tagline="Edição fiel e texto legível em imagem", weight="pesado", min_vram=24, speed=2, quality=5,
                    page="https://huggingface.co/Qwen/Qwen-Image-2.1"),
-    "flux2": dict(tagline="Rápido, destilado, ótimo para iterar", weight="leve", min_vram=8, speed=5, quality=3,
+    "flux2": dict(name="FLUX.2 Klein 4B", tagline="Rápido, destilado, ótimo para iterar", weight="leve", min_vram=8, speed=5, quality=3,
                   page="https://huggingface.co/Comfy-Org/Flux-2-Klein-4B"),
-    "flux3": dict(tagline="Klein de nova geração com expansor de prompt", weight="leve", min_vram=10, speed=4, quality=4,
+    "flux3": dict(name="FLUX.3 Klein", tagline="Klein de nova geração com expansor de prompt", weight="leve", min_vram=10, speed=4, quality=4,
                   page="https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy"),
-    "krea2": dict(tagline="Estética autoral, base para estilos", weight="médio", min_vram=16, speed=3, quality=4,
+    "krea2": dict(name="Krea 2", tagline="Estética autoral, base para estilos", weight="médio", min_vram=16, speed=3, quality=4,
                   page="https://huggingface.co/Comfy-Org/Krea-2"),
-    "krea2-turbo": dict(tagline="Krea 2 em poucos passos", weight="médio", min_vram=16, speed=4, quality=4,
+    "krea2-turbo": dict(name="Krea 2 Turbo", tagline="Krea 2 em poucos passos", weight="médio", min_vram=16, speed=4, quality=4,
                         page="https://huggingface.co/Comfy-Org/Krea-2"),
-    "z-image": dict(tagline="Realismo limpo, ótima aderência ao prompt", weight="médio", min_vram=12, speed=3, quality=4,
+    "z-image": dict(name="Z-Image", tagline="Realismo limpo, ótima aderência ao prompt", weight="médio", min_vram=12, speed=3, quality=4,
                     page="https://huggingface.co/Comfy-Org/Z-Image"),
-    "z-image-turbo": dict(tagline="Z-Image em 8 passos", weight="médio", min_vram=12, speed=5, quality=4,
+    "z-image-turbo": dict(name="Z-Image Turbo", tagline="Z-Image em 8 passos", weight="médio", min_vram=12, speed=5, quality=4,
                           page="https://huggingface.co/Comfy-Org/Z-Image-Turbo"),
 }
 IMAGE_MODELS = [key for key in MODEL_INFO if key in lab.PRESETS]
@@ -59,7 +59,7 @@ def model_card(key, tier=None):
         target = root / Path(filename).parts[-2] / Path(filename).name
         files.append({"role": role, "name": Path(filename).name, "repo": repo,
                       "installed": target.is_file() and target.stat().st_size > 0})
-    card = {"key": key, "title": preset.title.split(" · ")[0], "subtitle": preset.title, "refs": preset.refs,
+    card = {"key": key, "title": info["name"], "subtitle": preset.title, "refs": preset.refs,
             "steps": preset.steps, "cfg": preset.cfg, "files": files, "installed": all(f["installed"] for f in files),
             "family": key, **info}
     if tier is not None:
@@ -94,11 +94,11 @@ def quality_options(tier):
 
 
 def image_fields(tier, refs_required=0, prompt_default="", prompt_label="Descreva a imagem", refs_label="Referências"):
-    models = [opt(k, lab.PRESETS[k].title.split(" · ")[0], MODEL_INFO[k]["tagline"]) for k in IMAGE_MODELS]
+    models = [opt(k, MODEL_INFO[k]["name"], MODEL_INFO[k]["tagline"]) for k in IMAGE_MODELS]
     default_model = "flux2" if tier.vram_gb < 16 else "qwen21"
     return [
         dict(id="prompt", type="textarea", label=prompt_label, default=prompt_default, required=True, rows=4),
-        dict(id="refs", type="files", label=refs_label, accept="image", max=3, min=refs_required,
+        dict(id="refs", type="files", label=refs_label, accept="image", max=16, min=refs_required,
              help="A ordem importa: a primeira imagem é a principal."),
         dict(id="model", type="model", label="Modelo", default=default_model, options=models),
         dict(id="aspect", type="chips", label="Proporção", default="1:1", options=[opt(n, n) for n, _, _ in ASPECTS]),
