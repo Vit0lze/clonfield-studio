@@ -12,3 +12,4 @@ __pycache__/
 /outputs/
 .cache/
 node_modules/
+.pytest_cache/

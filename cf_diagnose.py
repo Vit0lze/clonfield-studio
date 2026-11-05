@@ -187,11 +187,10 @@ def supervise(argv, target, startup_timeout=None):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--log", type=Path, default=Path("/content/clonfield_runtime/diagnostico.jsonl"))
-    parser.add_argument("--probe", action="store_true")
     parser.add_argument("--local", action="store_true", help="Abra sem o túnel público do Gradio.")
     args = parser.parse_args()
-    app_args = ["--probe-qwen"] if args.probe else ["--local"] if args.local else []
-    timeout = None if args.probe else 90
+    app_args = ["--local"] if args.local else []
+    timeout = 90
     raise SystemExit(supervise([sys.executable, "-u", str(ROOT / "studio_app.py"), *app_args],
                               args.log, startup_timeout=timeout))
 

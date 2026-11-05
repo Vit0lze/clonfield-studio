@@ -10,18 +10,18 @@ from urllib.parse import urlparse, parse_qs
 no_proxy = os.environ.get("no_proxy") or os.environ.get("NO_PROXY") or ""
 os.environ["no_proxy"] = os.environ["NO_PROXY"] = ",".join(filter(None, (no_proxy, "127.0.0.1", "localhost")))
 print("CLONFIELD_PHASE importando_bibliotecas", flush=True)
-import requests, torch, gradio as gr
+import requests, gradio as gr
 from gradio import processing_utils
 from PIL import Image, ImageFilter
 import numpy as np
 import zipfile
+import cf_apps, cf_jobs, cf_loras, cf_tiers, cf_upscale
+import cf_model_lab as model_lab
+import cf_workflows as workflows
 
 BASE=Path(os.environ.get('CLONFIELD_DIR','/content/ClonField_Lab'))
 LORAS=BASE/'loras'; OUT=BASE/'outputs'
 for p in (LORAS, OUT): p.mkdir(parents=True,exist_ok=True)
-pipe=None; loaded=[]; current_config=None
-QWEN_DEFAULT = 'Qwen/Qwen-Image-2.1'
-QWEN_TURBO = 'Qwen/Qwen-Image-2.1-Turbo'
 DEFAULT_SIZE = '768 × 768 · Inicial'
 IMAGE_SIZES = {
     '512 × 512 · Rascunho': (512, 512),
@@ -35,104 +35,16 @@ IMAGE_SIZES = {
     '1536 × 2752 · Alta vertical': (1536, 2752),
 }
 SEEDVR2_POST = 'SeedVR2 INT8'
-CATALOGO = [{'repo': 'Viggle/Qwen-Image-2.1-viggle-turbo', 'revision': '009a44a895ef85f7e643c80fdca9543795248867', 'file': 'Qwen-Image-2.1-viggle-turbo-4step-lora-r64.safetensors'}, {'repo': 'Viggle/Qwen-Image-2.1-viggle-turbo', 'revision': '009a44a895ef85f7e643c80fdca9543795248867', 'file': 'Qwen-Image-2.1-viggle-turbo-v0.2-5step-lora-r128.safetensors'}, {'repo': 'Viggle/Qwen-Image-2.1-viggle-turbo', 'revision': '009a44a895ef85f7e643c80fdca9543795248867', 'file': 'Qwen-Image-2.1-viggle-turbo-v0.2-5step-lora-r256.safetensors'}, {'repo': 'Viggle/Qwen-Image-2.1-viggle-turbo', 'revision': '009a44a895ef85f7e643c80fdca9543795248867', 'file': 'Qwen-Image-2.1-viggle-turbo-v0.2.1-6step-lora-r128.safetensors'}, {'repo': 'Viggle/Qwen-Image-2.1-viggle-turbo', 'revision': '009a44a895ef85f7e643c80fdca9543795248867', 'file': 'Qwen-Image-2.1-viggle-turbo-v0.2.1-6step-lora-r256.safetensors'}, {'repo': 'Viggle/Qwen-Image-2.1-viggle-turbo', 'revision': '009a44a895ef85f7e643c80fdca9543795248867', 'file': 'Qwen-Image-2.1-viggle-turbo-v0.3-6step-lora-r128.safetensors'}, {'repo': 'Viggle/Qwen-Image-2.1-viggle-turbo', 'revision': '009a44a895ef85f7e643c80fdca9543795248867', 'file': 'Qwen-Image-2.1-viggle-turbo-v0.3-6step-lora-r256.safetensors'}, {'repo': 'Alissonerdx/BFS-Best-Face-Swap', 'revision': '0ca3913ade4b4ada458d60c232354e8586c4c181', 'file': 'bfs_body_swap_v1.0_qwen_2.1.safetensors'}, {'repo': 'Alissonerdx/BFS-Best-Face-Swap', 'revision': '0ca3913ade4b4ada458d60c232354e8586c4c181', 'file': 'bfs_head_swap_v1_ltx2_ic_lora_12000_train_3.safetensors'}, {'repo': 'Alissonerdx/BFS-Best-Face-Swap', 'revision': '0ca3913ade4b4ada458d60c232354e8586c4c181', 'file': 'bfs_head_swap_v1_ltx2_ic_lora_5000.safetensors'}, {'repo': 'Alissonerdx/BFS-Best-Face-Swap', 'revision': '0ca3913ade4b4ada458d60c232354e8586c4c181', 'file': 'bfs_head_swap_v1_ltx2_ic_lora_6000.safetensors'}, {'repo': 'Alissonerdx/BFS-Best-Face-Swap', 'revision': '0ca3913ade4b4ada458d60c232354e8586c4c181', 'file': 'bfs_head_v1.1_alternative_qwen_2.1.safetensors'}, {'repo': 'Alissonerdx/BFS-Best-Face-Swap', 'revision': '0ca3913ade4b4ada458d60c232354e8586c4c181', 'file': 'bfs_head_v1.1_qwen_2.1.safetensors'}, {'repo': 'Alissonerdx/BFS-Best-Face-Swap', 'revision': '0ca3913ade4b4ada458d60c232354e8586c4c181', 'file': 'bfs_head_v1_qwen_2.1.safetensors'}, {'repo': 'Comfy-Org/SCAIL-2', 'revision': 'fe3c728bc793ba21ca674688f822afb709ad44fb', 'file': 'loras/wan2.1_SCAIL_2_DPO_lora_bf16.safetensors'}, {'repo': 'Comfy-Org/SCAIL-2', 'revision': 'fe3c728bc793ba21ca674688f822afb709ad44fb', 'file': 'loras/wan2.1_SCAIL_2_relight_lora_bf16.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_darkbrush.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_dotmatrix.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_kidsdrawing.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_neondrip.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_rainywindow.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_retroanime.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_softwatercolor.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_style_reference.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_sunsetblur.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_turbo_lora_rank_64_bf16.safetensors'}, {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_vintagetarot.safetensors'}]
-CATALOGO_BY_ID = {f"{r['repo']} :: {r['file']}":r for r in CATALOGO}
+from cf_loras import CATALOGO, CATALOGO_BY_ID
 
 
 def unload_qwen():
-    global pipe, loaded, current_config
-    if pipe is None:
-        return
-    import gc
-    old = pipe
-    pipe, loaded, current_config = None, [], None
-    try:
-        if hasattr(old, 'remove_all_hooks'):
-            old.remove_all_hooks()
-    finally:
-        del old
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-
-def model_defaults(model):
-    if model == QWEN_TURBO:
-        return 8, 1
-    if model == QWEN_DEFAULT:
-        return 40, 1
-    return gr.skip(), gr.skip()
+    """Qwen now runs inside ComfyUI, which frees its own models. Kept for the tool modules' callbacks."""
 
 
 def phase(name):
     print(f"CLONFIELD_PHASE {name}", flush=True)
 
-
-def qwen_memory(stage):
-    try:
-        rss = next(line.split()[1] for line in Path('/proc/self/status').read_text().splitlines()
-                   if line.startswith('VmRSS:'))
-        available = next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines()
-                         if line.startswith('MemAvailable:'))
-        cpu = f'RAM do processo {int(rss) / 1024**2:.1f} GiB · RAM disponível {int(available) / 1024**2:.1f} GiB'
-    except (OSError, ValueError, StopIteration):
-        cpu = 'RAM indisponível'
-    try:
-        free, total = torch.cuda.mem_get_info(0)
-        gpu = f'VRAM livre {free / 1024**3:.1f}/{total / 1024**3:.1f} GiB'
-    except (OSError, RuntimeError):
-        gpu = 'VRAM indisponível'
-    print(f'Qwen · {stage} · {cpu} · {gpu}', flush=True)
-
-
-def iniciar(model, quant, offload):
-    global pipe, loaded, current_config
-    if not torch.cuda.is_available():
-        raise gr.Error('GPU não encontrada. Ative GPU no Colab e reinicie a sessão.')
-    wanted = (model, bool(quant), bool(offload))
-    if pipe is not None and current_config == wanted:
-        return f'Modelo em memória: {model}'
-    unload_qwen()
-
-    phase('qwen_import')
-    try:
-        from diffusers import QwenImage21Pipeline
-        from diffusers.quantizers import PipelineQuantizationConfig
-
-        dtype = torch.bfloat16 if torch.cuda.is_bf16_supported(including_emulation=False) else torch.float16
-        kwargs = {'dtype': dtype, 'token': os.environ.get('HF_TOKEN') or None,
-                  'low_cpu_mem_usage': True}
-        if not offload:
-            # Envia os componentes à GPU durante o carregamento. Evita mover a pipeline inteira depois.
-            kwargs['device_map'] = 'cuda'
-        if quant:
-            kwargs['quantization_config'] = PipelineQuantizationConfig(
-                quant_backend='bitsandbytes_4bit',
-                quant_kwargs={'load_in_4bit': True, 'bnb_4bit_quant_type': 'nf4',
-                              'bnb_4bit_compute_dtype': dtype, 'bnb_4bit_use_double_quant': True},
-                components_to_quantize=['transformer', 'text_encoder'],
-            )
-        qwen_memory(f'carregando componentes (dtype {dtype}, NF4 {bool(quant)})')
-        phase('qwen_from_pretrained')
-        p = QwenImage21Pipeline.from_pretrained(model, **kwargs)
-        phase('qwen_components_ready')
-        qwen_memory('componentes carregados')
-        if offload:
-            qwen_memory('ativando offload para CPU')
-            phase('qwen_cpu_offload')
-            p.enable_model_cpu_offload()
-        phase('qwen_vae_setup')
-        p.vae.enable_slicing()
-        p.vae.enable_tiling()
-        pipe, loaded, current_config = p, [], wanted
-        phase('qwen_ready')
-        qwen_memory('pipeline pronta')
-        return f'Carregado: {model}'
-    except Exception as e:
-        if isinstance(e, torch.cuda.OutOfMemoryError):
-            phase('cuda_oom')
-        traceback.print_exc()
-        raise gr.Error(f'Falha ao carregar o Qwen: {e}. Veja a etapa e a memória no log do Colab.') from e
 
 def nomes(): return sorted(p.name for p in LORAS.glob('*.safetensors'))
 def atualizar(): return gr.update(choices=nomes())
@@ -178,69 +90,11 @@ def baixar(url, token):
     except Exception as e: raise gr.Error(f'Falha no download ({type(e).__name__}). Confira link, permissão, token e espaço disponível.')
 
 
-UP_MODELS={
-    'RealESRGAN_x4plus (fotografia)': ('RealESRGAN_x4plus.pth','https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth'),
-    'RealESRGAN anime 6B (desenho)': ('RealESRGAN_x4plus_anime_6B.pth','https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth'),
-}
-def baixar_upscaler(nome):
-    from spandrel import ModelLoader, ImageModelDescriptor
-    filename,url=UP_MODELS[nome]; directory=BASE/'upscalers'; directory.mkdir(exist_ok=True)
-    weight=directory/filename
-    if not weight.exists():
-        part=weight.with_suffix('.part')
-        try:
-            with requests.get(url,stream=True,timeout=(30,180)) as r:
-                r.raise_for_status()
-                with open(part,'wb') as f:
-                    for chunk in r.iter_content(1024*1024):
-                        if chunk: f.write(chunk)
-            os.replace(part,weight)
-        finally:
-            if part.exists(): part.unlink()
-    model=ModelLoader().load_from_file(str(weight))
-    if not isinstance(model, ImageModelDescriptor): raise ValueError('O arquivo não é um upscaler de imagem suportado.')
-    return model
+UP_MODELS = cf_upscale.MODELS
 
-def upscale_ia(im, nome, scale, tile, pad, device):
-    # Overlap/crop evita bordas visíveis e mantém o pico de VRAM controlado.
-    model=None
-    try:
-        model=baixar_upscaler(nome).to(device).eval()
-        native=int(model.scale); w,h=im.size; tile=int(tile); pad=int(pad)
-        rgb=np.asarray(im.convert('RGB'),dtype=np.float32)/255.0
-        result=Image.new('RGB',(w*native,h*native))
-        with torch.inference_mode():
-            for y in range(0,h,tile):
-                for x in range(0,w,tile):
-                    x2=min(x+tile,w); y2=min(y+tile,h)
-                    left=max(0,x-pad); top=max(0,y-pad); right=min(w,x2+pad); bottom=min(h,y2+pad)
-                    arr=np.ascontiguousarray(rgb[top:bottom,left:right])
-                    t=torch.from_numpy(arr).permute(2,0,1).unsqueeze(0).to(device)
-                    out=model(t).clamp(0,1)[0].permute(1,2,0).cpu().numpy()
-                    patch=Image.fromarray((out*255.0+0.5).astype(np.uint8),'RGB')
-                    patch=patch.crop(((x-left)*native,(y-top)*native,(x2-left)*native,(y2-top)*native))
-                    result.paste(patch,(x*native,y*native))
-                    del t,out,patch
-        size=(int(round(w*float(scale))),int(round(h*float(scale))))
-        if result.size!=size: result=result.resize(size,Image.Resampling.LANCZOS)
-        if 'A' in im.getbands(): result.putalpha(im.getchannel('A').resize(size,Image.Resampling.LANCZOS))
-        return result
-    finally:
-        if model is not None: del model
-        if torch.cuda.is_available(): torch.cuda.empty_cache()
 
 def postprocessar(im, modo, escala, tile, pad, device, nitidez):
-    if modo=='Nenhum': out=im.copy()
-    elif modo=='Lanczos (rápido, sem IA)':
-        out=im.resize((round(im.width*escala),round(im.height*escala)),Image.Resampling.LANCZOS)
-    else:
-        out=upscale_ia(im,modo,escala,tile,pad,device)
-    if nitidez>0:
-        # Filtro atua apenas no RGB, preservando canal alfa.
-        alpha=out.getchannel('A') if 'A' in out.getbands() else None
-        out=out.convert('RGB').filter(ImageFilter.UnsharpMask(radius=1.2,percent=int(nitidez),threshold=3))
-        if alpha is not None: out.putalpha(alpha)
-    return out
+    return cf_upscale.process(im, modo, escala, int(tile), int(pad), device, nitidez, BASE)
 
 def pos_manual(file, modo, escala, tile, pad, device, nitidez):
     if not file: raise gr.Error('Envie uma imagem primeiro.')
@@ -252,169 +106,72 @@ def pos_manual(file, modo, escala, tile, pad, device, nitidez):
     except Exception as e:
         traceback.print_exc(); raise gr.Error(f'Falhou o pós-processamento: {e}. Se faltou VRAM, selecione CPU ou blocos menores.')
 
-def clear_qwen_adapters():
-    global loaded
-    if loaded:
-        if hasattr(pipe, 'unload_lora_weights'):
-            pipe.unload_lora_weights()
-        else:
-            for name in loaded:
-                pipe.transformer.delete_adapters(name)
-        loaded = []
-
-
 def image_size(preset):
     return IMAGE_SIZES.get(preset, (gr.skip(), gr.skip()))
 
 
-def gerar(prompt, negative, files, width, height, steps, cfg, seed, nimgs, choices, weights, transparent, kv_cache, sigmas, modo, escala, tile, pad, device, nitidez, model, quant, offload, curated, composite_scene, mask_file, feather, progress=gr.Progress()):
-    global loaded, pipe
+class LegacyContext:
+    """Lets the shared app runners report into a Gradio progress bar."""
+
+    def __init__(self, progress):
+        import types
+        self._progress, self.out_dir, self.control = progress, OUT, workflows.Control()
+        self.job = types.SimpleNamespace(id=uuid.uuid4().hex[:12], update=lambda **fields: None)
+
+    def progress(self, fraction=None, desc=None, **_):
+        self._progress(min(1, max(0, fraction or 0)), desc=desc)
+
+    def check(self):
+        pass
+
+
+def gerar(prompt, negative, files, width, height, steps, cfg, seed, nimgs, choices, weights, composite_scene, mask_file, feather, model, curated, modo, escala, tile, pad, device, nitidez, progress=gr.Progress()):
     if not prompt or not prompt.strip(): raise gr.Error('Escreva um prompt.')
-    try: vals_pre=[float(x.strip()) for x in (weights or '').split(',') if x.strip()]
+    try: strengths=[float(x.strip()) for x in (weights or '').split(',') if x.strip()]
     except ValueError: raise gr.Error('Pesos das LoRAs precisam ser números separados por vírgula.')
-    if any(not -2 <= x <= 2 for x in vals_pre): raise gr.Error('Use pesos entre -2 e 2.')
+    if any(not -2 <= x <= 2 for x in strengths): raise gr.Error('Use pesos entre -2 e 2.')
     if bool(composite_scene) != bool(mask_file): raise gr.Error('Para composição, envie a cena e a máscara juntas.')
-    if len(files or []) + bool(composite_scene)>10: raise gr.Error('Máximo de 10 imagens de referência, incluindo a cena da composição.')
+    names=list(dict.fromkeys((choices or [])+[Path(CATALOGO_BY_ID[k]['file']).name for k in (curated or [])]))
+    loras=[{'name':n,'strength':strengths[i] if i<len(strengths) else 1.0} for i,n in enumerate(names)]
+    preset=model_lab.PRESETS[model]
+    refs=list(files or [])
     if composite_scene:
         from PIL import ImageOps
-        with Image.open(composite_scene) as im: scene_size=ImageOps.exif_transpose(im).size
-        with Image.open(mask_file) as im: mask_size=ImageOps.exif_transpose(im).size
-        if scene_size != mask_size: raise gr.Error('A máscara precisa ter a mesma largura e altura da cena.')
-    progress(0,desc='Preparando modelo e componentes sob demanda…')
-    iniciar(model,quant,offload)
-    if curated:
-        progress(0.10,desc='Baixando LoRAs selecionadas…')
-        try: baixar_catalogo(curated)
-        except Exception as e: raise gr.Error('Falha ao baixar uma LoRA do catálogo. Confira acesso, conexão e espaço disponível.')
-        choices=list(dict.fromkeys((choices or [])+[Path(CATALOGO_BY_ID[k]['file']).name for k in curated]))
-    progress(0.2,desc='Modelo preparado; iniciando geração…')
+        with Image.open(composite_scene) as im: refs.insert(0, composite_scene)
+    ctx=LegacyContext(progress)
     try:
-        clear_qwen_adapters()
-        vals = vals_pre
-        for i,name in enumerate(choices or []):
-            path=LORAS/Path(name).name; adapter=f'lora_{i}'
-            if hasattr(pipe,'load_lora_weights'): pipe.load_lora_weights(str(path.parent),weight_name=path.name,adapter_name=adapter)
-            elif hasattr(pipe.transformer,'load_lora_adapter'): pipe.transformer.load_lora_adapter(str(path.parent),weight_name=path.name,adapter_name=adapter,prefix=None)
-            else: raise ValueError('Esta versão do Diffusers não oferece carregamento de LoRA para este pipeline.')
-            loaded.append(adapter)
-        if loaded:
-            scales=[vals[i] if i<len(vals) else 1.0 for i in range(len(loaded))]
-            if hasattr(pipe,'set_adapters'): pipe.set_adapters(loaded,adapter_weights=scales)
-            else: pipe.transformer.set_adapters(loaded,weights=scales)
-        refs=[]
+        outs=cf_apps.run_graph_images(ctx, preset, {'prompt':prompt,'negative':negative,'steps':steps,'cfg':cfg,'seed':seed,'loras':loras}, refs, int(width), int(height), int(nimgs))
+    except cf_jobs.JobError as exc:
+        raise gr.Error(str(exc)) from exc
+    paths=[]; originais=[]; report=[]
+    from PIL import ImageOps
+    for out in outs:
+        img=Image.open(out).convert('RGB'); originais.append(str(out)); final=out
         if composite_scene:
-            from PIL import ImageOps
-            with Image.open(composite_scene) as im: refs.append(ImageOps.exif_transpose(im).convert('RGB').copy())
-        for f in files or []:
-            with Image.open(f) as im: refs.append(im.convert('RGB').copy())
-        if transparent: prompt='This is an RGBA image with transparency. '+prompt+' The image has alpha channel and the background is transparent.'
-        seed=int(seed); seed=random.randrange(0,2**32-1) if seed<0 else seed
-        paths=[]; originais=[]; report=[]; meta={'prompt':prompt,'negative_prompt':negative,'seed':seed,'width':int(width),'height':int(height),'steps':int(steps),'true_cfg_scale':cfg,'loras':choices,'weights':weights,'references':len(refs),'kv_cache':kv_cache,'sigmas':sigmas,'upscale':modo,'escala':escala,'bloco':tile,'margem':pad,'dispositivo_upscale':device,'nitidez':nitidez,'modelo':model,'quantizado_4bit':quant,'offload_cpu':offload,'catalogo_loras':curated,'composicao_mascara':bool(mask_file),'borda_suave':feather}
-        for i in range(int(nimgs)):
-            args=dict(prompt=prompt,width=int(width),height=int(height),num_inference_steps=int(steps),true_cfg_scale=float(cfg),generator=torch.Generator('cpu').manual_seed(seed+i))
-            args['use_kv_cache']=kv_cache
-            if sigmas.strip():
-                values=[float(v.strip()) for v in sigmas.split(',') if v.strip()]
-                if not values or any(v<0 or v>1 for v in values) or any(a<=b for a,b in zip(values,values[1:])): raise ValueError('Sigmas devem estar entre 0 e 1, em ordem decrescente, separados por vírgulas.')
-                args['sigmas']=values
-            if negative.strip() and cfg>1: args['negative_prompt']=negative
-            if refs: args['image']=refs if len(refs)>1 else refs[0]
-            total_steps=len(values) if sigmas.strip() else int(steps)
-            def report_step(_pipe, step, timestep, kwargs):
-                if step == 0:
-                    phase('qwen_first_step')
-                if step + 1 == total_steps:
-                    phase('qwen_decode')
-                progress(min(0.9, 0.2 + 0.7 * (i + (step+1)/max(total_steps,1)) / int(nimgs)), desc=f'Imagem {i+1}/{int(nimgs)} · passo {step+1}/{total_steps}')
-                return kwargs
-            args['callback_on_step_end']=report_step
-            phase('qwen_encode_and_first_step')
-            img=pipe(**args).images[0]
-            phase('qwen_image_ready')
-            if composite_scene:
-                from PIL import ImageOps
-                with Image.open(composite_scene) as source: background=ImageOps.exif_transpose(source).convert('RGB')
-                with Image.open(mask_file) as source: mask=ImageOps.exif_transpose(source).convert('L')
-                if mask.size != background.size: raise ValueError('A máscara precisa ter a mesma largura e altura da cena.')
-                if feather>0: mask=mask.filter(ImageFilter.GaussianBlur(radius=float(feather)))
-                img=Image.composite(img.convert('RGB').resize(background.size,Image.Resampling.LANCZOS),background,mask)
-            path=OUT/(time.strftime('%Y%m%d_%H%M%S')+'_'+uuid.uuid4().hex[:8]+'.png'); img.save(path)
-            originais.append(str(path)); final=path
-            if modo != SEEDVR2_POST and (modo != 'Nenhum' or nitidez > 0):
-                progress(0.92,desc='Aplicando pós-processamento…')
-                try:
-                    img_final=postprocessar(img,modo,float(escala),int(tile),int(pad),device,nitidez)
-                    final=path.with_name(path.stem+'_final.png'); img_final.save(final)
-                except Exception as e:
-                    traceback.print_exc(); report.append(f'Pós-processamento falhou para seed {seed+i}: {e}; original preservado.')
-            paths.append(str(final))
-            path.with_suffix('.json').write_text(json.dumps({**meta,'seed':seed+i,'original':str(path),'final':str(final),'avisos':report},ensure_ascii=False,indent=2))
-        if modo == SEEDVR2_POST:
-            unload_qwen()
-            pending = False
-            for i, original in enumerate(originais):
-                path = Path(original)
-                details_path = path.with_suffix('.json')
-                details = json.loads(details_path.read_text())
-                notices = []
-                try:
-                    if pending:
-                        raise RuntimeError('Há um upscale anterior aguardando coleta. A imagem original foi preservada.')
-                    progress(0.9, desc=f'Aplicando SeedVR2 na imagem {i+1}/{len(originais)}')
-                    job = seedvr2.run(path, 'Imagem', seedvr2.DEFAULT, escala, (seed+i) % 2**53,
-                                      seedvr2.DEFAULT_TILE, OUT, progress)
-                    details['job_seedvr2'] = {key: job[key] for key in ('id', 'status', 'model', 'checkpoint')}
-                    if not job.get('result'):
-                        pending = job['status'] in ('enviado', 'aguardando_coleta', 'envio_indeterminado')
-                        raise RuntimeError(f"{job.get('error', job['status'])} · job {job['id']}")
-                    result = OUT / job['id'] / job['result']
-                    final = path.with_name(path.stem + '_final.png')
-                    if nitidez > 0:
-                        with Image.open(result) as image:
-                            postprocessar(image, 'Nenhum', 1, 0, 0, 'cpu', nitidez).save(final)
-                    else:
-                        shutil.copyfile(result, final)
-                    paths[i] = str(final)
-                    details['final'] = str(final)
-                except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
-                    notices.append(f'SeedVR2 não finalizou a imagem {i+1}: {exc}. Original preservado.')
-                details['avisos'] = notices
-                report.extend(notices)
-                details_path.write_text(json.dumps(details, ensure_ascii=False, indent=2))
-        archive=OUT/('lote_'+uuid.uuid4().hex[:10]+'.zip')
-        with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_DEFLATED) as z:
-            for p in dict.fromkeys(originais+paths+[str(Path(x).with_suffix('.json')) for x in originais]): z.write(p,arcname=Path(p).name)
-        return paths,originais,json.dumps({**meta,'arquivos_finais':paths,'originais':originais,'avisos':report},ensure_ascii=False,indent=2),str(archive)
-    except Exception as e:
-        traceback.print_exc()
-        if isinstance(e, torch.cuda.OutOfMemoryError):
-            phase('cuda_oom')
-            raise gr.Error(f'VRAM insuficiente ao gerar em {int(width)} × {int(height)}. '
-                           'Experimente um tamanho menor ou reduza as referências.') from e
-        raise gr.Error(f'Falha na geração: {e}. Veja logs no Colab; verifique formato da LoRA e memória disponível.') from e
-    finally:
-        if torch.cuda.is_available(): torch.cuda.empty_cache()
+            with Image.open(composite_scene) as source: background=ImageOps.exif_transpose(source).convert('RGB')
+            with Image.open(mask_file) as source: mask=ImageOps.exif_transpose(source).convert('L')
+            if mask.size != background.size: raise gr.Error('A máscara precisa ter a mesma largura e altura da cena.')
+            if feather>0: mask=mask.filter(ImageFilter.GaussianBlur(radius=float(feather)))
+            final=Path(out).with_name(Path(out).stem+'_composicao.png')
+            Image.composite(img.resize(background.size,Image.Resampling.LANCZOS),background,mask).save(final)
+        if modo not in ('Nenhum', SEEDVR2_POST) or nitidez>0:
+            try:
+                result=postprocessar(Image.open(final).convert('RGB'),'Nenhum' if modo==SEEDVR2_POST else modo,float(escala),int(tile),int(pad),device,nitidez)
+                final=Path(final).with_name(Path(final).stem+'_final.png'); result.save(final)
+            except Exception as exc: report.append(f'Pós-processamento falhou: {exc}; original preservado.')
+        paths.append(str(final))
+    meta={'prompt':prompt,'negative_prompt':negative,'seed':seed,'width':int(width),'height':int(height),'steps':steps,'cfg':cfg,'modelo':model,'loras':names,'arquivos_finais':paths,'originais':originais,'avisos':report}
+    archive=OUT/('lote_'+uuid.uuid4().hex[:10]+'.zip')
+    with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_DEFLATED) as z:
+        for p in dict.fromkeys(originais+paths): z.write(p,arcname=Path(p).name)
+    return paths,originais,json.dumps(meta,ensure_ascii=False,indent=2),str(archive)
 
 
 def baixar_catalogo(ids):
-    from huggingface_hub import hf_hub_download
-    import shutil
     added=[]
     for ident in ids or []:
         if ident not in CATALOGO_BY_ID: raise ValueError('Entrada de catálogo desconhecida.')
-        item=CATALOGO_BY_ID[ident]; dest=LORAS/Path(item['file']).name
-        if dest.exists():
-            added.append(dest.name); continue
-        src=hf_hub_download(repo_id=item['repo'],filename=item['file'],revision=item['revision'],token=os.environ.get('HF_TOKEN') or None)
-        tmp=LORAS/(uuid.uuid4().hex+'.part')
-        try:
-            shutil.copyfile(src,tmp)
-            from safetensors import safe_open
-            with safe_open(str(tmp),framework='pt',device='cpu') as safe: list(safe.keys())
-            os.replace(tmp,dest)
-        finally:
-            if tmp.exists(): tmp.unlink()
-        added.append(dest.name)
+        added.append(cf_loras.ensure(BASE, Path(CATALOGO_BY_ID[ident]['file']).name).name)
     return added
 
 def instalar_catalogo(ids):
@@ -468,11 +225,10 @@ def reopen_workflow(job_id):
 
 
 def ambiente():
-    gpu=torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'Nenhuma GPU detectada'
+    tier=cf_tiers.detect()
     disk=shutil.disk_usage(BASE)
     credentials='HF: '+('disponível' if os.environ.get('HF_TOKEN') else 'não configurado')+' · Civitai: '+('disponível' if os.environ.get('CIVITAI_TOKEN') else 'não configurado')
-    running=current_config[0] if current_config else 'Nenhum modelo carregado'
-    return f'{gpu} | Espaço livre: {disk.free/1024**3:.1f} GiB | {credentials} | Modelo em memória: {running}'
+    return f'{tier.gpu} · {tier.vram_gb:.0f} GB · perfil {tier.label} | Espaço livre: {disk.free/1024**3:.1f} GiB | {credentials}'
 
 # The preceding notebook cell extracts the workflow bundle.
 STUDIO_MODULES = Path(__file__).resolve().parent / 'workflows'
@@ -695,44 +451,15 @@ def finish_clip(media, mode, start, duration, ratio, fit, mute, progress=gr.Prog
 def edit_region(source, mask, prompt, size, padding, feather, steps, seed, progress=gr.Progress()):
     if not prompt or not prompt.strip():
         raise gr.Error('Descreva a alteração na região.')
+    if not source or not mask:
+        raise gr.Error('Envie a imagem e a máscara.')
+    params = {'source': [source], 'mask': [mask], 'prompt': prompt.strip(), 'size': int(size), 'padding': int(padding),
+              'feather': int(feather), 'steps': int(steps), 'seed': int(seed)}
     try:
-        original, stencil, bounds, reference = region.prepare(source, mask, size, int(padding))
-    except (OSError, ValueError) as exc:
+        out = cf_apps.run_region(LegacyContext(progress), params, cf_tiers.detect())[0]
+    except cf_jobs.JobError as exc:
         raise gr.Error(str(exc)) from exc
-
-    progress(0.05, desc='Preparando Qwen base em NF4…')
-    iniciar(QWEN_DEFAULT, True, False)
-    width, height = reference.size
-    seed = int(seed)
-    if seed < 0:
-        seed = random.randrange(2**32)
-    steps = int(steps)
-
-    def on_step(_pipe, step, _timestep, kwargs):
-        progress(0.2 + 0.7 * (step + 1) / steps, desc=f'Editando a região · passo {step+1}/{steps}')
-        return kwargs
-
-    try:
-        clear_qwen_adapters()
-        phase('qwen_region_inference')
-        edit = pipe(prompt=prompt.strip(), image=reference, width=width, height=height,
-                    num_inference_steps=steps, true_cfg_scale=1, use_kv_cache=True,
-                    generator=torch.Generator('cpu').manual_seed(seed),
-                    callback_on_step_end=on_step).images[0]
-        progress(0.95, desc='Compondo sobre a imagem original…')
-        result = region.composite(original, stencil, bounds, edit, feather)
-        destination = finish.output_path(OUT, 'regiao', '.png')
-        result.save(destination)
-        status = f'{original.width} × {original.height} · recorte Qwen {width} × {height} · seed {seed}'
-        return str(destination), str(destination), status
-    except torch.cuda.OutOfMemoryError as exc:
-        phase('cuda_oom')
-        raise gr.Error(f'VRAM insuficiente para o recorte de {width} × {height}. Reduza o tamanho do recorte.') from exc
-    except (OSError, ValueError, RuntimeError) as exc:
-        traceback.print_exc()
-        raise gr.Error(f'Falha na edição da região: {exc}') from exc
-    finally:
-        torch.cuda.empty_cache()
+    return str(out), str(out), 'Editado pelo ComfyUI'
 
 
 def finish_sequence(media, order, ratio, fit, mute, progress=gr.Progress()):
@@ -820,8 +547,8 @@ def open_comparison(before, after):
 
 
 CSS = """
-.gradio-container {max-width: 1760px !important; margin-inline:auto; background: #111217 !important;}
-#hero {padding: 1rem 1.3rem; border:1px solid #38303a; border-radius:14px; background:linear-gradient(110deg,#25171c,#17171e);}
+.gradio-container {max-width: 1760px !important; margin-inline:auto; background: #0b0708 !important;}
+#hero {padding: 1rem 1.3rem; border:1px solid #2d2024; border-radius:14px; background:linear-gradient(110deg,#2a1216,#130d0f);}
 #hero h1 {font-size: 2rem; margin:0;}
 #primary button {font-weight:700;}
 #cf-app-grid {display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,254px),1fr)); gap:12px;}
@@ -835,15 +562,15 @@ CSS = """
   #hero {padding:.8rem;}
   #hero h1 {font-size:1.55rem;}
 }
-.cf-app-card {padding:16px; min-width:0 !important; border:1px solid #453742;
-  border-radius:14px; background:linear-gradient(148deg,#2a1d29,#191920); color:#f7edf6;}
+.cf-app-card {padding:16px; min-width:0 !important; border:1px solid #43303a;
+  border-radius:14px; background:linear-gradient(148deg,#241418,#130d0f); color:#f7edf6;}
 .cf-app-card h3 {color:#fff; margin:.35rem 0;}
 .cf-app-card p {color:#e2d5e1;}
 """
 phase('montando_interface')
 with gr.Blocks(title='ClonField Studio', theme=gr.themes.Soft(primary_hue='red', neutral_hue='slate'),
                css=CSS, analytics_enabled=False) as demo:
-    gr.Markdown('# ClonField Studio\nCrie, edite e amplie mídia. Os modelos são preparados quando você inicia um job.',elem_id='hero')
+    gr.Markdown('# ClonField Studio · modo clássico\nO app novo está em **/studio/** no mesmo link. Esta interface continua disponível como alternativa.',elem_id='hero')
     with gr.Tabs(selected='explorar') as main_tabs:
         with gr.Tab('Explorar', id='explorar'):
             gr.Markdown('## O que você quer fazer?\nEscolha uma ferramenta para abrir o formulário.')
@@ -875,7 +602,7 @@ with gr.Blocks(title='ClonField Studio', theme=gr.themes.Soft(primary_hue='red',
                     prompt=gr.Textbox(label='O que você quer criar ou editar?',lines=4,placeholder='Descreva a imagem ou a alteração…')
                     imgs=gr.File(label='Imagens de referência • até 10, na ordem enviada',file_count='multiple',file_types=['image'],type='filepath')
                     with gr.Row():
-                        model=gr.Dropdown([QWEN_DEFAULT,QWEN_TURBO],value=QWEN_DEFAULT,allow_custom_value=True,label='Modelo Diffusers')
+                        model=gr.Dropdown([(model_lab.PRESETS[k].title.split(' · ')[0],k) for k in cf_apps.IMAGE_MODELS],value='flux2' if cf_tiers.detect().vram_gb<16 else 'qwen21',label='Modelo')
                         num=gr.Slider(1,4,value=1,step=1,label='Variações')
                     size_preset = gr.Dropdown([*IMAGE_SIZES, 'Personalizado'], value=DEFAULT_SIZE, label='Resolução',
                                               info='Tamanhos maiores usam mais VRAM. O máximo na T4 depende da sessão e das referências.')
@@ -893,11 +620,7 @@ with gr.Blocks(title='ClonField Studio', theme=gr.themes.Soft(primary_hue='red',
                     with gr.Accordion('Configurações avançadas',open=False):
                         neg=gr.Textbox(label='Prompt negativo • aplicado quando True CFG > 1')
                         with gr.Row():
-                            steps=gr.Slider(1,80,value=40,step=1,label='Passos'); cfg=gr.Slider(1,8,value=1,step=.1,label='True CFG'); seed=gr.Number(value=-1,precision=0,label='Seed • -1 aleatório')
-                        with gr.Row():
-                            quant=gr.Checkbox(value=True,label='Quantização NF4 · 4 bits'); offload=gr.Checkbox(value=False,label='Offload para CPU');kv_cache=gr.Checkbox(value=True,label='Cache KV')
-                        transparent=gr.Checkbox(label='Solicitar imagem transparente')
-                        sigmas=gr.Textbox(label='Sigmas personalizados • opcional')
+                            steps=gr.Slider(0,80,value=0,step=1,label='Passos • 0 usa o recomendado'); cfg=gr.Slider(0,8,value=0,step=.5,label='CFG • 0 usa o recomendado'); seed=gr.Number(value=-1,precision=0,label='Seed • -1 aleatório')
                     with gr.Accordion('Composição por máscara',open=False):
                         gr.Markdown('Branco revela o resultado; preto preserva a cena. A composição acontece após gerar; não é inpainting.')
                         with gr.Row():
@@ -905,7 +628,7 @@ with gr.Blocks(title='ClonField Studio', theme=gr.themes.Soft(primary_hue='red',
                         feather=gr.Slider(0,64,value=4,step=1,label='Suavização da borda')
                     with gr.Accordion('Pós-processamento',open=False):
                         modo=gr.Dropdown(choices=['Nenhum','Lanczos (rápido, sem IA)']+list(UP_MODELS)+[SEEDVR2_POST],value='Nenhum',label='Upscale após gerar')
-                        gr.Markdown('SeedVR2 usa o worker local e libera o Qwen antes do upscale. Bloco, margem e dispositivo abaixo se aplicam ao Real-ESRGAN.')
+                        gr.Markdown('SeedVR2 usa o worker local. Bloco, margem e dispositivo abaixo se aplicam ao Real-ESRGAN.')
                         with gr.Row():
                             escala=gr.Slider(1,4,value=2,step=.5,label='Escala');nitidez=gr.Slider(0,200,value=0,step=10,label='Nitidez (%)')
                         with gr.Row():
@@ -920,8 +643,7 @@ with gr.Blocks(title='ClonField Studio', theme=gr.themes.Soft(primary_hue='red',
                     with gr.Accordion('Original e detalhes do job',open=False):
                         originals=gr.Gallery(label='Antes do pós-processamento',columns=2,format='png')
                         meta=gr.Textbox(label='Parâmetros e avisos',lines=8)
-            model.input(model_defaults, model, [steps, cfg], queue=False)
-            generate = run.click(gerar,[prompt,neg,imgs,w,h,steps,cfg,seed,num,choices,weights,transparent,kv_cache,sigmas,modo,escala,tile,pad,device,nitidez,model,quant,offload,curated,composite_scene,mask_file,feather],[gallery,originals,meta,download_zip],api_name='gerar', concurrency_id='gpu', concurrency_limit=1)
+            generate = run.click(gerar,[prompt,neg,imgs,w,h,steps,cfg,seed,num,choices,weights,composite_scene,mask_file,feather,model,curated,modo,escala,tile,pad,device,nitidez],[gallery,originals,meta,download_zip],api_name='gerar', concurrency_id='gpu', concurrency_limit=1)
             generate.success(lambda: 0, None, gallery_index, queue=False, api_name=False)
         with gr.Tab('Editar região', id='regiao'):
             gr.Markdown('Branco na máscara define a área editável. O Qwen trabalha no recorte, e o restante da foto é preservado.')
@@ -1264,40 +986,26 @@ with gr.Blocks(title='ClonField Studio', theme=gr.themes.Soft(primary_hue='red',
         button.click(animate_image, media, [main_tabs, video_mode, video_image], queue=False, api_name=False)
 
 demo.queue(default_concurrency_limit=1)
-if '--probe-qwen' in sys.argv:
-    iniciar(QWEN_DEFAULT, True, False)
-    def probe_step(_pipeline, step, _timestep, values):
-        phase('qwen_first_step' if step == 0 else 'qwen_decode')
-        return values
-    try:
-        phase('qwen_encode_and_first_step')
-        result = pipe(prompt='Uma esfera vermelha sobre uma mesa branca', width=512, height=512,
-                      num_inference_steps=2, true_cfg_scale=1, generator=torch.Generator('cpu').manual_seed(42),
-                      callback_on_step_end=probe_step).images[0]
-        result.save(OUT / 'qwen-probe.png')
-        phase('qwen_image_ready')
-    except torch.cuda.OutOfMemoryError:
-        phase('cuda_oom')
-        raise
-    raise SystemExit(0)
-
 import secrets
 import threading
 from starlette.middleware import Middleware
 from cf_portal import PortalAPI
 
 GRADIO_USUARIO = 'clonfield'
-GRADIO_SENHA = secrets.token_urlsafe(16)
+GRADIO_SENHA = os.environ.get('CLONFIELD_PASSWORD') or secrets.token_urlsafe(16)
 public = '--local' not in sys.argv
 phase('abrindo_tunel_publico' if public else 'abrindo_servidor_local')
+workflows.clear_orphans()
 print('Iniciando Gradio...', flush=True)
 try:
     demo.launch(share=public, server_name='127.0.0.1', inline=False, inbrowser=False,
                 auth=(GRADIO_USUARIO, GRADIO_SENHA), prevent_thread_lock=True,
                 show_error=True, enable_monitoring=False, allowed_paths=[str(OUT.resolve())],
-                app_kwargs={"middleware": [Middleware(PortalAPI, username=GRADIO_USUARIO, password=GRADIO_SENHA)]})
+                app_kwargs={"middleware": [Middleware(PortalAPI, username=GRADIO_USUARIO, password=GRADIO_SENHA,
+                                                        engine_paths=(BASE, OUT))]})
     if demo.share_url:
         print('LINK PÚBLICO: ' + demo.share_url, flush=True)
+        print('STUDIO: ' + demo.share_url.rstrip('/') + '/studio/', flush=True)
     elif public:
         print('O túnel público falhou. Use o link do Colab se estiver no notebook.', flush=True)
     print(f'SENHA DA SESSÃO: {GRADIO_SENHA}', flush=True)

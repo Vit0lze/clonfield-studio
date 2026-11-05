@@ -9,11 +9,18 @@ from starlette.responses import JSONResponse, Response
 
 
 class PortalAPI:
-    def __init__(self, app, username, password):
+    def __init__(self, app, username, password, engine_paths=None):
         self.app = app
         self.username = username
         self.password = password.encode()
         self.token = token_urlsafe(32)
+        self.engine = None
+        if engine_paths:
+            import cf_api
+
+            base, out = engine_paths
+            self.engine = cf_api.build_app(base, out, lambda value: compare_digest(value.encode("latin-1"), self.token.encode()),
+                                           self.token)
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -31,6 +38,10 @@ class PortalAPI:
             else:
                 response = JSONResponse({"detail": "Senha da sessão inválida."}, status_code=401, headers=headers)
             await response(scope, receive, send)
+            return
+
+        if self.engine is not None and (path.startswith("/clonfield/api/") or path == "/studio" or path.startswith("/studio/")):
+            await self.engine(scope, receive, send)
             return
 
         cover_prefix = "/clonfield/catalog-cover/"
