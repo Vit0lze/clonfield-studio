@@ -165,11 +165,6 @@ pre.log { margin: 0; padding: 14px; border-radius: 12px; background: #070405; bo
 .empty svg.ill { width: 200px; height: auto; }
 .empty h3 { font: 400 1.5rem var(--serif); color: var(--text); }
 
-/* ---------- framing glyphs ---------- */
-.seg button .ar { display: inline-block; vertical-align: -2px; margin-right: 7px; border: 1.5px solid currentColor; border-radius: 3px; opacity: .8; }
-.seg button .ar.auto { border-style: dashed; }
-.seg button:has(.ar) { display: inline-flex; align-items: center; }
-.seg button:has(.ar) small { display: none; }
 
 /* ---------- light editor ---------- */
 .lights { display: grid; gap: 12px; }
@@ -237,3 +232,34 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
   body::before, .lempty .icon, .lorb, .lorb.on::after, .linspect, .shell > main > * { animation: none; }
   .btn.primary::after { display: none; }
 }
+
+/* ---------- dropdown (all pick-one fields) ---------- */
+.dd { position: relative; }
+.dd-btn { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 46px; padding: 7px 12px; text-align: left; cursor: pointer;
+  border-radius: 12px; border: 1px solid var(--line); background: rgba(26, 17, 20, .6); backdrop-filter: blur(6px); color: var(--text);
+  transition: border-color 160ms var(--ease), background-color 160ms var(--ease), transform 160ms var(--ease); }
+.dd-btn:hover { border-color: var(--line2); }
+.dd-btn:active { transform: scale(.99); }
+.dd-btn[aria-expanded="true"] { border-color: rgba(226, 52, 63, .6); background: var(--red-wash); }
+.dd-btn .icon { color: var(--dim); transition: transform 200ms var(--ease); }
+.dd-btn[aria-expanded="true"] .icon { transform: rotate(180deg); color: var(--red-hi); }
+.dd-face, .dd-opt { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.dd-text { display: grid; min-width: 0; }
+.dd-text b { font: 600 14px/1.25 var(--sans); }
+.dd-text small { font: 400 12px/1.3 var(--sans); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dd .ar, .dd-pop .ar { flex: none; display: inline-block; border: 1.5px solid currentColor; border-radius: 3px; color: var(--red-hi); opacity: .9; margin: 0 3px; }
+.dd .ar.auto, .dd-pop .ar.auto { border-style: dashed; }
+.dd-pop { position: fixed; z-index: 120; overflow-y: auto; padding: 6px; border-radius: 14px; border: 1px solid var(--line2);
+  background: rgba(22, 14, 17, .97); backdrop-filter: blur(18px) saturate(1.2); -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .6), 0 0 0 1px rgba(226, 52, 63, .08); transform-origin: top left; animation: dd-in 160ms var(--ease) both; }
+.dd-pop.up { transform-origin: bottom left; }
+.dd-pop.out { animation: dd-out 110ms ease-out both; pointer-events: none; }
+@keyframes dd-in { from { opacity: 0; transform: scale(.97) translateY(-4px); } }
+@keyframes dd-out { to { opacity: 0; transform: scale(.98); } }
+.dd-group { padding: 10px 10px 4px; font: 600 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.dd-opt { width: 100%; padding: 8px 10px; border-radius: 10px; border: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.dd-opt .icon:last-child { margin-left: auto; color: var(--red-hi); }
+.dd-opt.act { background: rgba(255, 255, 255, .06); }
+.dd-opt.sel { background: var(--red-wash); }
+.dd-opt:disabled { opacity: .4; cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) { .dd-pop, .dd-pop.out { animation: none; } }

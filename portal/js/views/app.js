@@ -1,6 +1,6 @@
 import { api, store, isFinal } from "../api.js";
 import { lightEditor } from "../lights.js";
-import { h, icon, clear, seg, slider, switchRow, field, toast, illustration, posterEl, artFor, fmtClock, fmtBytes } from "../ui.js";
+import { h, icon, clear, seg, dropdown, slider, switchRow, field, toast, illustration, posterEl, artFor, fmtClock, fmtBytes } from "../ui.js";
 
 const SEND_TO = { image: ["upscale", "look", "frame", "animate", "edit", "relight", "compare"], video: ["clip", "still", "board", "seedvr2"] };
 const NAME_LIMITS = { image: "imagem", video: "vídeo" };
@@ -37,10 +37,10 @@ export async function appView(id, navigate) {
       const input = h("input", { class: "input mono", type: "number", value: values[f.id], oninput: () => { values[f.id] = Number(input.value); } });
       return field(f.label, input, f.help);
     }
-    if (f.type === "chips") return field(f.label, seg(f.options, values[f.id], v => { values[f.id] = v; rerun(); }), f.help);
-    if (f.type === "select") return field(f.label, f.options.length <= 5 ? seg(f.options, values[f.id], v => { values[f.id] = v; }) :
-      h("select", { class: "input", onchange: e => { values[f.id] = f.options.find(o => String(o.value) === e.target.value).value; } },
-        f.options.map(o => h("option", { value: o.value, selected: o.value === values[f.id] }, o.label))), f.help);
+    if (f.type === "chips" || f.type === "select") {
+      const pick = dropdown(f.options, values[f.id], v => { values[f.id] = v; rerun(); }, { label: f.label });
+      return field(f.label, pick, f.help);
+    }
     if (f.type === "slider") {
       const out = h("span", { class: "mono dim" });
       return field(f.label, slider({ ...f, zero_label: f.min === 0 && f.default === 0 ? "auto" : null }, values[f.id], v => { values[f.id] = v; }), f.help);

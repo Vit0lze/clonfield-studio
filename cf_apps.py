@@ -28,8 +28,25 @@ def configure(base, out_dir):
     ENV.update(base=Path(base), out=Path(out_dir), civitai=Path(base) / "civitai" / "lab")
 
 
-ASPECTS = [("auto", 0, 0), ("1:1", 1, 1), ("3:2", 3, 2), ("2:3", 2, 3), ("4:3", 4, 3), ("3:4", 3, 4), ("4:5", 4, 5),
-           ("16:9", 16, 9), ("9:16", 9, 16), ("21:9", 21, 9)]
+# name -> (label, where it is used, group). Order is the order of the dropdown.
+ASPECT_INFO = {
+    "auto": ("Auto", "Segue a 1ª referência", "Automático"),
+    "1:1": ("Quadrado · 1:1", "Post, avatar, capa de álbum", "Redes sociais"),
+    "4:5": ("Retrato · 4:5", "Post de feed (Instagram)", "Redes sociais"),
+    "9:16": ("Vertical · 9:16", "Stories, Reels, TikTok, Shorts", "Redes sociais"),
+    "1.91:1": ("Link · 1.91:1", "Prévia de link e anúncios", "Redes sociais"),
+    "3:1": ("Banner · 3:1", "Capa do X e do LinkedIn", "Redes sociais"),
+    "16:9": ("Paisagem · 16:9", "YouTube, TV, apresentação", "Vídeo e tela"),
+    "21:9": ("Cinema · 21:9", "Ultrawide, cena de filme", "Vídeo e tela"),
+    "4:3": ("Clássico · 4:3", "Slides e telas antigas", "Vídeo e tela"),
+    "3:2": ("Foto · 3:2", "Câmera DSLR, impressão 10×15", "Foto e impressão"),
+    "2:3": ("Pôster · 2:3", "Pinterest, pôster, capa de livro", "Foto e impressão"),
+    "3:4": ("Retrato clássico · 3:4", "Retrato impresso", "Foto e impressão"),
+}
+RATIOS = {"auto": (0, 0), "1.91:1": (191, 100)}
+ASPECTS = [(name, *(RATIOS.get(name) or tuple(int(x) for x in name.split(":")))) for name in ASPECT_INFO]
+SIZE_USES = {(16, 9): "YouTube, TV, apresentação", (9, 16): "Stories, Reels, TikTok, Shorts", (1, 1): "Post, avatar",
+             (4, 5): "Post de feed (Instagram)"}
 QUALITIES = [("draft", "Rascunho", 512), ("standard", "Padrão", None), ("high", "Alta", None)]
 
 # Qualitative guidance only: sizes of these checkpoints are not published in the presets.
@@ -119,7 +136,7 @@ def image_fields(tier, refs_required=0, prompt_default="", prompt_label="Descrev
              help="A ordem importa: a primeira imagem é a principal."),
         dict(id="model", type="model", label="Modelo", default=default_model, options=models),
         dict(id="aspect", type="chips", label="Enquadramento", default="auto",
-             options=[dict(opt(n, "Auto" if n == "auto" else n, "segue a 1ª referência" if n == "auto" else ""), ratio=[a, b])
+             options=[dict(opt(n, ASPECT_INFO[n][0], ASPECT_INFO[n][1]), ratio=[a, b], group=ASPECT_INFO[n][2])
                       for n, a, b in ASPECTS]),
         dict(id="quality", type="chips", label="Qualidade", default="standard", options=quality_options(tier)),
         dict(id="variations", type="slider", label="Variações", default=1, min=1, max=tier.max_variations, step=1),
@@ -410,7 +427,15 @@ def install_lora(ctx, name):
 # ---------------------------------------------------------------- registry
 
 def sizes_options(sizes):
-    return [opt(k, k) for k in sizes]
+    """Dropdown options for named output sizes: ratio glyph, where it is used and the pixel size."""
+    from math import gcd
+    options = []
+    for name, (w, h) in sizes.items():
+        d = gcd(w, h)
+        use = SIZE_USES.get((w // d, h // d), "")
+        size = "" if "×" in name else f"{w} × {h}"
+        options.append(dict(opt(name, name, " · ".join(x for x in (use, size) if x)), ratio=[w, h]))
+    return options
 
 
 class App:

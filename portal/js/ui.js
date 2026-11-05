@@ -160,7 +160,7 @@ export function field(label, control, hint, extra) {
   return h("div", { class: "field" }, tag, control, hint ? h("div", { class: "hint" }, hint) : null);
 }
 
-function ratioGlyph([w, hgt]) {
+export function ratioGlyph([w, hgt]) {
   const glyph = h("i", { class: `ar${w ? "" : " auto"}`, "aria-hidden": "true" });
   const ratio = w ? w / hgt : 1;
   glyph.style.width = `${ratio >= 1 ? 16 : 16 * ratio}px`;
@@ -177,6 +177,84 @@ export function seg(options, value, onChange) {
   }, o.ratio ? ratioGlyph(o.ratio) : null, o.label, o.hint && o.label.length < 12 ? h("small", null, o.hint) : null)));
   paint();
   return box;
+}
+
+// Dropdown for every "pick one" field: glyph, label, hint, optional groups, keyboard and screen-reader support.
+export function dropdown(options, value, onChange, { label = "" } = {}) {
+  const chevron = icon("chevron-down", "sm");
+  const current = () => options.find(o => o.value === value) || options[0];
+  const face = h("span", { class: "dd-face" });
+  const button = h("button", { type: "button", class: "dd-btn", "aria-haspopup": "listbox", "aria-expanded": "false", "aria-label": label }, face, chevron);
+  const root = h("div", { class: "dd" }, button);
+  let pop = null, active = -1;
+
+  const row = o => [o.ratio ? ratioGlyph(o.ratio) : null, h("span", { class: "dd-text" }, h("b", null, o.label), o.hint ? h("small", null, o.hint) : null)];
+  const paintFace = () => { clear(face); face.append(...row(current()).filter(Boolean)); };
+
+  function close(focus = true) {
+    if (!pop) return;
+    pop.classList.add("out");
+    const gone = pop;
+    setTimeout(() => gone.remove(), 120);
+    pop = null;
+    document.removeEventListener("pointerdown", outside, true);
+    window.removeEventListener("resize", close);
+    window.removeEventListener("scroll", onScroll, true);
+    button.setAttribute("aria-expanded", "false");
+    if (focus) button.focus();
+  }
+  function onScroll(e) { if (pop && !pop.contains(e.target)) close(false); }
+  function outside(e) { if (pop && !pop.contains(e.target) && !root.contains(e.target)) close(false); }
+  function choose(o) {
+    if (o.disabled) return;
+    value = o.value; paintFace(); close(); onChange(value);
+  }
+  function mark(index) {
+    active = index;
+    [...pop.querySelectorAll("[role=option]")].forEach((el, i) => { el.classList.toggle("act", i === index); if (i === index) el.scrollIntoView({ block: "nearest" }); });
+  }
+  function open() {
+    if (pop) return close();
+    pop = h("div", { class: "dd-pop", role: "listbox", tabindex: "-1", "aria-label": label });
+    let lastGroup = null;
+    options.forEach((o, i) => {
+      if (o.group && o.group !== lastGroup) { pop.append(h("div", { class: "dd-group", role: "presentation" }, o.group)); lastGroup = o.group; }
+      pop.append(h("button", { type: "button", class: `dd-opt${o.value === value ? " sel" : ""}`, role: "option", "aria-selected": String(o.value === value), disabled: o.disabled, title: o.reason || "",
+        onclick: () => choose(o), onpointermove: () => mark(i) }, ...row(o), o.value === value ? icon("check", "sm") : null));
+    });
+    document.body.append(pop);
+    const rect = button.getBoundingClientRect();
+    const room = window.innerHeight - rect.bottom - 12, above = rect.top - 12;
+    const up = room < 260 && above > room;
+    pop.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - Math.max(rect.width, 280) - 8))}px`;
+    pop.style.minWidth = `${rect.width}px`;
+    pop.style.maxHeight = `${Math.min(380, up ? above : room)}px`;
+    if (up) { pop.style.bottom = `${window.innerHeight - rect.top + 6}px`; pop.classList.add("up"); } else pop.style.top = `${rect.bottom + 6}px`;
+    button.setAttribute("aria-expanded", "true");
+    mark(Math.max(0, options.findIndex(o => o.value === value)));
+    document.addEventListener("pointerdown", outside, true);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", onScroll, true);
+  }
+  const step = d => {
+    let i = active;
+    do { i = (i + d + options.length) % options.length; } while (options[i].disabled && i !== active);
+    mark(i);
+  };
+  button.addEventListener("click", open);
+  button.addEventListener("keydown", e => {
+    if (!pop && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); open(); return; }
+    if (!pop) return;
+    if (e.key === "Escape") { e.preventDefault(); close(); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); step(1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); step(-1); }
+    else if (e.key === "Home") { e.preventDefault(); mark(0); }
+    else if (e.key === "End") { e.preventDefault(); mark(options.length - 1); }
+    else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(options[active]); }
+    else if (e.key === "Tab") close(false);
+  });
+  paintFace();
+  return root;
 }
 
 export function slider(f, value, onChange) {
