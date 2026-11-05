@@ -282,3 +282,18 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
 .controls .head .title { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
 .tile .corner { display: flex; align-items: center; gap: 8px; }
 .dd-opt:focus-visible { outline: 1.5px solid rgba(255, 90, 101, .7); outline-offset: -2px; }
+
+/* ---------- reframe in the lightbox ---------- */
+.lightbox .media { position: relative; overflow: hidden; }
+.guide { position: absolute; pointer-events: none; border: 1.5px solid var(--red-hi); border-radius: 2px; box-shadow: 0 0 0 9999px rgba(5, 3, 4, .66);
+  transition: width 240ms var(--ease), height 240ms var(--ease), left 240ms var(--ease), top 240ms var(--ease); }
+.guide::before, .guide::after { content: ""; position: absolute; inset: 0; background: linear-gradient(rgba(255,255,255,.28), rgba(255,255,255,.28)) 33.33% 0 / 1px 100% no-repeat,
+  linear-gradient(rgba(255,255,255,.28), rgba(255,255,255,.28)) 66.66% 0 / 1px 100% no-repeat; }
+.guide::after { background: linear-gradient(rgba(255,255,255,.28), rgba(255,255,255,.28)) 0 33.33% / 100% 1px no-repeat,
+  linear-gradient(rgba(255,255,255,.28), rgba(255,255,255,.28)) 0 66.66% / 100% 1px no-repeat; }
+.guide.pad { border-style: dashed; box-shadow: none; }
+.reframe { display: grid; gap: 10px; padding: 14px; border-radius: 14px; border: 1px solid var(--line); background: rgba(19, 13, 15, .55); }
+.reframe .label { font: 600 12px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--dim); }
+.reframe .btn { width: 100%; }
+@media (prefers-reduced-motion: reduce) { .guide { transition: none; } }
+.lightbox .side > a.btn { justify-content: center; }

@@ -230,16 +230,82 @@ export async function appView(id, navigate) {
       navigate(`#/apps/${target.id}`);
     } catch (error) { toast(error.message, "err"); }
   }
-  function lightbox(result, job) {
-    const close = () => { scrim.remove(); document.removeEventListener("keydown", onKey); };
-    const onKey = e => e.key === "Escape" && close();
+  function lightbox(first, job) {
+    const versions = [first];
+    let current = first, ratio = null, fit = "Preencher", busy = false, follower = null;
+    const frameApp = store.apps.find(a => a.id === "frame");
+    const ratioField = frameApp?.fields.find(f => f.id === "ratio"), fitField = frameApp?.fields.find(f => f.id === "fit");
+    ratio = ratioField?.default;
+    const close = () => { follower?.stop(); scrim.remove(); document.removeEventListener("keydown", onKey); };
+    const onKey = e => e.key === "Escape" && !document.querySelector(".dd-pop:not(.out)") && close();
     document.addEventListener("keydown", onKey);
+
+    const media = h("div", { class: "media" });
+    const side = h("div", { class: "side" });
+    const guide = h("div", { class: "guide", hidden: true });
+    let img = null;
+
+    // Crop guide: shows what "Preencher" keeps (or the padded frame for "Inteira") over the picture.
+    function paintGuide() {
+      const option = ratioField?.options.find(o => o.value === ratio);
+      if (!img || !option?.ratio || current.kind !== "image" || !img.naturalWidth) { guide.hidden = true; return; }
+      const box = media.getBoundingClientRect(), scale = Math.min(box.width / img.naturalWidth, box.height / img.naturalHeight);
+      const w = img.naturalWidth * scale, hh = img.naturalHeight * scale, target = option.ratio[0] / option.ratio[1];
+      const fill = fit === "Preencher";
+      const gw = (fill ? w / hh <= target : w / hh > target) ? w : hh * target, gh = gw / target;
+      guide.hidden = false;
+      guide.classList.toggle("pad", !fill);
+      guide.style.width = `${gw}px`; guide.style.height = `${gh}px`;
+      guide.style.left = `${(box.width - gw) / 2}px`; guide.style.top = `${(box.height - gh) / 2}px`;
+    }
+    function paintMedia() {
+      clear(media);
+      img = null;
+      if (current.kind === "video") { media.append(h("video", { src: api.url(current.url), controls: true, autoplay: true, loop: true })); return; }
+      img = h("img", { src: api.url(current.url), alt: job.title, onload: paintGuide });
+      media.append(img, guide);
+      paintGuide();
+    }
+    async function apply() {
+      if (busy) return;
+      busy = true; paintSide();
+      try {
+        const upload = await api.post("/import", { path: current.path });
+        const started = await api.post("/jobs", { app: "frame", params: { image: [upload.id], ratio, fit, format: "PNG" } });
+        await new Promise((resolve, reject) => {
+          follower = api.follow(started.id, snap => {
+            if (!isFinal(snap.status)) return;
+            follower?.stop();
+            const out = (snap.results || []).find(r => r.kind === "image");
+            if (snap.status === "concluído" && out) { versions.push(out); current = out; resolve(); }
+            else reject(new Error(snap.message || "Não foi possível reenquadrar."));
+          });
+        });
+        store.refreshJobs().catch(() => {});
+      } catch (error) { toast(error.message, "err"); }
+      busy = false; paintMedia(); paintSide();
+    }
+    function paintSide() {
+      clear(side);
+      const isImage = current.kind === "image" && frameApp && !frameApp.blocked;
+      side.append(h("h3", null, job.title), h("p", { class: "mono dim" }, `${current.name} · ${fmtBytes(current.size)}`),
+        h("a", { class: "btn primary", href: api.url(current.url), download: current.name }, icon("download", "sm"), versions.length > 1 ? "Baixar reenquadrada" : "Baixar original"));
+      if (isImage) {
+        side.append(h("div", { class: "reframe" },
+          h("div", { class: "label" }, h("span", null, "Reenquadrar")),
+          dropdown(ratioField.options, ratio, v => { ratio = v; paintGuide(); }, { label: "Proporção" }),
+          dropdown(fitField.options, fit, v => { fit = v; paintGuide(); }, { label: "Encaixe" }),
+          h("p", { class: "hint" }, fit === "Preencher" ? "O contorno mostra o que fica; o resto é cortado." : "A imagem inteira entra no quadro, com margem nas sobras."),
+          h("button", { class: "btn", type: "button", disabled: busy, onclick: apply }, icon(busy ? "refresh" : "crop", "sm"), busy ? "Reenquadrando…" : "Aplicar enquadramento"),
+          versions.length > 1 ? h("button", { class: "btn ghost sm", type: "button", onclick: () => { current = versions[0]; versions.length = 1; paintMedia(); paintSide(); } }, icon("refresh", "sm"), "Voltar ao original") : null));
+      }
+      const menu = sendMenu(current);
+      side.append(menu, h("button", { class: "btn ghost", type: "button", onclick: close }, "Fechar"));
+    }
     const scrim = h("div", { class: "scrim", onclick: e => e.target === scrim && close() },
-      h("div", { class: "lightbox", role: "dialog", "aria-label": job.title },
-        h("div", { class: "media" }, result.kind === "video" ? h("video", { src: api.url(result.url), controls: true, autoplay: true, loop: true }) : h("img", { src: api.url(result.url), alt: job.title })),
-        h("div", { class: "side" }, h("h3", null, job.title), h("p", { class: "mono dim" }, `${result.name} · ${fmtBytes(result.size)}`),
-          h("a", { class: "btn primary", href: api.url(result.url), download: result.name }, icon("download", "sm"), "Baixar original"),
-          sendMenu(result), h("button", { class: "btn ghost", type: "button", onclick: close }, "Fechar"))));
+      h("div", { class: "lightbox", role: "dialog", "aria-label": job.title }, media, side));
+    paintMedia(); paintSide();
+    window.addEventListener("resize", paintGuide);
     document.body.append(scrim);
   }
 
