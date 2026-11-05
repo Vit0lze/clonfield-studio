@@ -989,13 +989,14 @@ demo.queue(default_concurrency_limit=1)
 import secrets
 import threading
 from starlette.middleware import Middleware
-from cf_portal import PortalAPI
+from cf_portal import PortalAPI, let_studio_answer_cors
 
 GRADIO_USUARIO = 'clonfield'
 GRADIO_SENHA = os.environ.get('CLONFIELD_PASSWORD') or secrets.token_urlsafe(16)
 public = '--local' not in sys.argv
 phase('abrindo_tunel_publico' if public else 'abrindo_servidor_local')
 workflows.clear_orphans()
+let_studio_answer_cors()
 print('Iniciando Gradio...', flush=True)
 try:
     demo.launch(share=public, server_name='127.0.0.1', inline=False, inbrowser=False,
@@ -1006,6 +1007,8 @@ try:
     if demo.share_url:
         print('LINK PÚBLICO: ' + demo.share_url, flush=True)
         print('STUDIO: ' + demo.share_url.rstrip('/') + '/studio/', flush=True)
+        if os.environ.get('CLONFIELD_FRONT'):
+            print('PAINEL PÚBLICO: ' + os.environ['CLONFIELD_FRONT'].rstrip('/') + '/?api=' + demo.share_url.rstrip('/'), flush=True)
     elif public:
         print('O túnel público falhou. Use o link do Colab se estiver no notebook.', flush=True)
     print(f'SENHA DA SESSÃO: {GRADIO_SENHA}', flush=True)

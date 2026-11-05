@@ -94,3 +94,17 @@ A [sondagem do Colab](docs/DIAGNOSTICO.md) usa 512 × 512 e dois passos para loc
 ## Arquivos e integrações
 
 Os grafos visuais em [workflows/](workflows/) podem ser abertos no ComfyUI e exportados como API JSON para execução no Studio. O instalador Civitai verifica SHA-256 quando informado no metadado. Para repetir uma versão, rode `python cf_assets.py --version NUMERO`. Logs e pesos ficam no runtime. Os termos de cada modelo e grafo se aplicam aos respectivos arquivos.
+
+
+## Painel público (qualquer navegador, qualquer link)
+
+O Studio é um site estático: `portal/` não precisa de build. Hospede em qualquer lugar (Vercel já tem `portal/vercel.json`,
+GitHub Pages, Netlify, um bucket). Quem abrir a página informa o **link `gradio.live` da sessão do Colab** e a **senha**
+que a última célula imprime. A senha vai como `Bearer` em cada chamada e a GPU é a do Colab de quem passou o link.
+
+- Link direto já preenchido: `https://seu-painel/?api=https://xxxx.gradio.live` (a célula imprime esse endereço quando
+  `CLONFIELD_FRONT=https://seu-painel` está definido).
+- O servidor aceita qualquer origem só em `/clonfield/*` e `/studio/*` (autenticados por Bearer). A API clássica do Gradio
+  continua com CORS estrito.
+- Errar a senha 8 vezes em um minuto bloqueia aquele IP por um minuto (HTTP 429).
+- A CSP em `portal/vercel.json` só libera conexões para `*.gradio.live`; se usar outro túnel, ajuste `connect-src` e `img-src`.

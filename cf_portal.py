@@ -1,5 +1,7 @@
 """Authenticate the static Studio client on the existing Gradio API."""
 
+import asyncio
+import time
 from hmac import compare_digest
 from secrets import token_urlsafe
 
@@ -14,6 +16,7 @@ class PortalAPI:
         self.username = username
         self.password = password.encode()
         self.token = token_urlsafe(32)
+        self.failures = {}
         self.engine = None
         if engine_paths:
             import cf_api
@@ -28,14 +31,42 @@ class PortalAPI:
             return
 
         path = scope["path"]
+        if path.startswith("/clonfield/") or path == "/studio" or path.startswith("/studio/"):
+            # The Studio may be hosted anywhere, so these routes answer any origin. Nothing here relies on cookies:
+            # every call carries the session bearer, which a foreign page cannot obtain without the password.
+            cors = [(b"access-control-allow-origin", b"*"), (b"access-control-expose-headers", b"content-length, content-type"),
+                    (b"vary", b"Origin")]
+            if scope["method"] == "OPTIONS":
+                await Response(status_code=204, headers={
+                    "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                    "Access-Control-Allow-Headers": "authorization, content-type", "Access-Control-Max-Age": "600"})(scope, receive, send)
+                return
+            inner_send = send
+
+            async def send(message):
+                if message["type"] == "http.response.start":
+                    kept = [(k, v) for k, v in message.get("headers", []) if not k.lower().startswith(b"access-control-")]
+                    message = {**message, "headers": [*kept, *cors]}
+                await inner_send(message)
+
         authorization = Headers(scope=scope).get("authorization", "")
         scheme, _, bearer = authorization.partition(" ")
         secret = bearer.encode("latin-1")
         headers = {"Cache-Control": "no-store"}
         if path == "/clonfield/connect" and scope["method"] == "POST":
-            if scheme.lower() == "bearer" and compare_digest(secret, self.password):
+            who = (Headers(scope=scope).get("x-forwarded-for", "").split(",")[0].strip()
+                   or (scope.get("client") or ("?",))[0])
+            now = time.monotonic()
+            recent = [t for t in self.failures.get(who, []) if now - t < 60]
+            if len(recent) >= 8:
+                response = JSONResponse({"detail": "Muitas tentativas. Aguarde um minuto."}, status_code=429,
+                                        headers={**headers, "Retry-After": "60"})
+            elif scheme.lower() == "bearer" and compare_digest(secret, self.password):
+                self.failures.pop(who, None)
                 response = JSONResponse({"token": self.token}, headers=headers)
             else:
+                self.failures[who] = [*recent, now]
+                await asyncio.sleep(0.4)
                 response = JSONResponse({"detail": "Senha da sessão inválida."}, status_code=401, headers=headers)
             await response(scope, receive, send)
             return
@@ -75,3 +106,25 @@ class PortalAPI:
                                           (b"cookie", cookie)]}
 
         await self.app(scope, receive, send)
+
+
+def let_studio_answer_cors():
+    """Gradio's strict CORS layer sits outside our middleware and would reject preflights from a hosted Studio.
+    Route /clonfield and /studio around it; PortalAPI answers those itself, and everything else stays strict."""
+    import gradio.routes as routes
+
+    base = routes.CustomCORSMiddleware
+    if getattr(base, "_studio_aware", False):
+        return
+
+    class StudioAwareCORS(base):
+        _studio_aware = True
+
+        async def __call__(self, scope, receive, send):
+            if scope["type"] == "http" and (scope["path"].startswith("/clonfield/") or scope["path"] == "/studio"
+                                            or scope["path"].startswith("/studio/")):
+                await self.app(scope, receive, send)
+                return
+            await super().__call__(scope, receive, send)
+
+    routes.CustomCORSMiddleware = StudioAwareCORS
