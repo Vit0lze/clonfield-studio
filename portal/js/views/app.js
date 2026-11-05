@@ -1,7 +1,8 @@
 import { api, store, isFinal } from "../api.js";
+import { lightEditor } from "../lights.js";
 import { h, icon, clear, seg, slider, switchRow, field, toast, illustration, posterEl, artFor, fmtClock, fmtBytes } from "../ui.js";
 
-const SEND_TO = { image: ["upscale", "look", "frame", "animate", "edit", "compare"], video: ["clip", "still", "board", "seedvr2"] };
+const SEND_TO = { image: ["upscale", "look", "frame", "animate", "edit", "relight", "compare"], video: ["clip", "still", "board", "seedvr2"] };
 const NAME_LIMITS = { image: "imagem", video: "vídeo" };
 
 export async function appView(id, navigate) {
@@ -12,7 +13,7 @@ export async function appView(id, navigate) {
 
   const prefill = store.takePrefill(app.id);
   const values = {};
-  for (const f of app.fields) values[f.id] = structuredClone(prefill[f.id] ?? f.default ?? (f.type === "files" || f.type === "loras" ? [] : ""));
+  for (const f of app.fields) values[f.id] = structuredClone(prefill[f.id] ?? f.default ?? (f.type === "files" || f.type === "loras" || f.type === "lights" ? [] : ""));
   const cleanups = [];
   let follower = null, tick = null, current = null;
 
@@ -48,6 +49,12 @@ export async function appView(id, navigate) {
     if (f.type === "model") return modelPicker(f);
     if (f.type === "loras") return loraPanel(f);
     if (f.type === "files") return dropzone(f);
+    if (f.type === "lights") {
+      const first = () => { const u = (values.refs || [])[0]; return u && !u.pending && u.kind === "image" ? api.url(u.url) : ""; };
+      const editor = lightEditor({ lights: values[f.id], max: f.max, getImage: first, onChange: () => rerun() });
+      refresh.push(editor.sync);
+      return field(f.label, editor.el);
+    }
     return null;
   }
 
@@ -57,7 +64,7 @@ export async function appView(id, navigate) {
     const box = h("div", { class: "mpick", role: "group" });
     const paint = () => {
       clear(box);
-      for (const m of models) {
+      for (const m of models.filter(m => !f.options || f.options.some(o => o.value === m.key))) {
         box.append(h("button", { class: "mopt", type: "button", "aria-pressed": String(values.model === m.key),
           onclick: () => { values.model = m.key; paint(); onModelChange(); rerun(); } },
           h("div", { class: "po" }, artFor("model", m.key)),
@@ -116,7 +123,7 @@ export async function appView(id, navigate) {
     const thumbs = h("div", { class: "thumbs" });
     const input = h("input", { type: "file", class: "sr", multiple: f.max > 1, accept: f.accept === "image" ? "image/*" : f.accept === "video" ? "video/*" : f.accept.includes(".") ? f.accept : "image/*,video/*,audio/*",
       onchange: () => add([...input.files]) });
-    const max = () => f.id === "refs" ? (currentModel()?.refs ?? f.max) : f.max;
+    const max = () => f.id === "refs" ? Math.min(f.max, currentModel()?.refs ?? f.max) : f.max;
     const zone = h("div", { class: "drop", tabindex: "0", role: "button", onclick: () => input.click(),
       onkeydown: e => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), input.click()),
       ondragover: e => { e.preventDefault(); zone.classList.add("over"); }, ondragleave: () => zone.classList.remove("over"),
@@ -241,6 +248,7 @@ export async function appView(id, navigate) {
     const list = [];
     for (const f of app.fields) {
       if (f.required && !String(values[f.id] ?? "").trim()) list.push(f.label);
+      if (f.type === "lights" && values[f.id].length < (f.min || 0)) list.push("uma luz");
       if (f.type === "files") {
         const need = f.id === "refs" ? Math.min(f.min || 0, currentModel()?.refs ?? 9) : f.min || 0;
         const ready = values[f.id].filter(u => !u.pending).length;

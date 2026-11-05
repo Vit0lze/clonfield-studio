@@ -36,6 +36,15 @@ UPLOAD_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif", ".
 FILE_FIELDS = {"files"}
 
 
+class RevalidatedFiles(StaticFiles):
+    """Static files that the browser must revalidate (ETag), so a new Studio build never hides behind a cached module."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 def build_app(base, out_dir, verify, secret, portal_dir=None):
     base, out_dir = Path(base), Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -301,7 +310,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
     ]
     portal = Path(portal_dir or Path(__file__).resolve().parent / "portal")
     if portal.is_dir():
-        routes.append(Mount("/studio", StaticFiles(directory=portal, html=True), name="studio"))
+        routes.append(Mount("/studio", RevalidatedFiles(directory=portal, html=True), name="studio"))
     app = Starlette(routes=routes, middleware=[Middleware(
         CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"], max_age=600)])

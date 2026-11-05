@@ -66,6 +66,7 @@ const ICONS = {
   "arrow-right": '<path d="M5 12h14M13 6l6 6-6 6"/>',
   trash: '<path d="M5 7h14M10 7V4.5h4V7"/><path d="M6.5 7l1 12.5h9l1-12.5"/>',
   power: '<path d="M12 4v8"/><path d="M7 7a7.5 7.5 0 1010 0"/>',
+  bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1 2V16h5.2v-.2c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
   bolt: '<path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/>',
   logo: '<rect x="3" y="3" width="30" height="30" rx="9" fill="none"/><circle cx="18" cy="18" r="7.5" fill="none"/><path d="M16 14.2v7.6l6.2-3.8z" fill="currentColor" stroke="none"/>'
 };
@@ -103,8 +104,8 @@ export function poster(id) {
 export function posterEl(id) { const el = poster(id); el.setAttribute("preserveAspectRatio", "xMidYMid slice"); return el; }
 
 const APP_ART = { image: "app-image", video: "app-video", identity: "app-identity", upscale: "app-upscale" };
-const ART_BY_ID = { text2video: "model-wan", portrait: "app-identity", seedvr2: "model-flux" };
-const MODEL_ART = { qwen21: "model-qwen", flux2: "model-flux", flux3: "model-flux", "krea2": "model-qwen", "krea2-turbo": "model-wan" };
+const ART_BY_ID = { relight: "app-image", text2video: "model-wan", portrait: "app-identity", seedvr2: "model-flux" };
+const MODEL_ART = { qwen21: "model-qwen21", flux2: "model-flux2", flux3: "model-flux3", krea2: "model-krea2", "krea2-turbo": "model-krea2-turbo", "z-image": "model-zimage", "z-image-turbo": "model-zimage-turbo" };
 export function artFor(kind, id, art) {
   const file = kind === "model" ? MODEL_ART[id] : (ART_BY_ID[id] || APP_ART[art]);
   if (!file) return posterEl(kind + id);
@@ -159,13 +160,21 @@ export function field(label, control, hint, extra) {
   return h("div", { class: "field" }, tag, control, hint ? h("div", { class: "hint" }, hint) : null);
 }
 
+function ratioGlyph([w, hgt]) {
+  const glyph = h("i", { class: `ar${w ? "" : " auto"}`, "aria-hidden": "true" });
+  const ratio = w ? w / hgt : 1;
+  glyph.style.width = `${ratio >= 1 ? 16 : 16 * ratio}px`;
+  glyph.style.height = `${ratio >= 1 ? 16 / ratio : 16}px`;
+  return glyph;
+}
+
 export function seg(options, value, onChange) {
   const box = h("div", { class: "seg", role: "group" });
   const paint = () => [...box.children].forEach((b, i) => b.setAttribute("aria-pressed", String(options[i].value === value)));
   options.forEach(o => box.append(h("button", {
     type: "button", disabled: o.disabled, title: o.reason || o.hint || "", "aria-pressed": "false",
     onclick: () => { value = o.value; paint(); onChange(value); }
-  }, o.label, o.hint && o.label.length < 12 ? h("small", null, o.hint) : null)));
+  }, o.ratio ? ratioGlyph(o.ratio) : null, o.label, o.hint && o.label.length < 12 ? h("small", null, o.hint) : null)));
   paint();
   return box;
 }

@@ -28,7 +28,8 @@ def configure(base, out_dir):
     ENV.update(base=Path(base), out=Path(out_dir), civitai=Path(base) / "civitai" / "lab")
 
 
-ASPECTS = [("1:1", 1, 1), ("4:5", 4, 5), ("3:4", 3, 4), ("3:2", 3, 2), ("16:9", 16, 9), ("9:16", 9, 16)]
+ASPECTS = [("auto", 0, 0), ("1:1", 1, 1), ("3:2", 3, 2), ("2:3", 2, 3), ("4:3", 4, 3), ("3:4", 3, 4), ("4:5", 4, 5),
+           ("16:9", 16, 9), ("9:16", 9, 16), ("21:9", 21, 9)]
 QUALITIES = [("draft", "Rascunho", 512), ("standard", "Padrão", None), ("high", "Alta", None)]
 
 # Qualitative guidance only: sizes of these checkpoints are not published in the presets.
@@ -73,8 +74,24 @@ def long_side(quality, tier):
     return {"draft": 512, "standard": tier.default_side, "high": tier.max_side}[quality]
 
 
-def dimensions(aspect, quality, tier):
+def reference_ratio(files):
+    """Width/height of the first reference, so "auto" keeps the framing of the photo being edited."""
+    for path in files or []:
+        try:
+            with Image.open(path) as image:
+                return image.size
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def dimensions(aspect, quality, tier, files=None):
     ratio = next(((a, b) for name, a, b in ASPECTS if name == aspect), (1, 1))
+    if aspect == "auto":
+        ratio = reference_ratio(files) or (1, 1)
+        low, high = 9 / 21, 21 / 9
+        value = min(high, max(low, ratio[0] / ratio[1]))
+        ratio = (value, 1)
     side = long_side(quality, tier)
     big, small = (side, side * min(ratio) / max(ratio))
     w, h = (big, small) if ratio[0] >= ratio[1] else (small, big)
@@ -101,7 +118,9 @@ def image_fields(tier, refs_required=0, prompt_default="", prompt_label="Descrev
         dict(id="refs", type="files", label=refs_label, accept="image", max=16, min=refs_required,
              help="A ordem importa: a primeira imagem é a principal."),
         dict(id="model", type="model", label="Modelo", default=default_model, options=models),
-        dict(id="aspect", type="chips", label="Proporção", default="1:1", options=[opt(n, n) for n, _, _ in ASPECTS]),
+        dict(id="aspect", type="chips", label="Enquadramento", default="auto",
+             options=[dict(opt(n, "Auto" if n == "auto" else n, "segue a 1ª referência" if n == "auto" else ""), ratio=[a, b])
+                      for n, a, b in ASPECTS]),
         dict(id="quality", type="chips", label="Qualidade", default="standard", options=quality_options(tier)),
         dict(id="variations", type="slider", label="Variações", default=1, min=1, max=tier.max_variations, step=1),
         dict(id="loras", type="loras", label="LoRAs", default=[], max=4, help="Ajuste a força de cada estilo."),
@@ -183,9 +202,60 @@ def post_upscale(ctx, outputs, choice):
 def run_image(ctx, p, tier):
     preset = lab.PRESETS[p["model"]]
     files = p.get("refs") or []
-    width, height = dimensions(p.get("aspect", "1:1"), p.get("quality", "standard"), tier)
+    width, height = dimensions(p.get("aspect", "auto"), p.get("quality", "standard"), tier, files)
     return post_upscale(ctx, run_graph_images(ctx, preset, p, files, width, height, int(p.get("variations", 1))),
                         p.get("upscale", "Nenhum"))
+
+
+LIGHT_KINDS = {"point": "point light", "softbox": "large soft area light", "rim": "rim light", "spot": "focused spotlight beam"}
+HUES = [(15, "red"), (40, "orange"), (65, "yellow"), (95, "lime green"), (165, "green"), (195, "cyan"), (255, "blue"),
+        (290, "violet"), (330, "magenta"), (361, "red")]
+
+
+def color_name(value):
+    import colorsys
+    value = str(value or "#ffffff").lstrip("#")
+    try:
+        r, g, b = (int(value[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    except ValueError:
+        return "white"
+    hue, sat, val = colorsys.rgb_to_hsv(r, g, b)
+    if sat < 0.12:
+        return "white" if val > 0.75 else "dim neutral"
+    name = next(label for limit, label in HUES if hue * 360 < limit)
+    if name == "orange" and sat < 0.6:
+        name = "warm amber"
+    return f"{'pale ' if sat < 0.45 else ''}{name}"
+
+
+def band(value, words):
+    return words[min(len(words) - 1, int(max(0.0, min(0.999, value)) * len(words)))]
+
+
+def describe_light(light):
+    x, y, z = (float(light.get(k, 0.5)) for k in ("x", "y", "z"))
+    power = float(light.get("intensity", 70)) / 100
+    soft = float(light.get("size", 50)) / 100
+    kind = LIGHT_KINDS.get(light.get("kind"), LIGHT_KINDS["point"])
+    place = f"{band(y, ['top', 'upper', 'middle', 'lower', 'bottom'])} {band(x, ['far left', 'left', 'center', 'right', 'far right'])} of the frame"
+    depth = band(z, ["behind the subject, as a backlight", "beside the subject", "in front of the subject"])
+    return (f"a {band(power, ['faint', 'soft', 'strong', 'very intense'])} {color_name(light.get('color'))} "
+            f"({str(light.get('color', '#ffffff')).lower()}) {band(soft, ['hard-edged', 'medium-soft', 'very soft and diffused'])} {kind}, "
+            f"{place}, {depth}")
+
+
+def run_relight(ctx, p, tier):
+    lights = [item for item in (p.get("lights") or []) if isinstance(item, dict)][:8]
+    if not lights:
+        raise JobError("Adicione pelo menos uma luz.")
+    listing = "; ".join(f"{i}. {describe_light(item)}" for i, item in enumerate(lights, 1))
+    notes = (p.get("prompt") or "").strip()
+    prompt = ("Relight this photograph. Keep the subject, identity, pose, expression, clothing, composition, framing and "
+              "background exactly as they are and change only the lighting. Add these light sources and let each one cast "
+              f"physically plausible highlights, shadows, colored spill and reflections on the subject and the scene: {listing}. "
+              "Blend them into one coherent natural photographic result" + (f". Scene notes: {notes}" if notes else "."))
+    ctx.job.update(message=f"{len(lights)} luz(es) enviadas à IA.")
+    return run_image(ctx, {**p, "prompt": prompt}, tier)
 
 
 def run_speedtest(ctx, p, tier):
@@ -357,6 +427,19 @@ class App:
                 "fields": self.fields(tier)}
 
 
+def relight_fields(tier):
+    fields = image_fields(tier, 1, prompt_label="Notas de cena (opcional)", refs_label="Imagem base")
+    fields[0]["required"] = False
+    fields[0]["rows"] = 2
+    fields[1]["max"] = 1
+    fields[1]["help"] = ""
+    model = fields[2]
+    model["options"] = [m for m in model["options"] if lab.PRESETS[m["value"]].refs > 0]
+    model["default"] = "flux2" if tier.vram_gb < 16 else "qwen21"
+    prompt, refs, *rest = fields
+    return [refs, dict(id="lights", type="lights", label="Luzes", default=[], min=1, max=8), prompt, *rest]
+
+
 def build_registry():
     wan_frames = lambda t: [opt(k, k) for k in wan.FRAMES]
     return [
@@ -364,6 +447,8 @@ def build_registry():
             run_image, lambda t: image_fields(t)),
         App("edit", "Editar com referências", "Imagem", "Mude o que importa e preserve o resto.", "image",
             run_image, lambda t: image_fields(t, 1, prompt_label="O que deve mudar?", refs_label="Imagem a editar")),
+        App("relight", "Luz ambiente", "Imagem", "Posicione luzes, escolha cor e intensidade e a IA integra à foto.", "image",
+            run_relight, relight_fields),
         App("portrait", "Retrato por referência", "Identidade", "Identidade da primeira imagem, pose e luz da segunda.", "identity",
             run_image, lambda t: image_fields(t, 2, lab_prompt(), "Descreva o retrato", "Pessoa e composição")),
         App("region", "Editar região", "Imagem", "Pinte uma máscara e retoque só aquela área.", "image", run_region,
