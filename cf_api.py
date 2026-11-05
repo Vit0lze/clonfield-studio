@@ -259,6 +259,16 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             out.append({"id": ident, "name": name, "kind": kind, "size": target.stat().st_size, "url": sign(rel)})
         return JSONResponse(out)
 
+    async def upload_info(request):
+        ident = request.path_params["ident"]
+        folder = uploads / ident
+        found = next(iter(folder.iterdir()), None) if re.fullmatch(r"[0-9a-f]{32}", ident) and folder.is_dir() else None
+        if found is None:
+            return JSONResponse({"detail": "Arquivo enviado não encontrado."}, 404)
+        rel = found.relative_to(base).as_posix()
+        return JSONResponse({"id": ident, "name": found.name, "kind": cf_jobs.KINDS.get(found.suffix.lower(), "file"),
+                             "size": found.stat().st_size, "url": sign(rel)}, headers={"Cache-Control": "no-store"})
+
     async def import_result(request):
         """Copy a finished result into uploads so it can feed another app (the "Usar em…" action)."""
         body = await request.json()
@@ -303,6 +313,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/jobs/{{id}}/events", guard(job_events)),
         Route(f"{PREFIX}/jobs/{{id}}/cancel", guard(cancel_job), methods=["POST"]),
         Route(f"{PREFIX}/queue/clear", guard(clear_queue), methods=["POST"]),
+        Route(f"{PREFIX}/uploads/{{ident}}", guard(upload_info)),
         Route(f"{PREFIX}/upload", guard(upload), methods=["POST"]),
         Route(f"{PREFIX}/import", guard(import_result), methods=["POST"]),
         Route(f"{PREFIX}/logs", guard(logs)),

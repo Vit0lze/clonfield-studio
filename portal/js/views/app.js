@@ -16,7 +16,35 @@ export async function appView(id, navigate) {
   for (const f of app.fields) values[f.id] = structuredClone(prefill[f.id] ?? f.default ?? (f.type === "files" || f.type === "loras" || f.type === "lights" ? [] : ""));
   const cleanups = [];
   let follower = null, tick = null, current = null;
-  const sources = new Map();
+  // Reframes live per job: kept in memory while the page is open and in localStorage so they survive a reload.
+  const reframes = new Map(), hydrated = new Set();
+  const REFRAME_KEY = id => `cf-reframe-${id}`;
+  const stateFor = (job, source = null) => {
+    let s = reframes.get(job.id);
+    if (!s) { s = { source, reframed: null, resultJobId: null, ratio: null, fit: "Preencher", focus: { x: 0.5, y: 0.5 } }; reframes.set(job.id, s); }
+    if (source && !s.source) s.source = source;
+    return s;
+  };
+  const persist = (job, s) => {
+    try {
+      if (!s.reframed) localStorage.removeItem(REFRAME_KEY(job.id));
+      else localStorage.setItem(REFRAME_KEY(job.id), JSON.stringify({ resultJobId: s.resultJobId, sourceId: s.source?.id || null, ratio: s.ratio, fit: s.fit, focus: s.focus }));
+    } catch { /* storage unavailable: the reframe still works for this visit */ }
+  };
+  async function hydrate(job) {
+    if (hydrated.has(job.id)) return;
+    hydrated.add(job.id);
+    let record = null;
+    try { record = JSON.parse(localStorage.getItem(REFRAME_KEY(job.id)) || "null"); } catch { /* ignore */ }
+    if (!record?.resultJobId) return;
+    try {
+      const [done, source] = await Promise.all([api.get(`/jobs/${record.resultJobId}`), record.sourceId ? api.get(`/uploads/${record.sourceId}`).catch(() => null) : null]);
+      const out = (done.results || []).find(r => r.kind === "image");
+      if (!out) return;
+      Object.assign(stateFor(job, source), { reframed: out, resultJobId: record.resultJobId, ratio: record.ratio, fit: record.fit || "Preencher", focus: record.focus || { x: 0.5, y: 0.5 } });
+      if (current?.id === job.id) finished(job);
+    } catch { /* the original result stays on stage */ }
+  }
 
   const stage = h("section", { class: "stage", "aria-live": "polite" });
   const advice = h("div", { class: "advice", hidden: true });
@@ -205,9 +233,11 @@ export async function appView(id, navigate) {
       return;
     }
     const results = job.results || [];
-    const media = results.filter(r => r.kind === "image" || r.kind === "video");
+    if (!reframes.get(job.id)?.reframed) hydrate(job);
+    const reframedNow = reframes.get(job.id)?.reframed;
+    const media = results.filter(r => r.kind === "image" || r.kind === "video").map((r, i) => (i === 0 && reframedNow ? { ...reframedNow, original: r } : r));
     const grid = h("div", { class: `grid${media.length === 1 ? " one" : ""}` });
-    media.forEach((r, i) => grid.append(h("button", { class: "shot", type: "button", style: { "--i": i }, "aria-label": `Abrir ${r.name}`, onclick: () => lightbox(r, job, sources.get(job.id)) },
+    media.forEach((r, i) => grid.append(h("button", { class: "shot", type: "button", style: { "--i": i }, "aria-label": `Abrir ${r.name}`, onclick: () => lightbox(r.original || r, job) },
       r.kind === "image" ? h("img", { src: api.url(r.url), alt: job.title }) : h("video", { src: api.url(r.url), muted: true, loop: true, autoplay: true, playsinline: true }))));
     const first = media[0];
     clear(stage).append(h("div", { class: "results" }, grid,
@@ -231,18 +261,21 @@ export async function appView(id, navigate) {
       navigate(`#/apps/${target.id}`);
     } catch (error) { toast(error.message, "err"); }
   }
-  function lightbox(result, job, source = null) {
+  function lightbox(result, job) {
     // With a known uploaded source (Enquadrar imagem) we reframe that file; otherwise the result itself is the base.
+    // Reframing always starts from that original, never from a previous reframe.
+    const state = stateFor(job), source = state.source;
     const original = source ? { ...source, kind: "image", path: null } : result;
-    // Reframing always starts from the original image, never from a previous reframe.
-    let reframed = source ? result : null, view = "original", ratio = null, fit = "Preencher", busy = false, follower = null;
-    const focus = { x: 0.5, y: 0.5 };
+    let view = "original", busy = false, follower = null;
+    const { focus } = state;
+    let ratio, fit = state.fit;
+    const reframedNow = () => state.reframed || (source ? result : null);
     let free = { x: 0, y: 0 };
     const frameApp = store.apps.find(a => a.id === "frame");
     const ratioField = frameApp?.fields.find(f => f.id === "ratio"), fitField = frameApp?.fields.find(f => f.id === "fit");
-    ratio = ratioField?.default;
-    const shown = () => (view === "result" && reframed) || original;
-    const deliver = () => reframed || original;
+    ratio = state.ratio || ratioField?.default;
+    const shown = () => (view === "result" && reframedNow()) || original;
+    const deliver = () => reframedNow() || original;
     const close = () => { follower?.stop(); window.removeEventListener("resize", paintGuide); scrim.remove(); document.removeEventListener("keydown", onKey); };
     const onKey = e => e.key === "Escape" && !document.querySelector(".dd-pop:not(.out)") && close();
     document.addEventListener("keydown", onKey);
@@ -311,7 +344,7 @@ export async function appView(id, navigate) {
             else reject(new Error(snap.message || "Não foi possível reenquadrar."));
           });
         });
-        reframed = out; view = "result";
+        state.reframed = out; state.resultJobId = started.id; state.ratio = ratio; state.fit = fit; view = "result"; persist(job, state); finished(job);
         store.refreshJobs().catch(() => {});
       } catch (error) { toast(error.message, "err"); }
       busy = false; paintMedia(); paintSide();
@@ -322,17 +355,17 @@ export async function appView(id, navigate) {
       const item = deliver();
       const canReframe = original.kind === "image" && frameApp && !frameApp.blocked;
       side.append(h("h3", null, job.title), h("p", { class: "mono dim" }, `${item.name} · ${fmtBytes(item.size || 0)}`),
-        h("a", { class: "btn primary", href: api.url(item.url), download: item.name }, icon("download", "sm"), reframed ? "Baixar reenquadrada" : "Baixar original"));
+        h("a", { class: "btn primary", href: api.url(item.url), download: item.name }, icon("download", "sm"), reframedNow() ? "Baixar reenquadrada" : "Baixar original"));
       if (canReframe) {
         side.append(h("div", { class: "reframe" },
           h("div", { class: "label" }, h("span", null, "Reenquadrar")),
-          dropdown(ratioField.options, ratio, v => { ratio = v; focus.x = focus.y = 0.5; if (view !== "original") picked(); else paintGuide(); }, { label: "Proporção" }),
-          dropdown(fitField.options, fit, v => { fit = v; if (view !== "original") picked(); else paintGuide(); }, { label: "Encaixe" }),
+          dropdown(ratioField.options, ratio, v => { ratio = state.ratio = v; focus.x = focus.y = 0.5; if (view !== "original") picked(); else paintGuide(); }, { label: "Proporção" }),
+          dropdown(fitField.options, fit, v => { fit = state.fit = v; if (view !== "original") picked(); else paintGuide(); }, { label: "Encaixe" }),
           h("p", { class: "hint" }, fit === "Preencher" ? "Arraste o contorno sobre a imagem original para escolher o que fica; o resto é cortado. Duplo clique centraliza." : "A imagem original entra inteira. Arraste o contorno para escolher onde ela fica no quadro."),
           h("button", { class: "btn", type: "button", disabled: busy, onclick: apply }, icon(busy ? "refresh" : "crop", "sm"), busy ? "Reenquadrando…" : "Aplicar enquadramento"),
-          reframed ? h("div", { class: "seg" }, [["original", "Ver original"], ["result", "Ver reenquadrada"]].map(([v, text]) =>
+          reframedNow() ? h("div", { class: "seg" }, [["original", "Ver original"], ["result", "Ver reenquadrada"]].map(([v, text]) =>
             h("button", { type: "button", "aria-pressed": String(view === v), onclick: () => setView(v) }, text))) : null,
-          reframed ? h("button", { class: "btn ghost sm", type: "button", onclick: () => { reframed = null; setView("original"); } }, icon("x", "sm"), "Descartar reenquadramento") : null));
+          state.reframed ? h("button", { class: "btn ghost sm", type: "button", onclick: () => { state.reframed = null; state.resultJobId = null; persist(job, state); finished(job); setView("original"); } }, icon("x", "sm"), "Descartar reenquadramento") : null));
       }
       side.append(sendMenu(item), h("button", { class: "btn ghost", type: "button", onclick: close }, "Fechar"));
     }
@@ -375,7 +408,7 @@ export async function appView(id, navigate) {
     try {
       const sourceUpload = app.id === "frame" ? values.image?.[0] : null;
       const job = await api.post("/jobs", { app: app.id, params });
-      if (sourceUpload) sources.set(job.id, sourceUpload);
+      if (sourceUpload) stateFor(job, sourceUpload);
       store.lastJob(app.id, job.id);
       watch(job);
       store.refreshJobs().catch(() => {});
