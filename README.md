@@ -1,8 +1,40 @@
 # ClonField Studio
 
-Estúdio Gradio para criar imagens, editar fotos, animar referências e montar clipes no Colab. Na aba **Explorar**, filtre por Imagem, Identidade, Vídeo ou Melhorar e abra a ferramenta pelo cartão.
+Estúdio para criar imagens, editar fotos, animar referências e montar clipes no Colab. O app novo abre em **`/studio/`** no link público: uma página por app, biblioteca de modelos com página própria, LoRAs com controle de força, histórico, fila e diagnóstico da placa. O Gradio antigo continua no link raiz como modo clássico.
 
 [![Abrir no Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Vit0lze/clonfield-studio/blob/main/ClonField_Colab.ipynb)
+
+## Studio (app novo)
+
+| Página | O que faz |
+| --- | --- |
+| Início | Campo de prompt rápido, resultados recentes e apps em destaque |
+| Apps | 18 apps com controles próprios; os padrões e limites se ajustam à sua GPU (perfil Leve, Médio ou Pro) |
+| App | Painel de controles à esquerda, palco à direita com tempo, fila, progresso real e **Cancelar**. Resultados seguem para outros apps com "Usar em…" |
+| Modelos | Capas, requisitos, arquivos e instalação com bytes, velocidade e retomada |
+| LoRAs | Biblioteca por família; no app, cada LoRA tem slider de força (−2 a 2) e de encoder |
+| Histórico / Fila | Acervo em grade e jobs que continuam no Colab mesmo se você fechar a aba |
+| Sistema | GPU, perfil, RAM, disco, worker, credenciais (só presença), teste de velocidade e log do ComfyUI |
+
+O frontend não usa build: HTML, CSS e módulos ES em [portal/](portal/). Também roda no Vercel (Root Directory `portal`); o mesmo código fala com `/clonfield/api` do Colab.
+
+## O que mudou para acabar com travamentos
+
+- **Qwen agora roda no ComfyUI** (pesos INT8 prontos), não mais dentro do Gradio com quantização na hora. Isso removeu o download de ~40 GB e o pico de RAM que derrubava o processo.
+- **Coleta de jobs com fila e watchdog** ([cf_workflows.py](cf_workflows.py)): mostra a posição na fila, falha com o log do worker se ele morrer, detecta job perdido e interrompe um nó que fica mudo além do limite.
+- **Cancelar de verdade**, inclusive durante download.
+- **Downloads com progresso e retomada** ([cf_download.py](cf_download.py)): bytes, velocidade e ETA; leitura parada por 45 s reconecta com `Range`.
+- **Portal resiliente**: a conexão de eventos tem watchdog de 30 s e reabre sozinha; o job fica salvo no servidor.
+- **Flags do ComfyUI por GPU** ([cf_tiers.py](cf_tiers.py)): o notebook não força mais `--lowvram` em qualquer placa.
+
+## Testes
+
+Os testes em [tests/](tests/) não usam stubs: rodam contra um ComfyUI real, o engine real e downloads reais do Hugging Face (exigem `HF_TOKEN`).
+
+```bash
+python cf_engine.py --port 7861 &   # com ComfyUI em :8188
+pytest tests/ -v
+```
 
 ## Ferramentas
 
@@ -11,8 +43,8 @@ Estúdio Gradio para criar imagens, editar fotos, animar referências e montar c
 | Bancada de modelos | Presets de Qwen 2.1, FLUX.2/3 Klein, Krea 2 Raw/Turbo, Z-Image Base/Turbo, SDXL e SD 1.5. Permite trocar componentes e ver o grafo | [Presets e executor](cf_model_lab.py) |
 | Catálogo Civitai | Busca compatível com o preset e o slot, escolha de versão/arquivo, instalação sob demanda e galeria de exemplos | [Catálogo](cf_civitai.py) |
 | Direção de cena | Organiza ação, enquadramento, movimento, luz e função das referências em um prompt editável | [Direção](cf_lab_ui.py) |
-| Criar | Texto para imagem, edição com referências, retrato por referência, LoRAs, prompt negativo, composição por máscara e upscale após gerar | [Qwen-Image-2.1 / Turbo](studio_app.py) |
-| Editar região | Retocar uma área marcada por máscara com margem de contexto, suavização e exportação no tamanho da foto | [Qwen-Image-2.1 + Pillow](cf_region.py) |
+| Criar | Texto para imagem, edição com referências, retrato por referência, LoRAs, prompt negativo, composição por máscara e upscale após gerar | [Apps](cf_apps.py) · modelos Comfy da [Bancada](cf_model_lab.py) |
+| Editar região | Retocar uma área marcada por máscara com margem de contexto, suavização e exportação no tamanho da foto | [Qwen-Image-2.1 no ComfyUI + Pillow](cf_region.py) |
 | Vídeo | Animar foto ou gerar clipe por texto | [Wan 2.2 5B](cf_wan.py) |
 | Upscale | Real-ESRGAN para imagem e SeedVR2 INT8 para imagem ou vídeo | [SeedVR2](cf_seedvr2.py) · [Real-ESRGAN](studio_app.py) |
 | Comparar | Controle deslizante de antes e depois e exportação lado a lado em PNG | [Comparação com Pillow](cf_finish.py) |

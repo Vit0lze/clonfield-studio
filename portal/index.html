@@ -5,56 +5,16 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0b0708">
   <title>ClonField Studio</title>
-  <link rel="stylesheet" href="./style.css">
-  <script type="module" src="./portal.js"></script>
+  <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./assets/fonts/fonts.css?v=4">
+  <link rel="stylesheet" href="./css/base.css?v=4">
+  <link rel="stylesheet" href="./css/views.css?v=4">
+  <script type="module" src="./js/main.js"></script>
 </head>
 <body>
-  <header class="top">
-    <div class="brand"><span class="mark" aria-hidden="true">CF</span><span>ClonField Studio</span></div>
-    <div id="session" class="session" hidden>
-      <span id="worker"></span><button id="disconnect" type="button">Desconectar</button>
-    </div>
-  </header>
-  <main>
-    <section id="access" class="access" aria-labelledby="access-title">
-      <p class="eyebrow">Sessão remota</p>
-      <h1 id="access-title">Conecte seu Studio</h1>
-      <p>Use o link público e a senha exibidos na última célula do Colab.</p>
-      <form id="connect">
-        <label for="address">Link público do Studio</label>
-        <input id="address" type="url" inputmode="url" placeholder="https://sua-sessao.gradio.live" required>
-        <label for="password">Senha da sessão</label>
-        <div class="password">
-          <input id="password" type="password" autocomplete="off" required>
-          <button id="reveal" type="button" aria-controls="password" aria-pressed="false">Mostrar</button>
-        </div>
-        <button id="submit" class="primary" type="submit">Conectar</button>
-        <p id="connection-status" class="notice" role="status" aria-live="polite"></p>
-      </form>
-    </section>
-    <section id="workspace" class="workspace" hidden aria-label="Studio">
-      <aside>
-        <h2>Ferramentas</h2>
-        <nav id="tools" aria-label="Ferramentas do Studio"></nav>
-      </aside>
-      <div id="stage" class="stage">
-        <div class="editor">
-          <header><p id="tool-group" class="eyebrow"></p><h1 id="tool-title"></h1></header>
-          <form id="job-form">
-            <div id="fields"></div>
-            <div id="actions" class="actions"></div>
-          </form>
-        </div>
-        <section class="output" aria-labelledby="output-title">
-          <header><h2 id="output-title">Resultado</h2><span id="elapsed"></span></header>
-          <p id="job-status" role="status" aria-live="polite">Pronto para executar.</p>
-          <progress id="job-progress" max="1" hidden></progress>
-          <div id="result" class="result"><p>Os arquivos da execução aparecem aqui.</p></div>
-        </section>
-        <section id="catalog-grid" class="catalog-grid" aria-label="Recursos compatíveis" hidden></section>
-      </div>
-    </section>
-  </main>
+  <div id="root" aria-live="polite"></div>
+  <noscript>O ClonField Studio precisa de JavaScript.</noscript>
 </body>
 </html>

@@ -1,5 +1,8 @@
 # Investigação do encerramento do Qwen
 
+> Histórico. O Qwen não roda mais dentro do processo do Gradio: a geração passa pelo ComfyUI e a sondagem `PROBE_QWEN` foi substituída pelo app **Teste de velocidade** (Sistema). O supervisor `cf_diagnose.py` continua registrando memória e fases do Studio.
+
+
 ## O que os dados antigos mostram
 
 O processo pai registrou `-9`, isto é, o filho morreu com `SIGKILL`. O túnel já estava de pé, o download concluiu 23/23 e a barra de componentes chegou a 5/5. Não há traceback interno do Qwen ou mensagem CUDA antes da morte. A barra avança durante a carga dos componentes, portanto 5/5 não confirma que a construção do objeto da pipeline, a configuração do offload, a preparação do VAE ou a primeira inferência terminaram.
