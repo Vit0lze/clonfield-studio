@@ -28,7 +28,7 @@ def handle_errors(callback):
         except requests.RequestException:
             raise gr.Error("Não foi possível completar a conexão com o serviço.") from None
         except (OSError, ValueError, KeyError) as exc:
-            raise gr.Error(str(exc)) from exc
+            raise gr.Error(str(exc), print_exception=False) from None
     return call
 
 
@@ -134,7 +134,9 @@ def render(main_tabs, directory, output_dir, result_view, release_qwen):
 
     @handle_errors
     def show_images(key, records, preset_key, role, progress=gr.Progress()):
-        entry = get_entry(key, records, preset_key, role)
+        entry = (records or {}).get(key)
+        if not entry or entry["preset"] != preset_key or entry["role"] != role:
+            return [], [], None, "Selecione um arquivo dos resultados desta busca."
         progress(0.1, desc="Buscando exemplos da versão")
         images = civitai.previews(entry)
 
@@ -155,10 +157,23 @@ def render(main_tabs, directory, output_dir, result_view, release_qwen):
         return paths[index] if evt.selected and isinstance(index, int) and 0 <= index < len(paths or []) else None
 
     @handle_errors
-    def send_image(path):
+    def send_image(path, preset_key):
         if not path or not Path(path).is_file():
             raise ValueError("Escolha uma imagem da galeria.")
-        return gr.Tabs(selected="bancada"), "qwen21", gr.update(value=[path], visible=True)
+        if not lab.PRESETS[preset_key].refs:
+            raise ValueError("Este preset não aceita referências.")
+        return gr.Tabs(selected="bancada"), gr.update(value=[path], visible=True)
+
+    def catalog_actions(key, records, preset_key, role):
+        entry = (records or {}).get(key)
+        valid = bool(entry and entry["preset"] == preset_key and entry["role"] == role)
+        bench = valid and role in lab.PRESETS[preset_key].roles
+        graph = valid and role == "Workflow" and Path(entry["name"]).suffix.lower() == ".json"
+        return (gr.update(visible=bench), gr.update(visible=valid),
+                gr.update(visible=valid), gr.update(visible=graph))
+
+    def reference_action(path, preset_key):
+        return gr.update(visible=bool(path and lab.PRESETS[preset_key].refs))
 
     @handle_errors
     def open_workflow(key, records, preset_key, role):
@@ -297,30 +312,37 @@ def render(main_tabs, directory, output_dir, result_view, release_qwen):
         cstatus = gr.Textbox(label="Busca", interactive=False)
         details = gr.Textbox(label="Componente", interactive=False)
         with gr.Row():
-            use_asset = gr.Button("Usar na Bancada · baixar ao gerar", variant="primary")
-            install = gr.Button("Instalar agora")
-            previews = gr.Button("Ver imagens da versão")
-            open_graph = gr.Button("Abrir API JSON em Workflows")
+            use_asset = gr.Button("Usar na Bancada · baixar ao gerar", variant="primary", visible=False)
+            install = gr.Button("Instalar agora", visible=False)
+            previews = gr.Button("Ver imagens da versão", visible=False)
+            open_graph = gr.Button("Abrir API JSON em Workflows", visible=False)
         installed = gr.Textbox(label="Instalação", interactive=False)
         preview_gallery = gr.Gallery(label="Imagens do Civitai", columns=4, object_fit="contain")
         paths, selected_path = gr.State([]), gr.State(None)
         pstatus = gr.Markdown()
-        send = gr.Button("Usar imagem selecionada como referência no Qwen · Bancada")
+        send = gr.Button("Usar como referência na Bancada", visible=False)
         catalog_outputs = [pick, state, cursor, cstatus, more]
-        cpreset.input(catalog_roles, cpreset, crole, queue=False, api_name=False)
+        cpreset.input(catalog_roles, cpreset, crole, queue=False, api_name="catalogo_tipos")
         for event in (cpreset.input, crole.input, query.input):
             event(clear_catalog, None, catalog_outputs, queue=False, api_name=False)
-        for event in (search_button.click, query.submit):
-            event(lambda p, r, q: list_catalog(p, r, q, None), [cpreset, crole, query], catalog_outputs,
-                  api_name=False, concurrency_id="civitai", concurrency_limit=1)
-        more.click(list_catalog, [cpreset, crole, query, cursor, state], catalog_outputs, api_name=False,
+        def search_catalog(preset_key, role, text):
+            return list_catalog(preset_key, role, text, None)
+
+        search_button.click(search_catalog, [cpreset, crole, query], catalog_outputs,
+                            api_name="catalogo_buscar", concurrency_id="civitai", concurrency_limit=1)
+        query.submit(search_catalog, [cpreset, crole, query], catalog_outputs, api_name=False,
+                     concurrency_id="civitai", concurrency_limit=1)
+        more.click(list_catalog, [cpreset, crole, query, cursor, state], catalog_outputs, api_name="catalogo_proxima",
                    concurrency_id="civitai", concurrency_limit=1)
         pick.change(show_file, [pick, state], details, queue=False, api_name=False)
+        for event in (pick.change, cpreset.input, crole.input, query.input):
+            event(catalog_actions, [pick, state, cpreset, crole], [use_asset, install, previews, open_graph],
+                  queue=False, api_name=False)
         pick.change(lambda: ([], [], None, ""), None, [preview_gallery, paths, selected_path, pstatus],
                     queue=False, api_name=False)
-        install.click(install_asset, [pick, state, cpreset, crole], installed, api_name=False, concurrency_id="civitai", concurrency_limit=1)
+        install.click(install_asset, [pick, state, cpreset, crole], installed, api_name="catalogo_instalar", concurrency_id="civitai", concurrency_limit=1)
         previews.click(show_images, [pick, state, cpreset, crole], [preview_gallery, paths, selected_path, pstatus],
-                       api_name=False, concurrency_id="civitai", concurrency_limit=1)
+                       api_name="catalogo_imagens", concurrency_id="civitai", concurrency_limit=1)
         preview_gallery.select(select_image, paths, selected_path, queue=False, api_name=False)
 
     with gr.Tab("Bancada de modelos", id="bancada"):
@@ -375,16 +397,16 @@ def render(main_tabs, directory, output_dir, result_view, release_qwen):
                 with gr.Accordion("Grafo API enviado ao ComfyUI", open=False):
                     graph_view = gr.JSON(label="Grafo")
         preset_outputs = [steps, cfg, width, height, refs, expand, notes, *components, *component_rows]
-        preset.input(lab_fields, [preset, pending_assets], preset_outputs, queue=False, api_name=False)
+        preset.input(lab_fields, [preset, pending_assets], preset_outputs, queue=False, api_name="bancada_preset")
         refresh.click(refresh_lab, [preset, pending_assets, *components], components, queue=False, api_name=False)
         for role, lookup in zip(BENCH_ROLES, browse):
             lookup.click(partial(browse_role, role), preset, [main_tabs, cpreset, crole, query, *catalog_outputs],
                          queue=False, api_name=False)
         use_asset.click(assign_asset, [pick, state, cpreset, crole, pending_assets, preset, *components],
-                        [main_tabs, preset, pending_assets, *preset_outputs], queue=False, api_name=False)
+                        [main_tabs, preset, pending_assets, *preset_outputs], queue=False, api_name="catalogo_usar")
         lora_selector = components[BENCH_ROLES.index("LoRA")]
         lora_selector.change(sync_lora_controls, [preset, pending_assets, lora_selector, weight_order, *lora_weights],
-                             [weight_order, *lora_panels, *lora_weights], queue=False, api_name=False)
+                             [weight_order, *lora_panels, *lora_weights], queue=False, api_name="bancada_loras")
         inputs = [preset, prompt, negative, width, height, steps, cfg, seed, refs, strength, expand,
                   pending_assets, *components, weight_order, *lora_weights]
         preflight.click(check, inputs, [status, graph_view], api_name="checar_conjunto")
@@ -394,15 +416,9 @@ def render(main_tabs, directory, output_dir, result_view, release_qwen):
         job.then(lambda: gr.update(value="Gerar imagem", interactive=True), None, run, queue=False, api_name=False)
         job.failure(lambda: "Falha inesperada. Confira o log do Studio antes de tentar novamente.", None, status,
                     queue=False, api_name=False)
-        link_reference = send.click(send_image, selected_path, [main_tabs, preset, refs], queue=False, api_name=False)
-
-        def reset_qwen_fields(saved):
-            fields = lab_fields("qwen21", saved)
-            return (*fields[:4], *fields[5:])
-
-        link_reference.success(reset_qwen_fields, pending_assets,
-                               [steps, cfg, width, height, expand, notes, *components, *component_rows],
-                               queue=False, api_name=False)
+        send.click(send_image, [selected_path, preset], [main_tabs, refs], queue=False, api_name=False)
+        for event in (selected_path.change, preset.change):
+            event(reference_action, [selected_path, preset], send, queue=False, api_name=False)
 
     with gr.Tab("Direção de cena", id="direcao"):
         gr.Markdown("Organize sujeito, ação, câmera, luz e referências em um prompt editável.")

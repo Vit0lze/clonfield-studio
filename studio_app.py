@@ -973,7 +973,7 @@ with gr.Blocks(title='ClonField Studio', theme=gr.themes.Soft(primary_hue='red',
                     gr.Button('Abrir histórico de workflows').click(
                         lambda: gr.Tabs(selected='workflows'), None, main_tabs, queue=False, api_name=False)
             video_mode.input(lambda mode: gr.update(visible=mode == wan.IMAGE_MODE), video_mode, video_image,
-                             queue=False, api_name=False)
+                             queue=False, api_name="video_opcoes")
             video_run.click(launch_wan, [video_mode, video_image, video_prompt, video_neg, video_size,
                                          video_frames, video_steps, video_seed],
                             [video_preview, video_download, video_status],
@@ -1021,7 +1021,7 @@ with gr.Blocks(title='ClonField Studio', theme=gr.themes.Soft(primary_hue='red',
                         finish_image_reframe = gr.Button('Enquadrar resultado', size='sm')
                         finish_image_animate = gr.Button('Animar esta imagem', size='sm')
             finish_image_mode.input(image_options, finish_image_mode, [look_options, frame_options],
-                                    queue=False, api_name=False)
+                                    queue=False, api_name="acabamento_opcoes")
             finish_image_button.click(finish_image, [finish_image_input, finish_image_mode, finish_look,
                                      finish_strength, finish_ratio, finish_fit, finish_format],
                                      [finish_image_output, finish_image_download, finish_image_status],
@@ -1051,7 +1051,7 @@ with gr.Blocks(title='ClonField Studio', theme=gr.themes.Soft(primary_hue='red',
                         finish_clip_extract = gr.Button('Extrair quadro deste clipe', size='sm')
                         finish_clip_animate = gr.Button('Animar quadro ou prancha', size='sm')
             finish_video_mode.input(clip_options, finish_video_mode, [finish_length, clip_frame_options],
-                                    queue=False, api_name=False)
+                                    queue=False, api_name="montagem_opcoes")
             finish_clip_button.click(finish_clip, [finish_video_input, finish_video_mode, finish_start,
                                     finish_length, clip_ratio, clip_fit, clip_mute],
                                     [finish_video_output, finish_clip_image, finish_clip_download, finish_clip_status],
@@ -1122,10 +1122,11 @@ with gr.Blocks(title='ClonField Studio', theme=gr.themes.Soft(primary_hue='red',
                     with gr.Row(visible=False) as hist_video_actions:
                         hist_cut = gr.Button('Abrir em Montagem', size='sm')
                         hist_video_upscale = gr.Button('Upscale SeedVR2', size='sm')
-            for event in (history_tab.select, hist_kind.input, hist_reload.click, hist_query.submit):
+            hist_reload.click(list_history, [hist_kind, hist_query], [hist_list, hist_count], api_name="historico_listar")
+            for event in (history_tab.select, hist_kind.input, hist_query.submit):
                 event(list_history, [hist_kind, hist_query], [hist_list, hist_count], api_name=False)
             hist_list.change(history_preview, hist_list, [hist_img, hist_video, hist_audio, hist_download,
-                             hist_meta, hist_image_actions, hist_video_actions, hist_compare], api_name=False)
+                             hist_meta, hist_image_actions, hist_video_actions, hist_compare], api_name="historico_abrir")
         with gr.Tab('Comparar', id='comparar'):
             gr.Markdown('### Antes e depois\nArraste a divisão para inspecionar as diferenças. '
                         'As prévias usam a proporção da segunda imagem, com margens quando necessário.')
@@ -1204,7 +1205,8 @@ with gr.Blocks(title='ClonField Studio', theme=gr.themes.Soft(primary_hue='red',
                 wd = gr.File(label='Baixar saídas', file_count='multiple')
                 wl = gr.Textbox(label='Estado do job', lines=4, interactive=False)
                 workflow_outputs = [wg, wv, wa, wd, wl]
-                go.click(api_workflow, [wf, server, wm], workflow_outputs, concurrency_id='gpu', concurrency_limit=1)
+                go.click(api_workflow, [wf, server, wm], workflow_outputs, api_name='executar_workflow',
+                         concurrency_id='gpu', concurrency_limit=1)
                 with gr.Accordion('Histórico e retomada de workflows', open=False):
                     old_workflows = gr.Dropdown(label='Workflows anteriores')
                     gr.Button('Atualizar lista').click(list_workflow_jobs, None, old_workflows)
@@ -1282,7 +1284,7 @@ if '--probe-qwen' in sys.argv:
 import secrets
 import threading
 from starlette.middleware import Middleware
-from cf_portal import PortalLogin
+from cf_portal import PortalAPI
 
 GRADIO_USUARIO = 'clonfield'
 GRADIO_SENHA = secrets.token_urlsafe(16)
@@ -1293,7 +1295,7 @@ try:
     demo.launch(share=public, server_name='127.0.0.1', inline=False, inbrowser=False,
                 auth=(GRADIO_USUARIO, GRADIO_SENHA), prevent_thread_lock=True,
                 show_error=True, enable_monitoring=False, allowed_paths=[str(OUT.resolve())],
-                app_kwargs={"middleware": [Middleware(PortalLogin)]})
+                app_kwargs={"middleware": [Middleware(PortalAPI, username=GRADIO_USUARIO, password=GRADIO_SENHA)]})
     if demo.share_url:
         print('LINK PÚBLICO: ' + demo.share_url, flush=True)
     elif public:

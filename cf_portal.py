@@ -1,42 +1,47 @@
-"""Allow a static portal to hand off a top-level login to Gradio."""
+"""Authenticate the static Studio client on the existing Gradio API."""
 
-from starlette.responses import HTMLResponse
+from hmac import compare_digest
+from secrets import token_urlsafe
+
+from starlette.datastructures import Headers
+from starlette.responses import JSONResponse
 
 
-class PortalLogin:
-    """Use Gradio's existing password check and cookies, then open the app."""
-
-    def __init__(self, app):
+class PortalAPI:
+    def __init__(self, app, username, password):
         self.app = app
+        self.username = username
+        self.password = password.encode()
+        self.token = token_urlsafe(32)
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or scope["method"] != "POST" or scope["path"] != "/clonfield/connect":
+        if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
-        login_scope = {**scope, "path": "/login", "raw_path": b"/login"}
-        handled = False
+        path = scope["path"]
+        authorization = Headers(scope=scope).get("authorization", "")
+        scheme, _, bearer = authorization.partition(" ")
+        secret = bearer.encode("latin-1")
+        headers = {"Cache-Control": "no-store"}
+        if path == "/clonfield/connect" and scope["method"] == "POST":
+            if scheme.lower() == "bearer" and compare_digest(secret, self.password):
+                response = JSONResponse({"token": self.token}, headers=headers)
+            else:
+                response = JSONResponse({"detail": "Senha da sessão inválida."}, status_code=401, headers=headers)
+            await response(scope, receive, send)
+            return
 
-        async def send_login(message):
-            nonlocal handled
-            if message["type"] == "http.response.start" and message["status"] == 200:
-                handled = True
-                cookies = [(key, value) for key, value in message["headers"] if key.lower() == b"set-cookie"]
-                await send({"type": "http.response.start", "status": 303,
-                            "headers": [*cookies, (b"location", b"/"), (b"cache-control", b"no-store"),
-                                        (b"content-length", b"0")]})
-                await send({"type": "http.response.body", "body": b""})
-            elif message["type"] == "http.response.start" and message["status"] in (400, 422):
-                handled = True
-                response = HTMLResponse(
-                    '<!doctype html><html lang="pt-BR"><meta charset="utf-8">'
-                    '<title>ClonField · Acesso negado</title><main>'
-                    '<h1>Senha da sessão inválida</h1>'
-                    '<p>Volte ao portal e confira a senha exibida na última célula do Colab.</p></main></html>',
-                    status_code=400, headers={"Cache-Control": "no-store"},
-                )
-                await response(login_scope, receive, send)
-            elif not handled:
-                await send(message)
+        if authorization and (path == "/config" or path.startswith("/gradio_api/")):
+            if scheme.lower() != "bearer" or not compare_digest(secret, self.token.encode()):
+                response = JSONResponse({"detail": "Sessão inválida. Conecte novamente."},
+                                        status_code=401, headers=headers)
+                await response(scope, receive, send)
+                return
+            gradio_app = scope["app"]
+            gradio_app.tokens[self.token] = self.username
+            cookie = f"access-token-{gradio_app.cookie_id}={self.token}".encode()
+            scope = {**scope, "headers": [*(pair for pair in scope["headers"] if pair[0] != b"cookie"),
+                                          (b"cookie", cookie)]}
 
-        await self.app(login_scope, receive, send_login)
+        await self.app(scope, receive, send)
