@@ -16,12 +16,13 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, StreamingResponse
+from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
 import cf_apps
+import cf_civitai
 import cf_jobs
 import cf_loras
 import cf_tiers
@@ -132,12 +133,60 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             return JSONResponse({"detail": "Modelo desconhecido."}, 404)
         return JSONResponse(cf_apps.model_card(key, tier))
 
+    def cover_url(model, version, covers):
+        key = cf_civitai.register_cover(model, version, covers)
+        return sign(f"cover/{key}").replace("/files/", "/", 1)
+
     async def loras(request):
         family = request.query_params.get("family")
         items = cf_loras.catalog(base) + cf_loras.local(base)
         if family:
             items = [i for i in items if not i["families"] or family in i["families"]]
+        for item in items:
+            if item.get("covers") and item.get("model"):
+                item["cover"] = cover_url(item["model"], item["version"], item["covers"])
+            item.pop("covers", None)
         return JSONResponse(items)
+
+    async def civitai_loras(request):
+        family = request.query_params.get("family", "qwen21")
+        if family not in cf_apps.LORA_FAMILIES:
+            return JSONResponse({"detail": "Escolha um modelo da lista."}, 400)
+        sort = request.query_params.get("sort", "downloads")
+        cards, nxt = await run_in_threadpool(cf_civitai.browse_loras, cf_apps.lab.PRESETS[family],
+                                             request.query_params.get("q", ""), request.query_params.get("cursor") or None, sort)
+        have = {i["name"] for i in cf_loras.local(base)}
+        for card in cards:
+            card["cover"] = sign(f"cover/{card['cover_id']}").replace("/files/", "/", 1)
+            card["cover_kind"] = (card["covers"][0]["type"] if card["covers"] else "none")
+            card["installed"] = any(n.endswith(f'__cv{card["version"]}.safetensors') for n in have)
+            del card["covers"]
+        return JSONResponse({"items": cards, "next": nxt}, headers={"Cache-Control": "no-store"})
+
+    async def civitai_install(request):
+        body = await request.json()
+        family = str(body.get("family", ""))
+        if family not in cf_apps.LORA_FAMILIES:
+            return JSONResponse({"detail": "Escolha um modelo da lista."}, 400)
+        try:
+            model, version, file = int(body["model"]), int(body["version"]), int(body["file"])
+        except (KeyError, TypeError, ValueError):
+            return JSONResponse({"detail": "Pedido de instalação inválido."}, 400)
+        job = manager.submit("install-lora", f"Instalar LoRA {model}", {"model": model}, "cpu",
+                             lambda ctx: cf_apps.install_civitai_lora(ctx, family, model, version, file))
+        return JSONResponse(public_job(job), 202)
+
+    async def cover(request):
+        key = request.path_params["key"]
+        if not signed(f"cover/{key}", request.query_params.get("e"), request.query_params.get("s")):
+            return JSONResponse({"detail": "Link da capa expirou."}, 401)
+        try:
+            data, media_type = await run_in_threadpool(cf_civitai.read_catalog_cover, key)
+        except FileNotFoundError as exc:
+            return JSONResponse({"detail": str(exc)}, 404)
+        except OSError as exc:
+            return JSONResponse({"detail": str(exc)}, 502)
+        return Response(data, media_type=media_type, headers={"Cache-Control": "private, max-age=21600", "X-Content-Type-Options": "nosniff"})
 
     async def install_model(request):
         key = request.path_params["key"]
@@ -306,6 +355,9 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/models/{{key}}", guard(model_detail)),
         Route(f"{PREFIX}/models/{{key}}/install", guard(install_model), methods=["POST"]),
         Route(f"{PREFIX}/loras", guard(loras)),
+        Route(f"{PREFIX}/civitai/loras", guard(civitai_loras)),
+        Route(f"{PREFIX}/civitai/install", guard(civitai_install), methods=["POST"]),
+        Route(f"{PREFIX}/cover/{{key}}", cover),
         Route(f"{PREFIX}/loras/install", guard(install_lora), methods=["POST"]),
         Route(f"{PREFIX}/jobs", guard(list_jobs), methods=["GET"]),
         Route(f"{PREFIX}/jobs", guard(create_job), methods=["POST"]),

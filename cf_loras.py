@@ -1,6 +1,9 @@
 """LoRA library: local files plus the pinned Hugging Face catalog, tagged by model family."""
 
+import json
 import os
+import re
+import shutil
 from pathlib import Path
 
 import cf_download as download
@@ -63,12 +66,43 @@ def catalog(base):
     return items
 
 
+def sidecar(path):
+    try:
+        return json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
 def local(base):
     directory = Path(base) / "loras"
     known = {Path(i["file"]).name for i in CATALOGO}
-    return [{"id": "local::" + p.name, "name": p.name, "label": label(p.name), "source": "local",
-             "families": [], "installed": True, "repo": None}
-            for p in sorted(directory.glob("*.safetensors")) if p.name not in known]
+    items = []
+    for p in sorted(directory.glob("*.safetensors")):
+        if p.name in known:
+            continue
+        meta = sidecar(p)
+        items.append({"id": "local::" + p.name, "name": p.name, "label": meta.get("title") or label(p.name),
+                      "source": "civitai" if meta else "local", "families": meta.get("families") or [], "installed": True,
+                      "repo": None, "creator": meta.get("creator"), "model": meta.get("model"), "version": meta.get("version"),
+                      "covers": meta.get("covers") or [], "page": meta.get("page")})
+    return items
+
+
+def link_civitai(base, entry, source, families, covers, page):
+    """Make a Civitai download usable as a normal LoRA: file in base/loras plus a sidecar with its card data."""
+    directory = Path(base) / "loras"
+    directory.mkdir(parents=True, exist_ok=True)
+    stem = re.sub(r"[^a-zA-Z0-9._-]", "_", Path(entry["name"]).stem)[:90]
+    target = directory / f'{stem}__cv{entry["version"]}.safetensors'
+    if not target.exists():
+        try:
+            os.link(source, target)
+        except OSError:
+            shutil.copy2(source, target)
+    target.with_suffix(".json").write_text(json.dumps({
+        "title": entry["title"], "creator": entry.get("creator"), "model": entry["model"], "version": entry["version"],
+        "families": families, "covers": covers, "page": page, "revision": entry.get("revision")}, ensure_ascii=False), encoding="utf-8")
+    return target
 
 
 def ensure(base, name, progress=None):

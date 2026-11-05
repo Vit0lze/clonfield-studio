@@ -10,7 +10,9 @@ from urllib.parse import urljoin, urlsplit
 import requests
 
 ROOT = Path(__file__).resolve().parent
-API = "https://civitai.com"
+# civitai.red lists the full catalog (adult models included); civitai.com hides them. Override with CLONFIELD_CIVITAI_HOST.
+HOST = os.environ.get("CLONFIELD_CIVITAI_HOST", "civitai.red")
+API = f"https://{HOST}"
 
 
 class CivitaiHTTPError(ValueError):
@@ -29,7 +31,7 @@ def request(session, url, token, stream=False, byte_range=None, timeout=(20, 120
         target = urlsplit(url)
         if target.scheme != "https" or target.username or target.password:
             raise ValueError("Redirecionamento inválido.")
-        headers = {"Authorization": f"Bearer {token}"} if token and target.netloc == "civitai.com" else {}
+        headers = {"Authorization": f"Bearer {token}"} if token and target.netloc == HOST else {}
         if byte_range:
             headers.update({"Range": byte_range, "Accept-Encoding": "identity"})
         response = session.get(url, headers=headers, allow_redirects=False, stream=stream, timeout=timeout)
@@ -75,8 +77,8 @@ def fetch(session, entry, token, root):
         parsed = urlsplit(url)
         if parsed.scheme != "https" or parsed.netloc not in {"civitai.com", "www.civitai.com", "civitai.red"}:
             raise ValueError("URL inicial de download fora dos domínios Civitai.")
-        if parsed.netloc != "civitai.com":
-            url = parsed._replace(netloc="civitai.com").geturl()
+        if parsed.netloc != HOST:
+            url = parsed._replace(netloc=HOST).geturl()
         import hashlib
         digest = hashlib.sha256()
         print(f"{version}: iniciando transferência de {name}", flush=True)

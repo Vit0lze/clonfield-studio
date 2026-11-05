@@ -300,3 +300,38 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
 .guide.movable { cursor: grab; }
 .guide.movable.drag { cursor: grabbing; transition: none; }
 .guide:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+/* ---------- Civitai-style LoRA cards ---------- */
+.lora-head { align-items: stretch; }
+.lora-head .dd { min-width: 210px; }
+.lora-head .input { min-width: 220px; flex: 1; max-width: 320px; }
+.switch.inline { display: inline-flex; align-items: center; gap: 10px; padding: 0 4px; color: var(--muted); font-size: 13px; }
+.cvgrid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); }
+.cvcard { position: relative; aspect-ratio: 7 / 10; overflow: hidden; border-radius: 14px; border: 1px solid var(--line); background: var(--s2);
+  animation: enter 320ms var(--ease) both; animation-delay: calc(var(--i, 0) * 30ms); transition: transform 200ms var(--ease), border-color 200ms var(--ease), box-shadow 200ms var(--ease); }
+@media (hover: hover) and (pointer: fine) { .cvcard:hover { transform: translateY(-3px); border-color: rgba(226, 52, 63, .5); box-shadow: 0 16px 40px rgba(0, 0, 0, .5), 0 0 30px rgba(226, 52, 63, .12); } .cvcard:hover .cover img, .cvcard:hover .cover video { transform: scale(1.04); } }
+.cvcard .cover { position: absolute; inset: 0; }
+.cvcard .cover img, .cvcard .cover video, .cvcard .cover svg { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 500ms var(--ease); }
+.cvcard::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(0, 0, 0, .38) 0%, transparent 28%, transparent 52%, rgba(6, 3, 4, .92) 100%); }
+.cvtop { position: absolute; z-index: 2; top: 10px; left: 10px; right: 10px; display: flex; gap: 6px; align-items: center; }
+.cvbadge { padding: 3px 8px; border-radius: 7px; font: 700 11px var(--mono); letter-spacing: .03em; color: #fff; background: rgba(0, 0, 0, .55); backdrop-filter: blur(8px); border: 1px solid rgba(255, 255, 255, .14); }
+.cvbadge.base { color: #ffb3b9; border-color: rgba(226, 52, 63, .4); }
+.cvlink { margin-left: auto; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: #fff; background: rgba(0, 0, 0, .55); backdrop-filter: blur(8px); border: 1px solid rgba(255, 255, 255, .14); opacity: 0; transition: opacity 160ms var(--ease); }
+.cvcard:hover .cvlink, .cvlink:focus-visible { opacity: 1; }
+.cvbody { position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; display: grid; gap: 7px; padding: 12px; }
+.cvby { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: #e8d7da; min-width: 0; }
+.cvby img, .cvby i { width: 20px; height: 20px; border-radius: 50%; flex: none; object-fit: cover; background: var(--s3); }
+.cvby span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cvbody h3 { font: 700 15px/1.25 var(--sans); color: #fff; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-shadow: 0 1px 8px rgba(0, 0, 0, .7); }
+.cvstats { display: flex; flex-wrap: wrap; gap: 5px 9px; font-size: 11.5px; color: #d9c6ca; }
+.cvstats span { display: inline-flex; align-items: center; gap: 4px; }
+.cvstats .icon { width: 13px; height: 13px; }
+.cvstats .likes { margin-left: auto; padding: 1px 8px; border-radius: 999px; background: rgba(255, 255, 255, .12); color: #fff; font-weight: 600; }
+.cvact { display: flex; }
+.cvact .btn { width: 100%; justify-content: center; }
+.cvact .btn small { margin-left: 4px; opacity: .7; font-size: 11px; }
+.cvprog { font-size: 11.5px; color: #ffd0d4; padding: 7px 4px; }
+.cvcard.skeleton { background: linear-gradient(100deg, var(--s2) 30%, var(--s3) 50%, var(--s2) 70%) 0 0 / 200% 100%; animation: shimmer 1.4s linear infinite; }
+.cvcard.skeleton::after { display: none; }
+.center { justify-content: center; margin: 20px 0; }
+.lora .po img { width: 100%; height: 100%; object-fit: cover; display: block; }

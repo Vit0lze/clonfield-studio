@@ -122,7 +122,7 @@ export async function appView(id, navigate) {
         const entry = library.find(l => l.name === item.name);
         box.append(h("div", { class: `lora${item.on === false ? " off" : ""}` },
           h("div", { class: "head" },
-            h("div", { class: "po" }, posterEl(item.name)),
+            h("div", { class: "po" }, entry?.cover ? h("img", { src: api.url(entry.cover), alt: "", loading: "lazy" }) : posterEl(item.name)),
             h("div", { class: "name", title: item.name }, entry?.label || item.name, entry && !entry.installed ? h("span", { class: "dim" }, " · baixa ao gerar") : null),
             h("div", { class: "row" },
               h("input", { type: "checkbox", "aria-label": "Ativar LoRA", checked: item.on !== false, class: "sr", id: `lora-${index}` }),

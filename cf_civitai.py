@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 import requests
 from PIL import Image, ImageOps
 
-from cf_assets import API, CivitaiHTTPError, request
+from cf_assets import API, HOST, CivitaiHTTPError, request
 
 ROLE_TYPES = {
     "Checkpoint": "checkpoints", "Difusão": "diffusion_models", "LoRA": "loras",
@@ -32,7 +32,7 @@ QUERY_TYPES = {
     "CLIP Vision": ("CLIPVision",), "Motion Module": ("MotionModule",),
 }
 WEIGHT_SUFFIX = ".safetensors"
-MEDIA_HOSTS = {"image.civitai.com", "image-b2.civitai.com"}
+MEDIA_HOSTS = {"image.civitai.com", "image-b2.civitai.com", "blobs-b2.civitai.com"}
 COVER_IMAGES = {".gif", ".png", ".jpg", ".jpeg", ".webp", ".avif"}
 COVER_LIMIT = 4
 COVER_MAX_BYTES = 12 * 1024**2
@@ -105,7 +105,7 @@ def matching_files(model, version, preset, role):
                        if key.casefold() == "sha256"), None)
         if digest and not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
             continue
-        download = url._replace(netloc="civitai.com").geturl()
+        download = url._replace(netloc=HOST).geturl()
         accepted.append({"version": version["id"], "file": file["id"], "name": name, "role": role,
                          "preset": preset.key, "base": base, "title": str(model.get("name") or "Recurso"),
                          "revision": str(version.get("name") or version["id"]),
@@ -153,7 +153,7 @@ def search(preset, role, query, cursor=None):
         raise ValueError("Escolha um tipo de componente.")
     if (role == "Checkpoint" and preset.clip_type) or (role in {"Difusão", "Encoder"} and not preset.clip_type):
         raise ValueError("Escolha um componente disponível neste preset.")
-    params = {"limit": 24, "types": QUERY_TYPES[role], "nsfw": "false", "sort": "Most Downloaded"}
+    params = {"limit": 24, "types": QUERY_TYPES[role], "nsfw": "true", "sort": "Most Downloaded"}
     query = (query or "").strip()
     if query.startswith(("https://", "http://")):
         parsed = urlsplit(query)
@@ -197,9 +197,7 @@ def catalog_covers(images):
             continue
         url = image.get("url")
         # The model API uses a numeric rating. The image API uses labels and a separate bitmask.
-        if (not image_url(url) or image.get("nsfw") not in (None, False, "false", "None", "PG")
-                or image.get("nsfwLevel") not in (None, 0, 1, "0", "1", "None", "PG")
-                or image.get("browsingLevel") not in (None, 1, "1")):
+        if not image_url(url):
             continue
         parsed = urlsplit(url)
         suffix = Path(parsed.path).suffix.lower()
@@ -226,7 +224,7 @@ def catalog_covers(images):
 @lru_cache(maxsize=256)
 def gallery_covers(model, version):
     # The catalog endpoint's preview sample can be empty even when a gallery has public images.
-    params = {"modelId": model, "nsfw": "None", "limit": 12}
+    params = {"modelId": model, "nsfw": "X", "limit": 12}
     with requests.Session() as session, request(
         session, f"{API}/api/v1/images?{urlencode(params)}", None, timeout=(3, 4)
     ) as response:
@@ -511,3 +509,61 @@ def inventory(directory, preset, role):
     for key, data, path in result:
         unique.setdefault(path, (key, data, path))
     return list(unique.values())
+
+
+# ---------------------------------------------------------------- Studio browsing (cards as the site shows them)
+
+SORTS = {"downloads": "Most Downloaded", "rated": "Highest Rated", "newest": "Newest"}
+BASE_BADGES = {"qwen21": "QWEN 2.1", "krea2": "KR2", "krea2-turbo": "KR2", "flux2": "FLUX.2", "flux3": "FLUX.3",
+               "z-image": "ZIMG", "z-image-turbo": "ZIMG"}
+
+
+def model_card(model, version, files, preset):
+    stats = model.get("stats") or {}
+    creator = model.get("creator") or {}
+    covers = catalog_covers(version.get("images") or [])
+    return {
+        "model": model["id"], "version": version["id"], "version_name": str(version.get("name") or ""),
+        "title": str(model.get("name") or "LoRA"), "creator": str(creator.get("username") or ""),
+        "avatar": creator.get("image") if image_url(creator.get("image")) else None,
+        "base": str(version.get("baseModel") or ""), "badge": BASE_BADGES.get(preset.key, preset.key.upper()),
+        "stats": {"downloads": int(stats.get("downloadCount") or 0), "likes": int(stats.get("thumbsUpCount") or 0),
+                  "saves": int(stats.get("favoriteCount") or stats.get("collectedCount") or 0),
+                  "comments": int(stats.get("commentCount") or 0)},
+        "files": [{"file": f["file"], "name": f["name"], "size_mb": round((f.get("size_kb") or 0) / 1024, 1)} for f in files],
+        "covers": covers, "cover_id": register_cover(model["id"], version["id"], covers),
+        "adult": bool(model.get("nsfw")) or any(int(i.get("nsfwLevel") or 0) >= 4 for i in (version.get("images") or [])[:1] if isinstance(i, dict)),
+        "page": f'{API}/models/{model["id"]}?modelVersionId={version["id"]}', "preset": preset.key,
+    }
+
+
+def browse_loras(preset, query="", cursor=None, sort="downloads"):
+    """One card per Civitai model, with the newest version that fits the preset's base model."""
+    params = {"limit": 24, "types": QUERY_TYPES["LoRA"], "nsfw": "true", "sort": SORTS.get(sort, SORTS["downloads"])}
+    if query.strip():
+        params["query"] = query.strip()[:180]
+    if cursor:
+        params["cursor"] = cursor
+    if preset.api_bases:
+        params["baseModels"] = preset.api_bases
+    result = api_json("models", params)
+    cards = []
+    for model in result.get("items") or []:
+        for version in model.get("modelVersions") or []:
+            files = matching_files(model, version, preset, "LoRA")
+            if files:
+                cards.append(model_card(model, version, files, preset))
+                break
+    return cards, (result.get("metadata") or {}).get("nextCursor")
+
+
+def entry_for(preset, model_id, version_id, file_id):
+    """Rebuild a downloadable entry from the Civitai record, never from client-sent fields."""
+    model = api_json(f"models/{int(model_id)}")
+    for version in model.get("modelVersions") or []:
+        if version.get("id") != int(version_id):
+            continue
+        for entry in matching_files(model, version, preset, "LoRA"):
+            if entry["file"] == int(file_id):
+                return {**entry, "creator": str((model.get("creator") or {}).get("username") or "")}, model
+    raise ValueError("Esse arquivo não está mais disponível para este modelo no Civitai.")

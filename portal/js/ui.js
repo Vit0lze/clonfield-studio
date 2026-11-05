@@ -66,6 +66,9 @@ const ICONS = {
   "arrow-right": '<path d="M5 12h14M13 6l6 6-6 6"/>',
   trash: '<path d="M5 7h14M10 7V4.5h4V7"/><path d="M6.5 7l1 12.5h9l1-12.5"/>',
   power: '<path d="M12 4v8"/><path d="M7 7a7.5 7.5 0 1010 0"/>',
+  thumb: '<path d="M7 11v9H4v-9z"/><path d="M7 11l4-7c1.6 0 2.6 1.2 2.3 2.8L12.8 9H19a2 2 0 0 1 2 2.4l-1.3 6.4A2.6 2.6 0 0 1 17.2 20H7"/>',
+  comment: '<path d="M4 5h16v11H9l-5 4z"/>',
+  bookmark: '<path d="M6 4h12v16l-6-4-6 4z"/>',
   bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1 2V16h5.2v-.2c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
   bolt: '<path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/>',
   logo: '<rect x="3" y="3" width="30" height="30" rx="9" fill="none"/><circle cx="18" cy="18" r="7.5" fill="none"/><path d="M16 14.2v7.6l6.2-3.8z" fill="currentColor" stroke="none"/>'

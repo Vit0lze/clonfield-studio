@@ -11,6 +11,7 @@ from PIL import Image, ImageOps
 import cf_download as download
 import cf_finish as finish
 import cf_jobs
+import cf_civitai
 import cf_loras
 import cf_model_lab as lab
 import cf_openjutsu as openjutsu
@@ -413,6 +414,27 @@ def install_model(ctx, key):
         except download.DownloadError as exc:
             raise JobError(str(exc)) from None
         ctx.progress((index + 1) / len(pending), desc=f"{target.name} instalado")
+    return []
+
+
+LORA_FAMILIES = {"qwen21": ["qwen21"], "krea2": ["krea2", "krea2-turbo"], "krea2-turbo": ["krea2", "krea2-turbo"],
+                 "flux2": ["flux2"], "flux3": ["flux3"], "z-image": ["z-image", "z-image-turbo"],
+                 "z-image-turbo": ["z-image", "z-image-turbo"]}
+
+
+def install_civitai_lora(ctx, family, model, version, file):
+    """Download one Civitai LoRA (SHA-256 checked) and register it in base/loras with its card data."""
+    from cf_civitai import entry_for, install
+    try:
+        preset = lab.PRESETS[family]
+        entry, record = entry_for(preset, model, version, file)
+        ctx.progress(0.05, desc=f"Baixando {entry['title']} do Civitai")
+        source = install(entry, ENV["civitai"], ctx.progress)
+        card = cf_civitai.model_card(record, next(v for v in record["modelVersions"] if v["id"] == entry["version"]), [entry], preset)
+        cf_loras.link_civitai(ENV["base"], entry, source, LORA_FAMILIES.get(family, [family]), card["covers"], card["page"])
+    except (ValueError, KeyError, StopIteration) as exc:
+        raise JobError(str(exc) or "Não foi possível instalar este LoRA.") from None
+    ctx.progress(1.0, desc="LoRA instalado")
     return []
 
 
