@@ -285,7 +285,7 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
 
 /* ---------- reframe in the lightbox ---------- */
 .lightbox .media { position: relative; overflow: hidden; }
-.guide { position: absolute; pointer-events: none; border: 1.5px solid var(--red-hi); border-radius: 2px; box-shadow: 0 0 0 9999px rgba(5, 3, 4, .66);
+.guide { position: absolute; pointer-events: auto; touch-action: none; border: 1.5px solid var(--red-hi); border-radius: 2px; box-shadow: 0 0 0 9999px rgba(5, 3, 4, .66);
   transition: width 240ms var(--ease), height 240ms var(--ease), left 240ms var(--ease), top 240ms var(--ease); }
 .guide::before, .guide::after { content: ""; position: absolute; inset: 0; background: linear-gradient(rgba(255,255,255,.28), rgba(255,255,255,.28)) 33.33% 0 / 1px 100% no-repeat,
   linear-gradient(rgba(255,255,255,.28), rgba(255,255,255,.28)) 66.66% 0 / 1px 100% no-repeat; }
@@ -297,3 +297,6 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
 .reframe .btn { width: 100%; }
 @media (prefers-reduced-motion: reduce) { .guide { transition: none; } }
 .lightbox .side > a.btn { justify-content: center; }
+.guide.movable { cursor: grab; }
+.guide.movable.drag { cursor: grabbing; transition: none; }
+.guide:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }

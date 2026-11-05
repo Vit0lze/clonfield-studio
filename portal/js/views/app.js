@@ -230,77 +230,108 @@ export async function appView(id, navigate) {
       navigate(`#/apps/${target.id}`);
     } catch (error) { toast(error.message, "err"); }
   }
-  function lightbox(first, job) {
-    const versions = [first];
-    let current = first, ratio = null, fit = "Preencher", busy = false, follower = null;
+  function lightbox(original, job) {
+    // Reframing always starts from the original image, never from a previous reframe.
+    let reframed = null, view = "original", ratio = null, fit = "Preencher", busy = false, follower = null;
+    const focus = { x: 0.5, y: 0.5 };
+    let free = { x: 0, y: 0 };
     const frameApp = store.apps.find(a => a.id === "frame");
     const ratioField = frameApp?.fields.find(f => f.id === "ratio"), fitField = frameApp?.fields.find(f => f.id === "fit");
     ratio = ratioField?.default;
-    const close = () => { follower?.stop(); scrim.remove(); document.removeEventListener("keydown", onKey); };
+    const shown = () => (view === "result" && reframed) || original;
+    const deliver = () => reframed || original;
+    const close = () => { follower?.stop(); window.removeEventListener("resize", paintGuide); scrim.remove(); document.removeEventListener("keydown", onKey); };
     const onKey = e => e.key === "Escape" && !document.querySelector(".dd-pop:not(.out)") && close();
     document.addEventListener("keydown", onKey);
 
     const media = h("div", { class: "media" });
     const side = h("div", { class: "side" });
-    const guide = h("div", { class: "guide", hidden: true });
+    const guide = h("div", { class: "guide", hidden: true, tabindex: "0", role: "slider", "aria-label": "Posição do enquadramento. Arraste ou use as setas." });
     let img = null;
 
-    // Crop guide: shows what "Preencher" keeps (or the padded frame for "Inteira") over the picture.
+    // Crop guide over the original: shows what "Preencher" keeps (or the padded frame for "Inteira").
     function paintGuide() {
       const option = ratioField?.options.find(o => o.value === ratio);
-      if (!img || !option?.ratio || current.kind !== "image" || !img.naturalWidth) { guide.hidden = true; return; }
+      if (!img || view !== "original" || !option?.ratio || original.kind !== "image" || !img.naturalWidth) { guide.hidden = true; return; }
       const box = media.getBoundingClientRect(), scale = Math.min(box.width / img.naturalWidth, box.height / img.naturalHeight);
       const w = img.naturalWidth * scale, hh = img.naturalHeight * scale, target = option.ratio[0] / option.ratio[1];
       const fill = fit === "Preencher";
       const gw = (fill ? w / hh <= target : w / hh > target) ? w : hh * target, gh = gw / target;
       guide.hidden = false;
       guide.classList.toggle("pad", !fill);
+      // "free" is how far the window can travel on each axis; focus 0..1 is where it sits inside that range.
+      free = { x: Math.abs(w - gw), y: Math.abs(hh - gh) };
+      const sign = fill ? 1 : -1, left0 = (box.width - w) / 2, top0 = (box.height - hh) / 2;
       guide.style.width = `${gw}px`; guide.style.height = `${gh}px`;
-      guide.style.left = `${(box.width - gw) / 2}px`; guide.style.top = `${(box.height - gh) / 2}px`;
+      guide.style.left = `${left0 + sign * free.x * focus.x}px`;
+      guide.style.top = `${top0 + sign * free.y * focus.y}px`;
+      guide.classList.toggle("movable", free.x > 1 || free.y > 1);
     }
+    let drag = null;
+    const nudge = (dx, dy) => {
+      const sign = fit === "Preencher" ? 1 : -1;
+      if (free.x > 1) focus.x = Math.min(1, Math.max(0, focus.x + sign * dx / free.x));
+      if (free.y > 1) focus.y = Math.min(1, Math.max(0, focus.y + sign * dy / free.y));
+      paintGuide();
+    };
+    guide.addEventListener("pointerdown", e => { e.preventDefault(); guide.setPointerCapture(e.pointerId); drag = { x: e.clientX, y: e.clientY }; guide.classList.add("drag"); });
+    guide.addEventListener("pointermove", e => { if (!drag) return; nudge(e.clientX - drag.x, e.clientY - drag.y); drag = { x: e.clientX, y: e.clientY }; });
+    const endDrag = () => { drag = null; guide.classList.remove("drag"); };
+    guide.addEventListener("pointerup", endDrag); guide.addEventListener("pointercancel", endDrag);
+    guide.addEventListener("dblclick", () => { focus.x = focus.y = 0.5; paintGuide(); });
+    guide.addEventListener("keydown", e => {
+      const step = e.shiftKey ? 24 : 6, move = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+      if (move) { e.preventDefault(); nudge(...move); }
+    });
     function paintMedia() {
       clear(media);
       img = null;
-      if (current.kind === "video") { media.append(h("video", { src: api.url(current.url), controls: true, autoplay: true, loop: true })); return; }
-      img = h("img", { src: api.url(current.url), alt: job.title, onload: paintGuide });
+      const item = shown();
+      if (item.kind === "video") { media.append(h("video", { src: api.url(item.url), controls: true, autoplay: true, loop: true })); return; }
+      img = h("img", { src: api.url(item.url), alt: job.title, onload: paintGuide });
       media.append(img, guide);
       paintGuide();
     }
+    function setView(next) { view = next; paintMedia(); paintSide(); }
     async function apply() {
       if (busy) return;
       busy = true; paintSide();
       try {
-        const upload = await api.post("/import", { path: current.path });
-        const started = await api.post("/jobs", { app: "frame", params: { image: [upload.id], ratio, fit, format: "PNG" } });
-        await new Promise((resolve, reject) => {
+        const upload = await api.post("/import", { path: original.path });
+        const started = await api.post("/jobs", { app: "frame", params: { image: [upload.id], ratio, fit, focus: [focus.x, focus.y], format: "PNG" } });
+        const out = await new Promise((resolve, reject) => {
           follower = api.follow(started.id, snap => {
             if (!isFinal(snap.status)) return;
             follower?.stop();
-            const out = (snap.results || []).find(r => r.kind === "image");
-            if (snap.status === "concluído" && out) { versions.push(out); current = out; resolve(); }
+            const first = (snap.results || []).find(r => r.kind === "image");
+            if (snap.status === "concluído" && first) resolve(first);
             else reject(new Error(snap.message || "Não foi possível reenquadrar."));
           });
         });
+        reframed = out; view = "result";
         store.refreshJobs().catch(() => {});
       } catch (error) { toast(error.message, "err"); }
       busy = false; paintMedia(); paintSide();
     }
+    const picked = () => { view = "original"; paintMedia(); paintSide(); };
     function paintSide() {
       clear(side);
-      const isImage = current.kind === "image" && frameApp && !frameApp.blocked;
-      side.append(h("h3", null, job.title), h("p", { class: "mono dim" }, `${current.name} · ${fmtBytes(current.size)}`),
-        h("a", { class: "btn primary", href: api.url(current.url), download: current.name }, icon("download", "sm"), versions.length > 1 ? "Baixar reenquadrada" : "Baixar original"));
-      if (isImage) {
+      const item = deliver();
+      const canReframe = original.kind === "image" && frameApp && !frameApp.blocked;
+      side.append(h("h3", null, job.title), h("p", { class: "mono dim" }, `${item.name} · ${fmtBytes(item.size)}`),
+        h("a", { class: "btn primary", href: api.url(item.url), download: item.name }, icon("download", "sm"), reframed ? "Baixar reenquadrada" : "Baixar original"));
+      if (canReframe) {
         side.append(h("div", { class: "reframe" },
           h("div", { class: "label" }, h("span", null, "Reenquadrar")),
-          dropdown(ratioField.options, ratio, v => { ratio = v; paintGuide(); }, { label: "Proporção" }),
-          dropdown(fitField.options, fit, v => { fit = v; paintGuide(); }, { label: "Encaixe" }),
-          h("p", { class: "hint" }, fit === "Preencher" ? "O contorno mostra o que fica; o resto é cortado." : "A imagem inteira entra no quadro, com margem nas sobras."),
+          dropdown(ratioField.options, ratio, v => { ratio = v; focus.x = focus.y = 0.5; if (view !== "original") picked(); else paintGuide(); }, { label: "Proporção" }),
+          dropdown(fitField.options, fit, v => { fit = v; if (view !== "original") picked(); else paintGuide(); }, { label: "Encaixe" }),
+          h("p", { class: "hint" }, fit === "Preencher" ? "Arraste o contorno sobre a imagem original para escolher o que fica; o resto é cortado. Duplo clique centraliza." : "A imagem original entra inteira. Arraste o contorno para escolher onde ela fica no quadro."),
           h("button", { class: "btn", type: "button", disabled: busy, onclick: apply }, icon(busy ? "refresh" : "crop", "sm"), busy ? "Reenquadrando…" : "Aplicar enquadramento"),
-          versions.length > 1 ? h("button", { class: "btn ghost sm", type: "button", onclick: () => { current = versions[0]; versions.length = 1; paintMedia(); paintSide(); } }, icon("refresh", "sm"), "Voltar ao original") : null));
+          reframed ? h("div", { class: "seg" }, [["original", "Ver original"], ["result", "Ver reenquadrada"]].map(([v, text]) =>
+            h("button", { type: "button", "aria-pressed": String(view === v), onclick: () => setView(v) }, text))) : null,
+          reframed ? h("button", { class: "btn ghost sm", type: "button", onclick: () => { reframed = null; setView("original"); } }, icon("x", "sm"), "Descartar reenquadramento") : null));
       }
-      const menu = sendMenu(current);
-      side.append(menu, h("button", { class: "btn ghost", type: "button", onclick: close }, "Fechar"));
+      side.append(sendMenu(item), h("button", { class: "btn ghost", type: "button", onclick: close }, "Fechar"));
     }
     const scrim = h("div", { class: "scrim", onclick: e => e.target === scrim && close() },
       h("div", { class: "lightbox", role: "dialog", "aria-label": job.title }, media, side));

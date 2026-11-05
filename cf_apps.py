@@ -354,7 +354,7 @@ def run_look(ctx, p, tier):
 
 def run_frame(ctx, p, tier):
     path, _ = finish.image_edit(p["image"][0], finish.FRAME, None, 0, p["ratio"], p.get("fit", "Preencher"),
-                                p.get("format", "PNG"), ctx.out_dir)
+                                p.get("format", "PNG"), ctx.out_dir, tuple(p.get("focus") or (0.5, 0.5)))
     return [path]
 
 
@@ -528,6 +528,7 @@ def build_registry():
             lambda t: [dict(id="image", type="files", label="Imagem", accept="image", max=1, min=1),
                        dict(id="ratio", type="chips", label="Proporção", default=next(iter(finish.SIZES)), options=sizes_options(finish.SIZES)),
                        dict(id="fit", type="chips", label="Encaixe", default="Preencher", options=[opt("Preencher", "Preencher"), opt("Manter imagem inteira", "Inteira")]),
+                       dict(id="focus", type="hidden", default=[0.5, 0.5]),
                        dict(id="format", type="chips", label="Formato", default="PNG", options=[opt(v, v) for v in finish.FORMATS], advanced=True)],
             lane="cpu"),
         App("clip", "Cortar vídeo", "Vídeo", "Recorte o trecho e ajuste a proporção.", "finish", partial(run_clip, mode=finish.CLIP),

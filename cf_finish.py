@@ -27,7 +27,7 @@ def output_path(directory, stem, suffix):
     return directory / f"{stem}-{uuid.uuid4().hex[:12]}{suffix}"
 
 
-def image_edit(path, mode, look, strength, ratio, fit, format_name, directory):
+def image_edit(path, mode, look, strength, ratio, fit, format_name, directory, focus=(0.5, 0.5)):
     if not path:
         raise ValueError("Envie uma imagem primeiro.")
     if format_name not in FORMATS:
@@ -54,12 +54,16 @@ def image_edit(path, mode, look, strength, ratio, fit, format_name, directory):
         if ratio not in SIZES or fit not in ("Preencher", "Manter imagem inteira"):
             raise ValueError("Escolha uma proporção e um modo de encaixe.")
         size = SIZES[ratio]
+        try:
+            fx, fy = (min(1.0, max(0.0, float(v))) for v in focus)
+        except (TypeError, ValueError):
+            raise ValueError("Posição do enquadramento inválida.") from None
         if fit == "Preencher":
-            result = ImageOps.fit(source, size, Image.Resampling.LANCZOS)
+            result = ImageOps.fit(source, size, Image.Resampling.LANCZOS, centering=(fx, fy))
         else:
             fitted = ImageOps.contain(source, size, Image.Resampling.LANCZOS)
             result = Image.new("RGBA", size, "#17171e")
-            result.alpha_composite(fitted, ((size[0]-fitted.width)//2, (size[1]-fitted.height)//2))
+            result.alpha_composite(fitted, (round((size[0]-fitted.width)*fx), round((size[1]-fitted.height)*fy)))
     else:
         raise ValueError("Escolha uma ferramenta de imagem.")
     if format_name == "JPEG":
