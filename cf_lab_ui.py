@@ -99,10 +99,13 @@ def render(main_tabs, directory, output_dir, result_view, release_qwen):
                   if labels else f"Nenhum {role} com compatibilidade verificável para {target} nesta página.")
         if next_cursor:
             status += " Você pode consultar a próxima página."
-        return gr.update(choices=labels, value=None), records, next_cursor, status, gr.update(interactive=bool(next_cursor))
+        installed = {(data.get("version"), data.get("file"))
+                     for _, data, _ in civitai.inventory(directory, lab.PRESETS[preset_key], role)}
+        return (gr.update(choices=labels, value=None), records, next_cursor, status,
+                gr.update(interactive=bool(next_cursor)), civitai.catalog_cards(records, installed))
 
     def clear_catalog():
-        return gr.update(choices=[], value=None), {}, None, "", gr.update(interactive=False)
+        return gr.update(choices=[], value=None), {}, None, "", gr.update(interactive=False), []
 
     @handle_errors
     def show_file(key, records):
@@ -130,7 +133,7 @@ def render(main_tabs, directory, output_dir, result_view, release_qwen):
             return f"Disponível no ComfyUI como {path.name}. Use um grafo que ofereça o loader correspondente."
         if entry["role"] == "Workflow":
             return f"Salvo como {path.name}. Use a aba Workflows para revisar e executar API JSON."
-        return f"Instalado: {path.name}. Abra o mesmo preset na Bancada e atualize a lista de componentes."
+        return f"Instalado: {path.name}. Disponível para presets compatíveis na Bancada."
 
     @handle_errors
     def show_images(key, records, preset_key, role, progress=gr.Progress()):
@@ -321,7 +324,8 @@ def render(main_tabs, directory, output_dir, result_view, release_qwen):
         paths, selected_path = gr.State([]), gr.State(None)
         pstatus = gr.Markdown()
         send = gr.Button("Usar como referência na Bancada", visible=False)
-        catalog_outputs = [pick, state, cursor, cstatus, more]
+        cards = gr.JSON(label="Capas do catálogo", visible=False)
+        catalog_outputs = [pick, state, cursor, cstatus, more, cards]
         cpreset.input(catalog_roles, cpreset, crole, queue=False, api_name="catalogo_tipos")
         for event in (cpreset.input, crole.input, query.input):
             event(clear_catalog, None, catalog_outputs, queue=False, api_name=False)
@@ -398,7 +402,7 @@ def render(main_tabs, directory, output_dir, result_view, release_qwen):
                     graph_view = gr.JSON(label="Grafo")
         preset_outputs = [steps, cfg, width, height, refs, expand, notes, *components, *component_rows]
         preset.input(lab_fields, [preset, pending_assets], preset_outputs, queue=False, api_name="bancada_preset")
-        refresh.click(refresh_lab, [preset, pending_assets, *components], components, queue=False, api_name=False)
+        refresh.click(refresh_lab, [preset, pending_assets, *components], components, queue=False, api_name="bancada_atualizar")
         for role, lookup in zip(BENCH_ROLES, browse):
             lookup.click(partial(browse_role, role), preset, [main_tabs, cpreset, crole, query, *catalog_outputs],
                          queue=False, api_name=False)

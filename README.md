@@ -34,7 +34,7 @@ Estúdio Gradio para criar imagens, editar fotos, animar referências e montar c
 
 Importe este repositório no Vercel e configure **Root Directory** como `portal`, com preset **Other**. Depois que o Colab imprimir **LINK PÚBLICO** e **SENHA DA SESSÃO**, use os dois para conectar. O Studio roda no site estático e chama a API do Gradio diretamente pelo navegador. Os resultados e o progresso aparecem no site. O token fica em memória até desconectar ou recarregar a página.
 
-A Bancada mostra os componentes e controles compatíveis com o preset escolhido. **Procurar mais** abre o catálogo com o preset e o tipo preenchidos. As ações da busca aparecem depois que um arquivo válido é selecionado. Cada LoRA adicionada tem pesos próprios para o modelo e o encoder.
+A Bancada mostra os componentes e controles compatíveis com o preset escolhido. **Procurar mais** abre o catálogo com o preset e o tipo preenchidos. No frontend, o catálogo mostra um bloco por recurso com capa, link da versão e download. Após o download, a Bancada atualiza a lista de arquivos compatíveis. Cada LoRA adicionada tem pesos próprios para o modelo e o encoder.
 
 ## Civitai e Bancada
 

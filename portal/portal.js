@@ -18,7 +18,6 @@ const tools = [
   ["Avançado", "Workflows ComfyUI", "executar_workflow", "Executar workflow"]
 ];
 const modelSlots = new Set(["Difusão", "Checkpoint", "Encoder", "VAE", "LoRA", "Upscaler"]);
-const catalogExtras = new Set(["ControlNet", "Embedding", "CLIP Vision", "Motion Module", "Workflow"]);
 const mainFields = /^(Preset|Prompt|Instrução|Assunto|Referências|Imagem|Vídeo|Mídia|Ferramenta|Busca|Proporção|Largura|Altura|Modo|LoRA|Checkpoint|Difusão|VAE|Encoder|Upscaler|Passos|CFG|Seed|Componente|Antes|Depois|Máscara|Workflow)/i;
 const state = { api: null, current: null, busy: false, epoch: 0, components: new Map(), endpoints: new Map(),
   values: new Map(), parents: new Map(), urls: [], catalog: null, history: null };
@@ -78,7 +77,7 @@ function clearResults() {
 }
 function status(message) { byId("job-status").textContent = message; }
 
-function navigate(tool) {
+function navigate(tool, { searchCatalog = true } = {}) {
   if (state.busy) return;
   state.current = tool;
   clearResults();
@@ -86,6 +85,11 @@ function navigate(tool) {
   byId("elapsed").textContent = "";
   byId("result").append(element("p", "Os arquivos da execução aparecem aqui."));
   render();
+  if (tool[2] === "bancada_gerar" && state.endpoints.has("bancada_atualizar")) {
+    run("bancada_atualizar", { update: true });
+  } else if (tool[2] === "catalogo_buscar" && searchCatalog && !state.catalog) {
+    run("catalogo_buscar");
+  }
 }
 function toolName() { return state.current?.[2]; }
 function endpointInput(name, label) {
@@ -93,6 +97,9 @@ function endpointInput(name, label) {
 }
 function render() {
   const [group, title, name, action] = state.current;
+  const inCatalog = name === "catalogo_buscar";
+  byId("stage").classList.toggle("catalog-mode", inCatalog);
+  byId("catalog-grid").hidden = !inCatalog;
   byId("tool-group").textContent = group;
   byId("tool-title").textContent = title;
   byId("tools").replaceChildren(...tools.filter(t => state.endpoints.has(t[2])).map(tool => {
@@ -134,7 +141,7 @@ function render() {
   if (name === "bancada_gerar" && state.endpoints.has("checar_conjunto")) {
     actions.append(button("Checar conjunto", () => run("checar_conjunto")));
   }
-  if (name === "catalogo_buscar") renderCatalog(fields, actions);
+  if (inCatalog) renderCatalog();
   if (name === "historico_listar") renderHistory(fields, actions);
   fields.inert = state.busy;
 }
@@ -207,16 +214,17 @@ function field(component) {
   if (toolName() === "bancada_gerar" && modelSlots.has(props.label) && state.endpoints.has("catalogo_buscar")) {
     wrap.append(button("Procurar mais", async () => {
       if (state.busy) return;
-      const [catalogPreset, catalogRole] = state.endpoints.get("catalogo_buscar").inputs;
+      const [catalogPreset, catalogRole, catalogQuery] = state.endpoints.get("catalogo_buscar").inputs;
       state.values.set(catalogPreset, currentValue(state.endpoints.get("bancada_gerar").inputs[0]));
+      state.values.set(catalogQuery, "");
       state.catalog = null;
-      navigate(tools.find(tool => tool[2] === "catalogo_buscar"));
+      navigate(tools.find(tool => tool[2] === "catalogo_buscar"), { searchCatalog: false });
       await run("catalogo_tipos", { update: true, hide: true });
       const roles = state.components.get(catalogRole).props.choices || [];
       if (roles.some(choice => (Array.isArray(choice) ? choice[1] : choice) === props.label)) {
         state.values.set(catalogRole, props.label);
       }
-      render();
+      run("catalogo_buscar");
     }));
   }
   return wrap;
@@ -250,20 +258,69 @@ function selection(target, id, choices, onChange) {
   const control = target.querySelector(`#field-${id}`);
   control.addEventListener("change", onChange);
 }
-function renderCatalog(fields, actions) {
-  const results = state.catalog;
-  if (!results?.choices.length) {
-    if (results?.next) actions.append(button("Próxima página", () => run("catalogo_proxima")));
-    return;
+function catalogCover(card) {
+  const cover = element("div", null, "catalog-cover");
+  const missing = element("span", "Sem capa disponível");
+  if (!card.cover) {
+    cover.append(missing);
+    return cover;
   }
-  const picker = state.endpoints.get("catalogo_buscar").outputs[0];
-  selection(fields, picker, results.choices, render);
-  if (results.next) actions.append(button("Próxima página", () => run("catalogo_proxima")));
-  if (!results.choices.some(([, value]) => value === currentValue(picker))) return;
-  const role = currentValue(state.endpoints.get("catalogo_buscar").inputs[1]);
-  actions.append(button("Ver imagens", () => run("catalogo_imagens")));
-  actions.append(button("Instalar agora", () => run("catalogo_instalar")));
-  if (!catalogExtras.has(role)) actions.append(button("Usar na Bancada", () => run("catalogo_usar", { update: true })));
+  let url;
+  try { url = new URL(card.cover.url); } catch { cover.append(missing); return cover; }
+  if (url.origin !== "https://image.civitai.com" || url.username || url.password) {
+    cover.append(missing);
+    return cover;
+  }
+  const video = card.cover.type === "video";
+  const media = element(video ? "video" : "img");
+  media.addEventListener("error", () => cover.replaceChildren(missing), { once: true });
+  if (video) {
+    media.controls = true;
+    media.preload = "metadata";
+    media.playsInline = true;
+  } else {
+    media.alt = card.title;
+    media.loading = "lazy";
+    media.decoding = "async";
+  }
+  media.src = url.href;
+  cover.append(media);
+  return cover;
+}
+function renderCatalog() {
+  const grid = byId("catalog-grid");
+  grid.replaceChildren();
+  const results = state.catalog;
+  if (!results) return;
+  for (const card of results.cards) {
+    const block = element("article", null, "catalog-card");
+    block.setAttribute("aria-label", card.title);
+    block.append(catalogCover(card));
+    const footer = element("div", null, "catalog-actions");
+    const link = element("a", "Civitai");
+    const page = new URL(card.page);
+    if (page.origin === "https://civitai.com" && /^\/models\/\d+$/.test(page.pathname)) {
+      link.href = page.href;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.setAttribute("aria-label", `Abrir ${card.title} no Civitai`);
+      footer.append(link);
+    }
+    const download = button(card.installed ? "Instalado" : "Baixar", () => {
+      state.values.set(state.endpoints.get("catalogo_buscar").outputs[0], card.key);
+      run("catalogo_instalar", { card });
+    }, true);
+    download.setAttribute("aria-label", `${download.textContent} ${card.title}`);
+    download.disabled ||= card.installed;
+    footer.append(download);
+    block.append(footer);
+    grid.append(block);
+  }
+  if (results.next) {
+    const next = element("div", null, "catalog-next");
+    next.append(button("Carregar mais", () => run("catalogo_proxima")));
+    grid.append(next);
+  }
 }
 function renderHistory(fields, actions) {
   if (!state.history?.length) return;
@@ -302,6 +359,10 @@ async function run(name, options = {}) {
   if (state.busy) return;
   const dependency = state.endpoints.get(name);
   if (!dependency) return;
+  if (name === "catalogo_buscar" && dependency.outputs.length < 6) {
+    status("Atualize e reinicie o ClonField no Colab para carregar as capas do catálogo.");
+    return;
+  }
   const api = state.api;
   const epoch = state.epoch;
   state.busy = true;
@@ -322,18 +383,28 @@ async function run(name, options = {}) {
     if (epoch !== state.epoch) return;
     if (options.update || ["catalogo_buscar", "catalogo_proxima", "historico_listar"].includes(name)) apply(dependency, output);
     if (["catalogo_buscar", "catalogo_proxima"].includes(name)) {
-      state.catalog = { choices: output[0]?.choices || [], next: output[4]?.interactive === true };
+      state.catalog = { cards: Array.isArray(output[5]) ? output[5] : [], next: output[4]?.interactive === true };
       status(output[3] || "Busca concluída.");
+    } else if (name === "catalogo_instalar") {
+      status(output[0] || "Arquivo baixado.");
+      if (options.card) options.card.installed = true;
+      const refresh = state.endpoints.get("bancada_atualizar");
+      if (refresh) {
+        try {
+          const inputs = await Promise.all(refresh.inputs.map(id => encodeInput(api, id)));
+          const updated = await api.submit(refresh, inputs, () => {});
+          if (epoch === state.epoch) apply(refresh, updated);
+        } catch {
+          if (epoch === state.epoch) status("Arquivo baixado. Reabra a Bancada para atualizar a lista.");
+        }
+      }
     } else if (name === "historico_listar") {
       state.history = output[0]?.choices || [];
       status(output[1] || "Busca concluída.");
-    } else if (name === "catalogo_usar") {
-      state.current = tools[0];
-      status("Recurso adicionado à Bancada.");
     } else if (options.update) {
-      status("Opções atualizadas.");
+      status(name === "bancada_atualizar" ? "Componentes instalados atualizados." : "Opções atualizadas.");
     } else {
-      await showOutputs(api, dependency, output, name);
+      await showOutputs(api, dependency, output);
     }
   } catch (error) {
     if (epoch === state.epoch) status(error.message || "Falha na comunicação com o Colab.");
@@ -357,7 +428,7 @@ function gatherFiles(value, files, label) {
   if (Array.isArray(value)) value.forEach(item => gatherFiles(item, files, label));
   else Object.values(value).forEach(item => gatherFiles(item, files, label));
 }
-async function showOutputs(api, dependency, output, name) {
+async function showOutputs(api, dependency, output) {
   clearResults();
   const target = byId("result");
   const files = new Map();
@@ -398,16 +469,6 @@ async function showOutputs(api, dependency, output, name) {
       link.href = url;
       link.download = filename;
       figure.append(link);
-      const preset = currentValue(state.endpoints.get("bancada_gerar")?.inputs[0]);
-      const ref = endpointInput("bancada_gerar", "Referências na ordem enviada");
-      if (type === "img" && name === "catalogo_imagens" && preset && ref != null && visibility(ref)) {
-        const use = button("Usar como referência", () => {
-          state.values.set(ref, [new File([blob], filename, { type: blob.type })]);
-          navigate(tools[0]);
-        });
-        use.disabled = false;
-        figure.append(use);
-      }
     } catch {
       figure.append(element("p", "O arquivo ficou indisponível para download."));
     }

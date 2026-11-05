@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 import requests
 from PIL import Image, ImageOps
 
-from cf_assets import API, request
+from cf_assets import API, CivitaiHTTPError, request
 
 ROLE_TYPES = {
     "Checkpoint": "checkpoints", "Difusão": "diffusion_models", "LoRA": "loras",
@@ -77,6 +77,7 @@ def matching_files(model, version, preset, role):
     if role != "Upscaler" and normalized(base) not in preset.bases:
         return []
     accepted = []
+    cover = catalog_cover(version.get("images") or [])
     for file in version.get("files") or []:
         actual_role = file_role(model.get("type"), file)
         ambiguous_split = role == "Difusão" and actual_role == "Checkpoint" and preset.clip_type
@@ -99,7 +100,8 @@ def matching_files(model, version, preset, role):
                          "preset": preset.key, "base": base, "title": str(model.get("name") or "Recurso"),
                          "revision": str(version.get("name") or version["id"]),
                          "model": model.get("id"), "sha256": digest, "size_kb": file.get("sizeKB"),
-                         "download": download, "split_check": bool(ambiguous_split)})
+                         "download": download, "split_check": bool(ambiguous_split), "cover": cover,
+                         "availability": version.get("availability")})
     return accepted
 
 
@@ -172,6 +174,36 @@ def image_url(value):
     parsed = urlsplit(str(value or ""))
     return (parsed.scheme == "https" and parsed.hostname == "image.civitai.com"
             and not parsed.username and not parsed.password and parsed.netloc == "image.civitai.com")
+
+
+def catalog_cover(images):
+    for image in images:
+        if not isinstance(image, dict):
+            continue
+        url = image.get("url")
+        if not image_url(url) or image.get("nsfw") or image.get("nsfwLevel") not in (None, 0, 1, "None"):
+            continue
+        suffix = Path(urlsplit(url).path).suffix.lower()
+        still = {".gif", ".png", ".jpg", ".jpeg", ".webp", ".avif"}
+        if suffix in {".mp4", ".webm"} or (image.get("type") == "video" and suffix not in still):
+            return {"type": "video", "url": url}
+        if image.get("type", "image") in {"image", "gif", "video"}:
+            return {"type": "image", "url": url}
+    return None
+
+
+def catalog_cards(records, installed):
+    cards = []
+    seen_models = set()
+    for key, entry in records.items():
+        model = entry.get("model")
+        if type(model) is not int or model <= 0 or model in seen_models:
+            continue
+        seen_models.add(model)
+        cards.append({"key": key, "title": entry["title"], "cover": entry.get("cover"),
+                      "page": f'{API}/models/{model}?modelVersionId={entry["version"]}',
+                      "installed": (entry["version"], entry["file"]) in installed})
+    return cards
 
 
 def previews(entry):
@@ -248,6 +280,14 @@ def install(entry, directory):
                 if role != "Workflow":
                     check_tensor(temporary, role)
                 temporary.replace(dest)
+            except CivitaiHTTPError as exc:
+                if exc.status == 401:
+                    raise ValueError("Civitai recusou a autenticação (401). Confira o CIVITAI_TOKEN no Colab.") from None
+                if exc.status == 403:
+                    if normalized(entry.get("availability")) == "earlyaccess":
+                        raise ValueError("Civitai negou o download (403). A versão está marcada como acesso antecipado; confira o acesso na página dela.") from None
+                    raise ValueError("Civitai negou o download (403). Confira na página da versão se tua conta pode baixar e se o CIVITAI_TOKEN pertence a ela.") from None
+                raise
             except requests.RequestException:
                 raise ValueError("O Civitai interrompeu o download. Confira a conexão e tente novamente.") from None
             finally:
@@ -313,7 +353,7 @@ def inventory(directory, preset, role):
             if record.is_symlink():
                 continue
             data = json.loads(record.read_text(encoding="utf-8"))
-            if data["role"] != role or data["preset"] != preset.key:
+            if data["role"] != role:
                 continue
             if role != "Upscaler" and normalized(data["base"]) not in preset.bases:
                 continue
@@ -324,4 +364,9 @@ def inventory(directory, preset, role):
             result.append((record.stem, data, path))
         except (OSError, KeyError, TypeError, ValueError):
             continue
-    return result
+    # The same downloaded file can have manifests from several compatible presets.
+    result.sort(key=lambda row: row[1].get("preset") != preset.key)
+    unique = {}
+    for key, data, path in result:
+        unique.setdefault(path, (key, data, path))
+    return list(unique.values())

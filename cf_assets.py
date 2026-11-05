@@ -13,6 +13,12 @@ ROOT = Path(__file__).resolve().parent
 API = "https://civitai.com"
 
 
+class CivitaiHTTPError(ValueError):
+    def __init__(self, status):
+        self.status = status
+        super().__init__(f"Civitai retornou HTTP {status}. Verifique acesso à versão e ao arquivo.")
+
+
 def catalog():
     return json.loads((ROOT / "assets.json").read_text())
 
@@ -34,7 +40,7 @@ def request(session, url, token, stream=False, byte_range=None, timeout=(20, 120
         if not response.ok:
             status = response.status_code
             response.close()
-            raise ValueError(f"Civitai retornou HTTP {status}. Verifique acesso à versão e ao arquivo.")
+            raise CivitaiHTTPError(status)
         return response
     raise ValueError("Redirecionamentos demais no download.")
 
