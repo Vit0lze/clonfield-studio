@@ -6,10 +6,12 @@ import json
 import os
 import re
 import tempfile
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlsplit
+from threading import Lock
+from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 
 import requests
 from PIL import Image, ImageOps
@@ -32,6 +34,10 @@ WEIGHT_SUFFIX = ".safetensors"
 MEDIA_HOSTS = {"image.civitai.com", "image-b2.civitai.com"}
 COVER_IMAGES = {".gif", ".png", ".jpg", ".jpeg", ".webp", ".avif"}
 COVER_LIMIT = 4
+COVER_MAX_BYTES = 12 * 1024**2
+COVER_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/avif", "video/mp4", "video/webm"}
+_cover_lock = Lock()
+_cover_sources = OrderedDict()
 
 
 def normalized(value):
@@ -249,21 +255,88 @@ def catalog_cards(records, installed, page_models):
             if cover not in covers and len(covers) < COVER_LIMIT:
                 covers.append(cover)
 
-    missing = [(model, card) for model, card in by_model.items()
-               if model in page_models and not card["covers"]]
-
-    def fill(item):
-        model, card = item
-        try:
-            entry = records[card["key"]]
-            card["covers"] = entry["covers"] = gallery_covers(model, entry["version"])
-        except (requests.RequestException, ValueError):
-            pass  # A gallery failure should not hide a compatible resource.
-
-    if missing:
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            list(pool.map(fill, missing))
+    for model, card in by_model.items():
+        entry = records[card["key"]]
+        if model in page_models or not entry.get("cover_id"):
+            entry["cover_id"] = register_cover(model, entry["version"], card["covers"])
+        card["cover_id"] = entry["cover_id"]
     return list(by_model.values())
+
+
+def register_cover(model, version, covers):
+    key = hashlib.sha256(json.dumps([model, version, covers], sort_keys=True).encode()).hexdigest()
+    with _cover_lock:
+        _cover_sources[key] = (model, version, covers)
+        _cover_sources.move_to_end(key)
+        if len(_cover_sources) > 1024:
+            _cover_sources.popitem(last=False)
+    return key
+
+
+@lru_cache(maxsize=256)
+def version_covers(version):
+    with requests.Session() as session, request(
+        session, f"{API}/api/v1/model-versions/{version}", os.getenv("CIVITAI_TOKEN"), timeout=(3, 4)
+    ) as response:
+        data = response.json()
+    return catalog_covers(data.get("images") or [])
+
+
+def fetch_cover_bytes(session, url):
+    for _ in range(4):
+        if not image_url(url):
+            raise ValueError("Redirecionamento fora do CDN do Civitai.")
+        with session.get(url, stream=True, allow_redirects=False, timeout=(3, 5)) as response:
+            if response.is_redirect:
+                url = urljoin(url, response.headers["Location"])
+                continue
+            response.raise_for_status()
+            media_type = response.headers.get("Content-Type", "").partition(";")[0].strip().lower()
+            if media_type not in COVER_TYPES:
+                raise ValueError("O CDN retornou um formato de capa não suportado.")
+            data = bytearray()
+            for chunk in response.iter_content(128 * 1024):
+                data.extend(chunk)
+                if len(data) > COVER_MAX_BYTES:
+                    raise ValueError("A capa excede 12 MiB.")
+            if data:
+                return bytes(data), media_type
+            raise ValueError("O CDN retornou uma capa vazia.")
+    raise ValueError("Redirecionamentos demais na capa.")
+
+
+def read_catalog_cover(key):
+    with _cover_lock:
+        registered = _cover_sources.get(key)
+    if registered is None:
+        raise FileNotFoundError("Atualize a busca para carregar esta capa.")
+    model, version, embedded = registered
+    tried = set()
+    metadata_failed = False
+    denied = False
+    with requests.Session() as session:
+        for source in (lambda: embedded, lambda: version_covers(version), lambda: gallery_covers(model, version)):
+            try:
+                covers = source()
+            except (requests.RequestException, ValueError):
+                metadata_failed = True
+                continue
+            for cover in covers:
+                url = cover["url"]
+                if url in tried:
+                    continue
+                tried.add(url)
+                try:
+                    return fetch_cover_bytes(session, url)
+                except requests.HTTPError as exc:
+                    denied |= exc.response is not None and exc.response.status_code == 403
+                except (requests.RequestException, ValueError):
+                    continue
+    if denied:
+        raise OSError("O CDN do Civitai recusou a prévia (403).")
+    if tried or metadata_failed:
+        raise OSError("A prévia do Civitai não carregou.")
+    raise FileNotFoundError("Sem prévia pública no Civitai.")
 
 
 def previews(entry):

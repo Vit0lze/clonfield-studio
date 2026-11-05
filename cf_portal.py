@@ -3,8 +3,9 @@
 from hmac import compare_digest
 from secrets import token_urlsafe
 
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 
 class PortalAPI:
@@ -29,6 +30,24 @@ class PortalAPI:
                 response = JSONResponse({"token": self.token}, headers=headers)
             else:
                 response = JSONResponse({"detail": "Senha da sessão inválida."}, status_code=401, headers=headers)
+            await response(scope, receive, send)
+            return
+
+        cover_prefix = "/clonfield/catalog-cover/"
+        if path.startswith(cover_prefix) and scope["method"] == "GET":
+            if scheme.lower() != "bearer" or not compare_digest(secret, self.token.encode()):
+                response = JSONResponse({"detail": "Sessão inválida."}, status_code=401, headers=headers)
+            else:
+                from cf_civitai import read_catalog_cover
+
+                try:
+                    body, media_type = await run_in_threadpool(read_catalog_cover, path.removeprefix(cover_prefix))
+                    response = Response(body, media_type=media_type,
+                                        headers={**headers, "X-Content-Type-Options": "nosniff"})
+                except FileNotFoundError as exc:
+                    response = JSONResponse({"detail": str(exc)}, status_code=404, headers=headers)
+                except OSError as exc:
+                    response = JSONResponse({"detail": str(exc)}, status_code=502, headers=headers)
             await response(scope, receive, send)
             return
 

@@ -258,10 +258,72 @@ function selection(target, id, choices, onChange) {
   const control = target.querySelector(`#field-${id}`);
   control.addEventListener("change", onChange);
 }
+const catalogMedia = new Map();
+const coverCallbacks = new WeakMap();
+const coverObserver = new IntersectionObserver(entries => {
+  for (const entry of entries) {
+    if (!entry.isIntersecting) continue;
+    coverObserver.unobserve(entry.target);
+    coverCallbacks.get(entry.target)?.();
+  }
+});
+
+function clearCatalogMedia() {
+  coverObserver.disconnect();
+  for (const pending of catalogMedia.values()) {
+    pending.then(media => URL.revokeObjectURL(media.url)).catch(() => {});
+  }
+  catalogMedia.clear();
+}
+
 function catalogCover(card) {
   const cover = element("div", null, "catalog-cover");
   const missing = element("span", "Sem capa disponível");
   const sources = (card.covers || [card.cover]).filter(Boolean);
+  function showWorkerCover() {
+    if (!card.cover_id) {
+      cover.replaceChildren(missing);
+      return;
+    }
+    cover.replaceChildren(element("span", "Carregando prévia…"));
+    coverCallbacks.set(cover, async () => {
+      if (!cover.isConnected || !state.api) return;
+      const id = card.cover_id;
+      if (!catalogMedia.has(id)) {
+        const pending = state.api.request(`/clonfield/catalog-cover/${encodeURIComponent(id)}`)
+          .then(response => response.blob())
+          .then(blob => ({ url: URL.createObjectURL(blob), type: blob.type.startsWith("video/") ? "video" : "image" }));
+        catalogMedia.set(id, pending);
+      }
+      try {
+        const source = await catalogMedia.get(id);
+        if (cover.isConnected) showMedia(source, () => {
+          cover.replaceChildren(element("span", "O navegador não conseguiu abrir a prévia."));
+        });
+      } catch (error) {
+        if (cover.isConnected) cover.replaceChildren(element("span", error.message || "Falha ao carregar a prévia."));
+      }
+    });
+    coverObserver.observe(cover);
+  }
+
+  function showMedia(source, onError) {
+    const video = source.type === "video";
+    const media = element(video ? "video" : "img");
+    media.addEventListener("error", onError, { once: true });
+    if (video) {
+      media.controls = true;
+      media.preload = "metadata";
+      media.playsInline = true;
+    } else {
+      media.alt = card.title;
+      media.loading = "lazy";
+      media.decoding = "async";
+    }
+    media.src = source.url;
+    cover.replaceChildren(media);
+  }
+
   function showNext() {
     while (sources.length) {
       const source = sources.shift();
@@ -269,29 +331,17 @@ function catalogCover(card) {
       try { url = new URL(source.url); } catch { continue; }
       if (!["https://image.civitai.com", "https://image-b2.civitai.com"].includes(url.origin)
           || url.username || url.password) continue;
-      const video = source.type === "video";
-      const media = element(video ? "video" : "img");
-      media.addEventListener("error", showNext, { once: true });
-      if (video) {
-        media.controls = true;
-        media.preload = "metadata";
-        media.playsInline = true;
-      } else {
-        media.alt = card.title;
-        media.loading = "lazy";
-        media.decoding = "async";
-      }
-      media.src = url.href;
-      cover.replaceChildren(media);
+      showMedia({ ...source, url: url.href }, showNext);
       return;
     }
-    cover.replaceChildren(missing);
+    showWorkerCover();
   }
   showNext();
   return cover;
 }
 function renderCatalog() {
   const grid = byId("catalog-grid");
+  coverObserver.disconnect();
   grid.replaceChildren();
   const results = state.catalog;
   if (!results) return;
@@ -386,10 +436,11 @@ async function run(name, options = {}) {
     if (epoch !== state.epoch) return;
     if (options.update || ["catalogo_buscar", "catalogo_proxima", "historico_listar"].includes(name)) apply(dependency, output);
     if (["catalogo_buscar", "catalogo_proxima"].includes(name)) {
+      if (name === "catalogo_buscar") clearCatalogMedia();
       const cards = Array.isArray(output[5]) ? output[5] : [];
       state.catalog = { cards, next: output[4]?.interactive === true };
       const summary = output[3] || "Busca concluída.";
-      const legacyCovers = cards.some(card => !Array.isArray(card.covers) && !card.cover);
+      const legacyCovers = cards.some(card => !card.cover_id && !card.covers?.length && !card.cover);
       status(legacyCovers ? `${summary} Atualize e reinicie o Studio no Colab para buscar capas na galeria.` : summary);
     } else if (name === "catalogo_instalar") {
       status(output[0] || "Arquivo baixado.");
@@ -532,6 +583,7 @@ byId("disconnect").addEventListener("click", () => {
   state.values.clear();
   state.catalog = null;
   state.history = null;
+  clearCatalogMedia();
   clearResults();
   byId("workspace").hidden = true;
   byId("session").hidden = true;
