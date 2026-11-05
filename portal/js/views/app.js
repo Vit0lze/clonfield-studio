@@ -1,6 +1,6 @@
 import { api, store, isFinal } from "../api.js";
 import { lightEditor } from "../lights.js";
-import { h, icon, clear, seg, dropdown, slider, switchRow, field, toast, illustration, posterEl, artFor, fmtClock, fmtBytes } from "../ui.js";
+import { h, icon, clear, seg, dropdown, actionMenu, slider, switchRow, field, toast, illustration, posterEl, artFor, fmtClock, fmtBytes } from "../ui.js";
 
 const SEND_TO = { image: ["upscale", "look", "frame", "animate", "edit", "relight", "compare"], video: ["clip", "still", "board", "seedvr2"] };
 const NAME_LIMITS = { image: "imagem", video: "vídeo" };
@@ -211,16 +211,16 @@ export async function appView(id, navigate) {
     const first = media[0];
     clear(stage).append(h("div", { class: "results" }, grid,
       job.message ? h("p", { class: "hint" }, job.message) : null,
-      h("div", { class: "row between" },
-        h("div", { class: "sendto" }, first ? [h("span", { class: "dim" }, "Usar em"), ...sendButtons(first)] : null),
-        h("div", { class: "row" }, first ? h("a", { class: "btn sm", href: api.url(first.url), download: first.name }, icon("download", "sm"), "Baixar") : null,
-          h("button", { class: "btn sm primary", type: "button", onclick: () => run() }, icon("refresh", "sm"), "Gerar de novo")))));
+      h("div", { class: "actions" }, first ? sendMenu(first) : null,
+        first ? h("a", { class: "btn sm", href: api.url(first.url), download: first.name }, icon("download", "sm"), "Baixar") : null,
+        h("button", { class: "btn sm primary", type: "button", onclick: () => run() }, icon("refresh", "sm"), "Gerar de novo"))));
   }
-  function sendButtons(result) {
-    return (SEND_TO[result.kind] || []).filter(t => t !== app.id).map(t => {
-      const target = store.apps.find(a => a.id === t);
-      return target && !target.blocked ? h("button", { class: "btn sm", type: "button", onclick: () => sendTo(target, result) }, target.title) : null;
-    });
+  const GROUP_ICON = { Imagem: "image", Vídeo: "video", Identidade: "user", Melhorar: "sparkle", Avançado: "sliders" };
+  function sendMenu(result) {
+    const targets = (SEND_TO[result.kind] || []).filter(t => t !== app.id).map(t => store.apps.find(a => a.id === t)).filter(t => t && !t.blocked);
+    if (!targets.length) return null;
+    return actionMenu({ label: "Usar em", iconName: "external",
+      items: targets.map(t => ({ label: t.title, hint: t.tagline, icon: GROUP_ICON[t.group], onclick: () => sendTo(t, result) })) });
   }
   async function sendTo(target, result) {
     try {
@@ -239,7 +239,7 @@ export async function appView(id, navigate) {
         h("div", { class: "media" }, result.kind === "video" ? h("video", { src: api.url(result.url), controls: true, autoplay: true, loop: true }) : h("img", { src: api.url(result.url), alt: job.title })),
         h("div", { class: "side" }, h("h3", null, job.title), h("p", { class: "mono dim" }, `${result.name} · ${fmtBytes(result.size)}`),
           h("a", { class: "btn primary", href: api.url(result.url), download: result.name }, icon("download", "sm"), "Baixar original"),
-          h("div", { class: "sendto" }, sendButtons(result)), h("button", { class: "btn ghost", type: "button", onclick: close }, "Fechar"))));
+          sendMenu(result), h("button", { class: "btn ghost", type: "button", onclick: close }, "Fechar"))));
     document.body.append(scrim);
   }
 

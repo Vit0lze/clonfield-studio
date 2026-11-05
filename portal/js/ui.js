@@ -179,6 +179,35 @@ export function seg(options, value, onChange) {
   return box;
 }
 
+// Button that opens a menu of actions (same popover look as the dropdown).
+export function actionMenu({ label, iconName = "external", items, cls = "btn sm" }) {
+  const button = h("button", { type: "button", class: cls, "aria-haspopup": "menu", "aria-expanded": "false" }, icon(iconName, "sm"), label, icon("chevron-down", "sm"));
+  let pop = null;
+  const close = (focus = true) => {
+    if (!pop) return;
+    pop.classList.add("out"); const gone = pop; setTimeout(() => gone.remove(), 120); pop = null;
+    document.removeEventListener("pointerdown", outside, true); window.removeEventListener("resize", close); window.removeEventListener("scroll", onScroll, true);
+    button.setAttribute("aria-expanded", "false"); if (focus) button.focus();
+  };
+  const outside = e => { if (pop && !pop.contains(e.target) && !button.contains(e.target)) close(false); };
+  const onScroll = e => { if (pop && !pop.contains(e.target)) close(false); };
+  button.addEventListener("click", () => {
+    if (pop) return close();
+    pop = h("div", { class: "dd-pop menu", role: "menu" }, items.map(item => h("button", { type: "button", class: "dd-opt", role: "menuitem",
+      onclick: () => { close(false); item.onclick(); } }, h("span", { class: "mi" }, icon(item.icon || "sparkle", "sm")), h("span", { class: "dd-text" }, h("b", null, item.label), item.hint ? h("small", null, item.hint) : null))));
+    document.body.append(pop);
+    const rect = button.getBoundingClientRect(), room = window.innerHeight - rect.bottom - 12, above = rect.top - 12, up = room < 280 && above > room;
+    pop.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 300))}px`;
+    pop.style.minWidth = "280px"; pop.style.maxHeight = `${Math.min(420, up ? above : room)}px`;
+    if (up) { pop.style.bottom = `${window.innerHeight - rect.top + 6}px`; pop.classList.add("up"); } else pop.style.top = `${rect.bottom + 6}px`;
+    button.setAttribute("aria-expanded", "true");
+    document.addEventListener("pointerdown", outside, true); window.addEventListener("resize", close); window.addEventListener("scroll", onScroll, true);
+    pop.querySelector(".dd-opt")?.focus();
+  });
+  button.addEventListener("keydown", e => { if (e.key === "Escape") close(); });
+  return button;
+}
+
 // Dropdown for every "pick one" field: glyph, label, hint, optional groups, keyboard and screen-reader support.
 export function dropdown(options, value, onChange, { label = "" } = {}) {
   const chevron = icon("chevron-down", "sm");
