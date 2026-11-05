@@ -142,12 +142,12 @@ def queue_state(session, prompt_id):
     return None, None
 
 
-def worker_log_tail(lines=12):
+def worker_log_tail(lines=12, sep=" | ", limit=900):
     from pathlib import Path as _Path
     import os as _os
     log = _Path(_os.environ.get("CLONFIELD_COMFY_LOG", "/content/clonfield_runtime/comfyui.log"))
     try:
-        return " | ".join(log.read_text(errors="replace").strip().splitlines()[-lines:])[-900:]
+        return sep.join(log.read_text(errors="replace").strip().splitlines()[-lines:])[-limit:]
     except OSError:
         return ""
 

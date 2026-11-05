@@ -278,7 +278,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         return JSONResponse({"detail": "Arquivo não encontrado."}, 404)
 
     async def logs(request):
-        return JSONResponse({"worker": workflows.worker_log_tail(60)})
+        return JSONResponse({"worker": workflows.worker_log_tail(60, sep="\n", limit=12000)})
 
     routes = [
         Route(f"{PREFIX}/system", guard(system)),
