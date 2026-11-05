@@ -1,10 +1,10 @@
 import { store } from "../api.js";
-import { h, icon, seg, artFor } from "../ui.js";
+import { h, icon, seg, artFor, appGlyph } from "../ui.js";
 
 export function appTile(app, i = 0, wide = false) {
   return h("a", { class: `tile${wide ? " wide" : ""}${app.blocked ? " blocked" : ""}`, href: `#/apps/${app.id}`, style: { "--i": i } },
     h("div", { class: "art" }, artFor("app", app.id, app.art)),
-    h("div", { class: "corner" }, h("span", { class: "badge" }, app.group), app.blocked ? h("span", { class: "badge warn" }, `≥ ${app.min_vram} GB`) : null),
+    h("div", { class: "corner" }, appGlyph(app.id, "sm"), h("span", { class: "badge" }, app.group), app.blocked ? h("span", { class: "badge warn" }, `≥ ${app.min_vram} GB`) : null),
     h("div", { class: "copy" }, h("h3", null, app.title), h("p", null, app.tagline)));
 }
 

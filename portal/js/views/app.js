@@ -1,6 +1,6 @@
 import { api, store, isFinal } from "../api.js";
 import { lightEditor } from "../lights.js";
-import { h, icon, clear, seg, dropdown, actionMenu, slider, switchRow, field, toast, illustration, posterEl, artFor, fmtClock, fmtBytes } from "../ui.js";
+import { h, icon, clear, seg, dropdown, actionMenu, appGlyph, slider, switchRow, field, toast, illustration, posterEl, artFor, fmtClock, fmtBytes } from "../ui.js";
 
 const SEND_TO = { image: ["upscale", "look", "frame", "animate", "edit", "relight", "compare"], video: ["clip", "still", "board", "seedvr2"] };
 const NAME_LIMITS = { image: "imagem", video: "vídeo" };
@@ -220,7 +220,7 @@ export async function appView(id, navigate) {
     const targets = (SEND_TO[result.kind] || []).filter(t => t !== app.id).map(t => store.apps.find(a => a.id === t)).filter(t => t && !t.blocked);
     if (!targets.length) return null;
     return actionMenu({ label: "Usar em", iconName: "external",
-      items: targets.map(t => ({ label: t.title, hint: t.tagline, icon: GROUP_ICON[t.group], onclick: () => sendTo(t, result) })) });
+      items: targets.map(t => ({ label: t.title, hint: t.tagline, app: t.id, onclick: () => sendTo(t, result) })) });
   }
   async function sendTo(target, result) {
     try {
@@ -304,7 +304,7 @@ export async function appView(id, navigate) {
     h("a", { class: "crumb", href: "#/apps" }, icon("chevron-left", "sm"), "Apps"),
     h("div", { class: "appview" },
       h("section", { class: "panel controls" },
-        h("div", { class: "head" }, h("h2", null, app.title), h("p", { class: "muted" }, app.tagline)),
+        h("div", { class: "head" }, h("div", { class: "title" }, appGlyph(app.id), h("h2", null, app.title)), h("p", { class: "muted" }, app.tagline)),
         scroll,
         h("div", { class: "foot" }, advice, missingLine, runButton)),
       stage));

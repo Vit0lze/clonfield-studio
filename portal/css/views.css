@@ -258,7 +258,7 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
 @keyframes dd-out { to { opacity: 0; transform: scale(.98); } }
 .dd-group { padding: 10px 10px 4px; font: 600 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
 .dd-opt { width: 100%; padding: 8px 10px; border-radius: 10px; border: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
-.dd-opt .icon:last-child { margin-left: auto; color: var(--red-hi); }
+.dd-opt > .icon:last-child { margin-left: auto; color: var(--red-hi); }
 .dd-opt.act { background: rgba(255, 255, 255, .06); }
 .dd-opt.sel { background: var(--red-wash); }
 .dd-opt:disabled { opacity: .4; cursor: not-allowed; }
@@ -269,5 +269,16 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
   background: rgba(19, 13, 15, .55); backdrop-filter: blur(10px); }
 .actions .primary { margin-left: auto; }
 .dd-pop.menu .dd-opt { align-items: center; }
-.dd-pop .mi { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 9px; background: var(--red-wash); color: var(--red-hi); border: 1px solid rgba(226, 52, 63, .25); }
+
 .lightbox .side > .btn { width: 100%; justify-content: space-between; }
+
+/* one glyph tile for every app */
+.glyph { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 13px; color: var(--red-hi);
+  background: linear-gradient(160deg, rgba(226, 52, 63, .22), rgba(143, 22, 33, .1)); border: 1px solid rgba(226, 52, 63, .32);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 6px 18px rgba(226, 52, 63, .12); }
+.glyph .icon { width: 22px; height: 22px; stroke-width: 1.6; }
+.glyph.sm { width: 32px; height: 32px; border-radius: 10px; }
+.glyph.sm .icon { width: 17px; height: 17px; }
+.controls .head .title { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.tile .corner { display: flex; align-items: center; gap: 8px; }
+.dd-opt:focus-visible { outline: 1.5px solid rgba(255, 90, 101, .7); outline-offset: -2px; }

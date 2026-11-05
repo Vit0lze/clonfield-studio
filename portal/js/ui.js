@@ -70,6 +70,34 @@ const ICONS = {
   bolt: '<path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/>',
   logo: '<rect x="3" y="3" width="30" height="30" rx="9" fill="none"/><circle cx="18" cy="18" r="7.5" fill="none"/><path d="M16 14.2v7.6l6.2-3.8z" fill="currentColor" stroke="none"/>'
 };
+const APP_ICONS = {
+  create: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M5 18.5h4M7 16.5v4"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+  portrait: '<circle cx="12" cy="9" r="3.4"/><path d="M5.5 19.5c1-3.6 3.5-5.3 6.5-5.3s5.5 1.7 6.5 5.3"/>',
+  region: '<rect x="4" y="4" width="16" height="16" rx="2.5" stroke-dasharray="3 3"/><circle cx="12" cy="12" r="3"/>',
+  relight: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1 2V16h5.2v-.2c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
+  animate: '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M10 9.5l5 2.5-5 2.5z"/>',
+  text2video: '<path d="M4 10h16v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M4 10l1.6-4.6 14.2 3.6-.6 1M9 6.7l-1.5 3M14 8l-1.5 2.4"/>',
+  upscale: '<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>',
+  seedvr2: '<path d="M12 20v-7"/><path d="M12 13c0-3.5-2.5-5.5-6-5.5 0 3.5 2.5 5.5 6 5.5zM12 11c0-3 2-5 5.5-5 0 3-2 5-5.5 5z"/>',
+  look: '<circle cx="12" cy="12" r="8"/><path d="M12 4v16"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/>',
+  frame: '<path d="M7 3v14h14M3 7h14v14"/>',
+  clip: '<circle cx="6.5" cy="7" r="2.5"/><circle cx="6.5" cy="17" r="2.5"/><path d="M8.7 8.3L20 15M8.7 15.7L20 9"/>',
+  still: '<rect x="3.5" y="7" width="17" height="12" rx="2.5"/><circle cx="12" cy="13" r="3.2"/><path d="M9 7l1.2-2h3.6L15 7"/>',
+  board: '<rect x="3.5" y="5" width="7" height="6" rx="1.5"/><rect x="13.5" y="5" width="7" height="6" rx="1.5"/><rect x="3.5" y="13" width="7" height="6" rx="1.5"/><rect x="13.5" y="13" width="7" height="6" rx="1.5"/>',
+  sequence: '<rect x="3" y="8" width="7.5" height="8" rx="2"/><rect x="13.5" y="8" width="7.5" height="8" rx="2"/><path d="M10.5 12h3"/>',
+  compare: '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M12 5v14"/><path d="M9 10l-2 2 2 2M15 10l2 2-2 2"/>',
+  openjutsu: '<circle cx="8" cy="8" r="2.5"/><circle cx="16" cy="16" r="2.5"/><path d="M13 7h6l-2-2M11 17H5l2 2"/>',
+  workflow: '<circle cx="5.5" cy="7" r="2"/><circle cx="5.5" cy="17" r="2"/><circle cx="18.5" cy="12" r="2"/><path d="M7.5 7h2c3.5 0 3.5 5 7 5M7.5 17h2c3.5 0 3.5-5 7-5"/>',
+  speedtest: '<path d="M4.5 16a8 8 0 1 1 15 0"/><path d="M12 14l4-4"/><circle cx="12" cy="14" r="1.2"/>'
+};
+// One tile for every app: same shape and weight everywhere (menu, gallery, app header), a different glyph for each app.
+export function appGlyph(id, size = "") {
+  const tile = h("span", { class: `glyph ${size}`.trim(), "aria-hidden": "true" });
+  tile.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="icon">${APP_ICONS[id] || ICONS.cube}</svg>`;
+  return tile;
+}
+
 export function icon(name, cls = "") {
   if (name === "logo") return svgFrom(ICONS.logo, `icon ${cls}`, "0 0 36 36");
   return svgFrom(ICONS[name] || ICONS.cube, `icon ${cls}`);
@@ -194,7 +222,7 @@ export function actionMenu({ label, iconName = "external", items, cls = "btn sm"
   button.addEventListener("click", () => {
     if (pop) return close();
     pop = h("div", { class: "dd-pop menu", role: "menu" }, items.map(item => h("button", { type: "button", class: "dd-opt", role: "menuitem",
-      onclick: () => { close(false); item.onclick(); } }, h("span", { class: "mi" }, icon(item.icon || "sparkle", "sm")), h("span", { class: "dd-text" }, h("b", null, item.label), item.hint ? h("small", null, item.hint) : null))));
+      onclick: () => { close(false); item.onclick(); } }, appGlyph(item.app, "sm"), h("span", { class: "dd-text" }, h("b", null, item.label), item.hint ? h("small", null, item.hint) : null))));
     document.body.append(pop);
     const rect = button.getBoundingClientRect(), room = window.innerHeight - rect.bottom - 12, above = rect.top - 12, up = room < 280 && above > room;
     pop.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 300))}px`;
