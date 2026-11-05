@@ -1,6 +1,6 @@
 import { api, store, isFinal } from "../api.js";
 import { lightEditor } from "../lights.js";
-import { h, icon, clear, seg, dropdown, actionMenu, appGlyph, slider, switchRow, field, toast, illustration, posterEl, artFor, fmtClock, fmtBytes } from "../ui.js";
+import { h, icon, clear, seg, dropdown, actionMenu, appGlyph, rememberCover, slider, switchRow, field, toast, illustration, posterEl, artFor, fmtClock, fmtBytes } from "../ui.js";
 
 const SEND_TO = { image: ["upscale", "look", "frame", "animate", "edit", "relight", "compare"], video: ["clip", "still", "board", "seedvr2"] };
 const NAME_LIMITS = { image: "imagem", video: "vídeo" };
@@ -17,7 +17,7 @@ export async function appView(id, navigate) {
   const cleanups = [];
   let follower = null, tick = null, current = null;
   // Reframes live per job: kept in memory while the page is open and in localStorage so they survive a reload.
-  const reframes = new Map(), hydrated = new Set();
+  const reframes = new Map(), hydrated = new Set(), coverSaved = new Set();
   const REFRAME_KEY = id => `cf-reframe-${id}`;
   const stateFor = (job, source = null) => {
     let s = reframes.get(job.id);
@@ -115,13 +115,25 @@ export async function appView(id, navigate) {
 
   function loraPanel(f) {
     const box = h("div", { class: "stack" });
+    let dragFrom = null;
     let library = [];
     const paint = () => {
       clear(box);
       values.loras.forEach((item, index) => {
         const entry = library.find(l => l.name === item.name);
-        box.append(h("div", { class: `lora${item.on === false ? " off" : ""}` },
+        const card = h("div", { class: `lora${item.on === false ? " off" : ""}`, "data-index": String(index) },
           h("div", { class: "head" },
+            h("button", { type: "button", class: "grip", draggable: "true", "aria-label": `Mover LoRA ${index + 1}. Arraste ou use Alt e setas.`,
+              ondragstart: e => { dragFrom = index; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(index)); card.classList.add("lifting"); },
+              ondragend: () => { dragFrom = null; box.querySelectorAll(".lora").forEach(el => el.classList.remove("lifting", "over")); },
+              onkeydown: e => {
+                if (!e.altKey || !["ArrowUp", "ArrowDown"].includes(e.key)) return;
+                e.preventDefault();
+                const to = index + (e.key === "ArrowUp" ? -1 : 1);
+                if (to < 0 || to >= values.loras.length) return;
+                values.loras.splice(to, 0, values.loras.splice(index, 1)[0]); paint();
+                box.querySelectorAll(".grip")[to]?.focus();
+              } }, icon("grip", "sm")),
             h("div", { class: "po" }, entry?.cover ? h("img", { src: api.url(entry.cover), alt: "", loading: "lazy" }) : posterEl(item.name)),
             h("div", { class: "name", title: item.name }, entry?.label || item.name, entry && !entry.installed ? h("span", { class: "dim" }, " · baixa ao gerar") : null),
             h("div", { class: "row" },
@@ -130,7 +142,16 @@ export async function appView(id, navigate) {
           h("div", { class: "field" }, h("label", null, h("span", null, "Força"), h("span", { class: "dim" }, "duplo clique zera")),
             slider({ min: -2, max: 2, step: 0.05, default: 1 }, item.strength ?? 1, v => { item.strength = v; if (item.clipLinked !== false) item.clip = v; })),
           h("details", { class: "more" }, h("summary", null, "Encoder", icon("chevron-down", "sm")),
-            h("div", { class: "body" }, slider({ min: -2, max: 2, step: 0.05, default: 1 }, item.clip ?? item.strength ?? 1, v => { item.clip = v; item.clipLinked = false; })))));
+            h("div", { class: "body" }, slider({ min: -2, max: 2, step: 0.05, default: 1 }, item.clip ?? item.strength ?? 1, v => { item.clip = v; item.clipLinked = false; }))));
+        card.addEventListener("dragover", e => { if (dragFrom === null) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; card.classList.add("over"); });
+        card.addEventListener("dragleave", () => card.classList.remove("over"));
+        card.addEventListener("drop", e => {
+          e.preventDefault();
+          if (dragFrom === null || dragFrom === index) return;
+          values.loras.splice(index, 0, values.loras.splice(dragFrom, 1)[0]);
+          dragFrom = null; paint();
+        });
+        box.append(card);
       });
       const available = library.filter(l => !values.loras.some(v => v.name === l.name));
       const picker = h("select", { class: "input", "aria-label": "Escolher LoRA" }, h("option", { value: "" }, available.length ? "Adicionar LoRA…" : "Nenhuma LoRA compatível"),
@@ -234,6 +255,8 @@ export async function appView(id, navigate) {
     }
     const results = job.results || [];
     if (!reframes.get(job.id)?.reframed) hydrate(job);
+    const firstImage = results.find(r => r.kind === "image");
+    if (firstImage && values.model && app.fields.some(f => f.type === "model") && !coverSaved.has(job.id)) { coverSaved.add(job.id); rememberCover(values.model, api.url(firstImage.url)); }
     const reframedNow = reframes.get(job.id)?.reframed;
     const media = results.filter(r => r.kind === "image" || r.kind === "video").map((r, i) => (i === 0 && reframedNow ? { ...reframedNow, original: r } : r));
     const grid = h("div", { class: `grid${media.length === 1 ? " one" : ""}` });

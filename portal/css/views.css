@@ -102,7 +102,7 @@
 
 /* lora rows */
 .lora { display: grid; gap: 10px; padding: 12px; border-radius: 13px; border: 1px solid var(--line); background: var(--s1); animation: enter 240ms var(--ease) both; }
-.lora .head { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.lora .head { display: grid; grid-template-columns: 22px 38px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
 .lora .po { width: 38px; height: 38px; border-radius: 8px; overflow: hidden; }
 .lora .po svg { width: 100%; height: 100%; }
 .lora .name { font-weight: 560; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -335,3 +335,12 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
 .cvcard.skeleton::after { display: none; }
 .center { justify-content: center; margin: 20px 0; }
 .lora .po img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* LoRA reorder */
+.lora .grip { display: grid; place-items: center; width: 22px; height: 38px; padding: 0; border: 0; background: none; color: var(--dim); cursor: grab; border-radius: 6px; touch-action: none; }
+.lora .grip:hover { color: var(--text); background: rgba(255, 255, 255, .05); }
+.lora .grip:active { cursor: grabbing; }
+.lora { transition: transform 160ms var(--ease), border-color 160ms var(--ease), box-shadow 160ms var(--ease), opacity 160ms var(--ease); }
+.lora.lifting { opacity: .45; transform: scale(.985); }
+.lora.over { border-color: rgba(255, 90, 101, .8); box-shadow: 0 0 0 2px rgba(226, 52, 63, .25), 0 -10px 0 -6px var(--red-hi); }
+.mopt .po img.mine, .tile .art img.mine, .mcard img.mine { width: 100%; height: 100%; object-fit: cover; }
