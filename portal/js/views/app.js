@@ -16,6 +16,7 @@ export async function appView(id, navigate) {
   for (const f of app.fields) values[f.id] = structuredClone(prefill[f.id] ?? f.default ?? (f.type === "files" || f.type === "loras" || f.type === "lights" ? [] : ""));
   const cleanups = [];
   let follower = null, tick = null, current = null;
+  const sources = new Map();
 
   const stage = h("section", { class: "stage", "aria-live": "polite" });
   const advice = h("div", { class: "advice", hidden: true });
@@ -206,7 +207,7 @@ export async function appView(id, navigate) {
     const results = job.results || [];
     const media = results.filter(r => r.kind === "image" || r.kind === "video");
     const grid = h("div", { class: `grid${media.length === 1 ? " one" : ""}` });
-    media.forEach((r, i) => grid.append(h("button", { class: "shot", type: "button", style: { "--i": i }, "aria-label": `Abrir ${r.name}`, onclick: () => lightbox(r, job) },
+    media.forEach((r, i) => grid.append(h("button", { class: "shot", type: "button", style: { "--i": i }, "aria-label": `Abrir ${r.name}`, onclick: () => lightbox(r, job, sources.get(job.id)) },
       r.kind === "image" ? h("img", { src: api.url(r.url), alt: job.title }) : h("video", { src: api.url(r.url), muted: true, loop: true, autoplay: true, playsinline: true }))));
     const first = media[0];
     clear(stage).append(h("div", { class: "results" }, grid,
@@ -230,9 +231,11 @@ export async function appView(id, navigate) {
       navigate(`#/apps/${target.id}`);
     } catch (error) { toast(error.message, "err"); }
   }
-  function lightbox(original, job) {
+  function lightbox(result, job, source = null) {
+    // With a known uploaded source (Enquadrar imagem) we reframe that file; otherwise the result itself is the base.
+    const original = source ? { ...source, kind: "image", path: null } : result;
     // Reframing always starts from the original image, never from a previous reframe.
-    let reframed = null, view = "original", ratio = null, fit = "Preencher", busy = false, follower = null;
+    let reframed = source ? result : null, view = "original", ratio = null, fit = "Preencher", busy = false, follower = null;
     const focus = { x: 0.5, y: 0.5 };
     let free = { x: 0, y: 0 };
     const frameApp = store.apps.find(a => a.id === "frame");
@@ -297,7 +300,7 @@ export async function appView(id, navigate) {
       if (busy) return;
       busy = true; paintSide();
       try {
-        const upload = await api.post("/import", { path: original.path });
+        const upload = source ? source : await api.post("/import", { path: original.path });
         const started = await api.post("/jobs", { app: "frame", params: { image: [upload.id], ratio, fit, focus: [focus.x, focus.y], format: "PNG" } });
         const out = await new Promise((resolve, reject) => {
           follower = api.follow(started.id, snap => {
@@ -318,7 +321,7 @@ export async function appView(id, navigate) {
       clear(side);
       const item = deliver();
       const canReframe = original.kind === "image" && frameApp && !frameApp.blocked;
-      side.append(h("h3", null, job.title), h("p", { class: "mono dim" }, `${item.name} · ${fmtBytes(item.size)}`),
+      side.append(h("h3", null, job.title), h("p", { class: "mono dim" }, `${item.name} · ${fmtBytes(item.size || 0)}`),
         h("a", { class: "btn primary", href: api.url(item.url), download: item.name }, icon("download", "sm"), reframed ? "Baixar reenquadrada" : "Baixar original"));
       if (canReframe) {
         side.append(h("div", { class: "reframe" },
@@ -370,7 +373,9 @@ export async function appView(id, navigate) {
       else params[f.id] = values[f.id];
     }
     try {
+      const sourceUpload = app.id === "frame" ? values.image?.[0] : null;
       const job = await api.post("/jobs", { app: app.id, params });
+      if (sourceUpload) sources.set(job.id, sourceUpload);
       store.lastJob(app.id, job.id);
       watch(job);
       store.refreshJobs().catch(() => {});
