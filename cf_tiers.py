@@ -42,6 +42,7 @@ def read_gpu():
 
 
 def detect():
+    # No --lowvram/--normalvram: ComfyUI 0.44 manages VRAM dynamically, and forcing lowvram only hurts big cards.
     name, vram, capability = read_gpu()
     old_card = capability and capability < 8.0
     if vram >= 40:
@@ -49,9 +50,9 @@ def detect():
                     ("--highvram", "--use-pytorch-cross-attention"), "int8")
     if vram >= 16:
         return Tier("medio", "Médio", vram, name, 1536, 1024, 2, 512, 49, "7B", False,
-                    ("--normalvram", "--use-pytorch-cross-attention"), "gguf" if old_card else "int8")
+                    ("--use-pytorch-cross-attention",), "gguf" if old_card else "int8")
     return Tier("leve", "Leve", vram, name, 1024, 768, 1, 384, 33, "3B", False,
-                ("--normalvram", "--reserve-vram", "1", "--use-pytorch-cross-attention"), "gguf" if old_card else "int8")
+                ("--reserve-vram", "1", "--use-pytorch-cross-attention"), "gguf" if old_card else "int8")
 
 
 def estimate_vram_gb(model_params_b, side_pixels, precision="int8"):
