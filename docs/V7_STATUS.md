@@ -52,3 +52,14 @@ Mudanças locais no vendor (todas em `VENDORED.md`): (1) pular loudnorm quando o
 Integração ClonField: `cf_factory.py` (configura paths, cria episódio com validação de schema, roda etapas com progresso, instala Remotion uma vez), app **Fábrica de vídeo** (lane CPU), deps no notebook, 3 testes rápidos + 1 teste lento (`CLONFIELD_SLOW=1`).
 **Narração real (adicionada):** `kokoro_onnx` (Kokoro-82M int8, modelo com SHA-256) + `faster_whisper` (CPU int8) no vendor. Episódio «Sol narrado» (7 beats, modo drawn): TTS + alinhamento + render + QA em ~230 s numa CPU de 3 GB, saída h264 1080×1920 + AAC 48 kHz, 31,8 s, 11,4 MB, QA `ok: true` (só 1 aviso de tamanho de contador). Colab/T4 não testado (Remotion precisa baixar Chromium lá).
 **Não feito/limites:** modos com imagens (`states`/`scenes`) dependem de provedor de imagem — adaptador ComfyUI ainda **não escrito** — e de depth/RIFE (não baixados); cache por etapa só observável nos modos com imagem; UI própria de revisão por beat pendente.
+
+## Roteadores e metodologia — triagem final (rodada 4)
+| Fonte | Licença | Decisão |
+|---|---|---|
+| kantan-kanto/ComfyUI-ScriptFlow `594719f` v1.3.5 | **GPL-3.0** | **Não copiado**: GPL contaminaria o ClonField. Só ideia (Jev em nós ComfyUI + GGUF local de fallback). Pode ser usado como nó externo no worker, sem vendorizar |
+| hndrr/ComfyUI-Jev `8889147` | MIT (WIP) | Nós «Jev Interpret/Skill Choice/OpenRouter Text». Não vendorizado: o ClonField fala direto com a API do Jev; útil só se o roteamento for exposto dentro de grafos ComfyUI |
+| thinkany-ai/autojev `82d596f` | MIT | App desktop (Tauri/Rust) de gateway de provedores LLM para agentes — problema diferente (escolher modelo de texto), **descartado** para esta frente |
+| scenario-model-comparison / consistency | MIT | Método lido (briefing fixo, critérios pass/fail antes, mesmo texto byte a byte, orçamento, tabela custo×tempo; baseline+delta para consistência). `cf_refine` já usa rubrica e baseline; **harness A/B de modelos não implementado** (exige geração em GPU para ter resultado real) |
+
+## Pendente consolidado (nada disso testável sem GPU/Colab nesta máquina)
+See-through em T4 (NF4/BF16/offload/block swap); modos de imagem da Fábrica (adaptador ComfyUI de frames + depth + RIFE); Remotion no Colab; harness A/B de modelos; execução encadeada do plano do Jev com confirmação; workflows do Civitai (Wan, MOSS, Qwen outpaint etc.) e DLSS5/Strata; capas dos apps novos; chat com sessões; rotacionar tokens HF/Civitai expostos antes.
