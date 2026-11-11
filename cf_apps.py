@@ -2,6 +2,7 @@
 
 import os
 import random
+import shutil
 import time
 from functools import partial
 from pathlib import Path
@@ -9,6 +10,7 @@ from pathlib import Path
 from PIL import Image, ImageOps
 
 import cf_download as download
+import cf_factory as factory_pipeline
 import cf_finish as finish
 import cf_jobs
 import cf_civitai
@@ -29,6 +31,7 @@ ENV = {"base": Path(os.environ.get("CLONFIELD_DIR", "/content/ClonField_Lab")), 
 
 def configure(base, out_dir):
     ENV.update(base=Path(base), out=Path(out_dir), civitai=Path(base) / "civitai" / "lab")
+    factory_pipeline.configure(base)
 
 
 # name -> (label, where it is used, group). Order is the order of the dropdown.
@@ -442,6 +445,35 @@ def run_seethrough(ctx, p, tier):
     return seethrough.write_package(info, layers, ctx.out_dir / job["id"]) + [o for o in outputs if o.suffix != ".psd"]
 
 
+def run_factory(ctx, p, tier):
+    import json as _json
+    raw = (p.get("script") or "").strip()
+    try:
+        script = _json.loads(raw) if raw else factory_pipeline.example_script()
+    except ValueError as exc:
+        raise JobError(f"O roteiro não é um JSON válido: {exc}") from None
+    script["voice"] = bool(p.get("voice"))
+    if not script["voice"]:
+        for beat in script.get("beats", []):
+            beat.pop("vo", None)
+    try:
+        slug = factory_pipeline.create(script, p.get("title") or None)
+        result = factory_pipeline.run(slug, ctx.progress)
+    except ValueError as exc:
+        raise JobError(str(exc)) from None
+    except SystemExit as exc:  # the engine reports missing tools/voices this way
+        raise JobError(str(exc) or "O motor do Content Factory recusou o pedido.") from None
+    except Exception as exc:
+        raise JobError(f"Falha na fábrica de vídeo: {str(exc)[:600]}") from None
+    if not result["video"]:
+        raise JobError("A fábrica terminou sem gerar o vídeo.")
+    destination = finish.output_path(ctx.out_dir, "fabrica", ".mp4")
+    shutil.copyfile(result["video"], destination)
+    issues = [i["message"] for i in (result["qa"] or {}).get("checks", []) if i.get("level") in ("warn", "error")] if isinstance(result["qa"], dict) else []
+    ctx.job.update(message=("Controle de qualidade: " + "; ".join(issues[:4])) if issues else "Controle de qualidade sem alertas.")
+    return [destination]
+
+
 def run_workflow(ctx, p, tier):
     try:
         graph = workflows.read_graph(p["graph"][0])
@@ -603,6 +635,13 @@ def build_registry():
                        dict(id="lama", type="switch", label="Preencher cabelo com LaMa", default=True, advanced=True),
                        dict(id="seed", type="number", label="Seed (-1 = aleatória)", default=-1, advanced=True)],
             min_vram=8, note="Camadas por imagem variam; o app não promete um número fixo. Pesos LayerDiff: licença OpenRAIL++."),
+        App("factory", "Fábrica de vídeo", "Vídeo", "Roteiro em vídeo vertical com cache por etapa: edite uma cena e só ela refaz.", "workflow", run_factory,
+            lambda t: [dict(id="script", type="textarea", label="Roteiro (JSON de beats)", default="", rows=10,
+                            help="Vazio usa o exemplo «What if the Sun went out?» (modo desenhado, sem gerar imagens)."),
+                       dict(id="title", type="text", label="Nome do episódio", default="", advanced=True),
+                       dict(id="voice", type="switch", label="Narração", default=False,
+                            help="Precisa de uma voz instalada (MLX no Mac, Vosk para russo). Desligada, o vídeo sai mudo.")],
+            lane="cpu", note="Motor: Content Factory (MIT). Renderizador Remotion tem licença própria."),
         App("look", "Cor e contraste", "Melhorar", "Looks prontos com intensidade ajustável.", "finish", run_look,
             lambda t: [dict(id="image", type="files", label="Imagem", accept="image", max=1, min=1),
                        dict(id="look", type="chips", label="Look", default=finish.LOOKS[0], options=[opt(v, v) for v in finish.LOOKS]),

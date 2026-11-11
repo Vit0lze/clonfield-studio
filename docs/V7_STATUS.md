@@ -37,3 +37,17 @@ Restante dos 93 links: **encontrado apenas**, nada examinado em profundidade nes
 - `cf_router.plan` + `POST /plan`: planos em série (Choice do próximo app + Noul «já terminou?» numa só chamada). Noul é mal calibrado (0,43 logo após pedido cumprido), então: nunca repete app, para se finished ≥ 0,35 ou se o próximo tem p < 0,5. 4 planos reais corretos (edit→upscale→frame; text2video→clip; upscale; text2video→still).
 - UI: botão «Sugerir» na tela inicial (+ «Tenho imagem/vídeo»), mostra a cadeia de apps; clicar abre o app com o pedido preenchido. Verificado no navegador contra o engine real e o Jev real.
 - Pendente: o plano ainda não executa a cadeia sozinho (decisão apenas, pela regra de confirmação); mídia só entra como tipo; não testado com GPU.
+
+## Content Factory (rodada 4)
+| Fonte | Licença | Estado |
+|---|---|---|
+| jutsuhq/content-factory `0ea7632` | MIT | clonado, **vendorizado** em `vendor/content_factory` (engine, formats, render; ver `VENDORED.md`), testes upstream **74/74** passam neste snapshot, **render real executado** |
+| Remotion (renderizador) | **licença própria** (não MIT; gratuita p/ indivíduos/times pequenos, paga acima) | usado; checar antes de uso comercial |
+| MoneyPrinterTurbo `53c4ca3`, openfield `1c36412`, short-video-maker `9bb9a21`, opencut `57dedbc` | MIT (arquivo LICENSE lido) | clonados; **não examinados a fundo** — CF cobre o pipeline brief→roteiro→cenas→render com cache por hash, então não dupliquei |
+
+**Evidência real (CPU, 3 GB RAM, sem GPU):** episódio silencioso modo *drawn* («What if the Sun went out?», 7 beats) → `sun-silent.mp4` h264 1080×1920 30 fps, 41,0 s, 12,3 MB, mais `qa.json` com avisos reais (sem áudio; contador com 17 caracteres, máx. 12). Rodado a partir da cópia vendorizada.
+
+Mudanças locais no vendor (todas em `VENDORED.md`): (1) pular loudnorm quando o vídeo não tem áudio (upstream quebrava com ffmpeg exit 234); (2) `--concurrency=1` no Remotion (o padrão derrubou esta máquina por falta de memória).
+
+Integração ClonField: `cf_factory.py` (configura paths, cria episódio com validação de schema, roda etapas com progresso, instala Remotion uma vez), app **Fábrica de vídeo** (lane CPU), deps no notebook, 3 testes rápidos + 1 teste lento (`CLONFIELD_SLOW=1`).
+**Não feito/limites:** sem narração (TTS só MLX no Mac e Vosk russo; faltam vozes para Linux/Colab), modos com imagens (`states`/`scenes`) dependem de provedor de imagem — adaptador ComfyUI ainda **não escrito** — e de depth/RIFE (não baixados); cache por etapa só observável nos modos com imagem; UI própria de revisão por beat pendente.
