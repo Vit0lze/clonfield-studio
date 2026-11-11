@@ -5,9 +5,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from factory.providers.stt import mlx_whisper
+from factory.providers.stt import faster_whisper, mlx_whisper
 
-BACKENDS = {"mlx-whisper": mlx_whisper}
+BACKENDS = {"mlx-whisper": mlx_whisper, "faster-whisper": faster_whisper}
 
 
 def words(provider: str, wav: Path, language: str, model: str) -> list[dict]:

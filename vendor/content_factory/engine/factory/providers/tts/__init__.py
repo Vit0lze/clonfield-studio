@@ -8,9 +8,9 @@ import json
 from functools import cache
 from types import ModuleType
 
-from factory.providers.tts import mlx_audio, vosk
+from factory.providers.tts import kokoro_onnx, mlx_audio, vosk
 
-ENGINES: dict[str, ModuleType] = {"vosk": vosk, "mlx-audio": mlx_audio}
+ENGINES: dict[str, ModuleType] = {"vosk": vosk, "mlx-audio": mlx_audio, "kokoro-onnx": kokoro_onnx}
 
 
 def engine(voice: dict) -> ModuleType:

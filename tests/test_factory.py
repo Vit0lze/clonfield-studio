@@ -45,17 +45,17 @@ def test_status_reports_planned_stages_without_running_anything(configured):
 
 
 @pytest.mark.skipif(not (os.environ.get("CLONFIELD_SLOW") and shutil.which("node") and shutil.which("ffmpeg")),
-                    reason="slow: set CLONFIELD_SLOW=1 with node and ffmpeg installed")
-def test_real_render_of_a_silent_drawn_episode(configured):
+                    reason="slow (minutes, ~3 GB RAM, downloads Kokoro 120 MB + Whisper base): set CLONFIELD_SLOW=1")
+def test_real_narrated_render_of_a_drawn_episode(configured):
+    pytest.importorskip("kokoro_onnx")
+    pytest.importorskip("faster_whisper")
     script = factory.example_script()
-    script["voice"] = False
-    for beat in script["beats"]:
-        beat.pop("vo", None)
+    script["voice"] = True
     slug = factory.create(script, "Render real")
     lines = []
     result = factory.run(slug, lambda fraction=None, desc=None: lines.append(desc))
     assert result["video"] and result["video"].stat().st_size > 100_000
-    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=width,height,codec_type:format=duration",
-                            "-of", "default=nw=1", str(result["video"])], capture_output=True, text=True).stdout
-    assert "width=1080" in probe and "height=1920" in probe
-    assert result["qa"] is not None and any("render" in (line or "") for line in lines)
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=width,height,codec_type", "-of", "default=nw=1",
+                            str(result["video"])], capture_output=True, text=True).stdout
+    assert "width=1080" in probe and "height=1920" in probe and "codec_type=audio" in probe
+    assert result["qa"]["ok"] is True  # no 'no-audio' error: the narration made it into the file

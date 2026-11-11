@@ -53,11 +53,20 @@ def ensure_render(log=lambda line: None):
 
 
 def ensure_profile():
+    """profile.yaml from the engine's own doctor, then the CPU/Linux voice stack when it picked faster-whisper
+    (upstream only ships MLX voices for Apple silicon; kokoro-onnx + faster-whisper are ClonField additions)."""
     from factory.core import paths
+    from factory.core import profile as profile_module
     if not paths.PROFILE.exists():
         from factory import doctor
         with contextlib.redirect_stdout(io.StringIO()):
             doctor.run()
+    current = profile_module.load_profile()
+    if current.get("providers", {}).get("stt") == "faster-whisper" and current.get("stt_model", "").startswith("mlx-"):
+        current["stt_model"] = "base"
+        current["voices"] = {**current.get("voices", {}), "en": {"engine": "kokoro-onnx", "speaker": "af_heart", "language": "en"}}
+        saved = {k: v for k, v in current.items() if k not in ("rife", "depth_model")}
+        profile_module.save_profile(saved)
 
 
 def formats():
@@ -122,10 +131,17 @@ def run(slug, progress=lambda fraction=None, desc=None: None, names=None):
     if "render" in todo:
         ensure_render(lambda line: progress(0.05, desc=line))
     class Tap(io.StringIO):
+        busy = False
+
         def write(self, text):
-            for line in text.splitlines():
-                if line.strip():
-                    progress(None, desc=line.strip()[:140])
+            if not Tap.busy:  # a progress callback that prints must not feed back into this tap
+                Tap.busy = True
+                try:
+                    for line in text.splitlines():
+                        if line.strip():
+                            progress(None, desc=line.strip()[:140])
+                finally:
+                    Tap.busy = False
             return super().write(text)
     tap = Tap()
     profile = load_profile()
