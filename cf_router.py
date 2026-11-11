@@ -135,3 +135,70 @@ def route(request, media, registry, tier, installed_nodes=None, provider=None):
     available = [c for c in ranked if c["router"]["available"]]
     return dict(request=request, media=sorted(media), provider=used, fallback=(fallback if used == "local" and provider is None else None), candidates=ranked,
                 choice=available[0]["app"] if available else None)
+
+
+# What each app hands to the next step (media kinds), used to chain a plan.
+PRODUCES = {"clip": "video", "sequence": "video", "text2video": "video", "animate": "video", "openjutsu": "video",
+            "board": "image", "compare": "image", "seethrough": "image"}
+MAX_STEPS = 5
+FINISHED_AT = 0.35  # Noul is weakly calibrated (0.43 right after a fulfilled one-step request), so stop early
+MIN_NEXT = 0.5
+
+
+def jev_step(request, media, done, registry):
+    """One call, two typed questions: which app next (Choice) and is the request already fulfilled (Noul)."""
+    token = jev_token()
+    if not token:
+        raise RuntimeError("sem token do Jev")
+    criteria = {}
+    for app_id, (needs, _k, _r) in CAPABILITIES.items():
+        need = f" Requires attached: {', '.join(sorted(needs))}." if needs else ""
+        criteria[app_id] = f"{registry[app_id].tagline}{need}"
+    body = {"state": {"request": request, "steps_already_done": done, "available_media_kinds": sorted(media)},
+            "model": JEV_MODEL,
+            "questions": {
+                "app": {"type": "choice", "criteria": criteria,
+                        "instructions": "Which Studio app should run NEXT to move this request forward? Do not repeat steps already done. Respect required attachments."},
+                "finished": {"type": "noul", "instructions": "Is every part of the request already fulfilled by the steps already done?"}}}
+    response = requests.post(JEV_ENDPOINT, json=body, headers={"Authorization": f"Bearer {token}"}, timeout=25)
+    if response.status_code in (401, 403):
+        raise RuntimeError("Jev recusou o token")
+    response.raise_for_status()
+    answers = response.json()["answers"]
+    probs = {k: float(v) for k, v in answers["app"]["probabilities"].items() if k in CAPABILITIES}
+    return probs, float(answers["finished"]["noul"])
+
+
+def plan(request, media, registry, tier):
+    """Serial plan: repeatedly ask Jev for the next app until it says the request is fulfilled. Decision-only."""
+    request = (request or "").strip()
+    media = set(media or ())
+    if not request:
+        raise ValueError("Descreva o que quer fazer.")
+    steps, done = [], []
+    for _ in range(MAX_STEPS):
+        probs, finished = jev_step(request, media, done, registry)
+        if done and finished >= FINISHED_AT:
+            break
+        options = []
+        for app_id, p in sorted(probs.items(), key=lambda kv: -kv[1]):
+            if app_id in done:
+                continue  # a plan never repeats an app
+            app = registry[app_id]
+            needs = CAPABILITIES[app_id][0]
+            ok = (not (app.min_vram and tier.vram_gb < app.min_vram)) and needs <= media
+            options.append((app_id, p, ok))
+        pick = next(((a, p) for a, p, ok in options if ok), None)
+        if pick is None:
+            steps.append(dict(app=None, reason="nenhum app disponível para o próximo passo", finished_p=round(finished, 3)))
+            break
+        top = options[0]
+        app_id, p = pick
+        if done and p < MIN_NEXT:
+            break  # Jev is unsure there is a next step: stop instead of padding the plan
+        steps.append(dict(app=app_id, title=registry[app_id].title, probability=round(p, 4), finished_p=round(finished, 3),
+                          rerouted=(top[0] != app_id), jev_top=top[0]))
+        done.append(app_id)
+        media = media | {PRODUCES.get(app_id, "image" if CAPABILITIES[app_id][0] <= {"image"} else "video")}
+    return dict(request=request, media=sorted(set(media or ())), provider="jev", steps=steps,
+                complete=bool(steps) and all(s["app"] for s in steps))

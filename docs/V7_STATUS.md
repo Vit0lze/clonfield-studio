@@ -30,3 +30,10 @@ Restante dos 93 links: **encontrado apenas**, nada examinado em profundidade nes
 | Provedor Jev remoto (`api.typesafe.ai/v1/systemone`) | **integrado e testado ao vivo** | token de `TYPESAFE_API_TOKEN` (também `TYPESAFE_API_KEY`/`JEV_API_KEY`). Uma pergunta Choice; só texto do pedido e nomes dos tipos de mídia são enviados. 4 pedidos reais roteados corretamente; falha/token ruim cai no heurístico local e a resposta traz `provider` e `fallback`. Não comparado em acurácia com o heurístico em amostra ampla |
 | JEV do proprietário | **não encontrado** na máquina | preciso do repositório/contrato para comparar, como a V7 exige |
 | ComfyUI-ScriptFlow, ComfyUI-Jev, AutoJev, model-comparison | não examinados | pendente |
+
+## Jev ao vivo (rodada 3)
+- Teste com gabarito: 30 pedidos PT/EN → Jev 30/30 (p médio 0,97, ~0,27 s) × heurístico local 26/30. Gabarito escrito pelo mantenedor, casos claros: vale como sanidade, não como acurácia geral. Fixado em `tests/test_jev_live.py` (aceita ≤3 erros).
+- Pedidos ambíguos: probabilidade cai (ex.: «melhora essa foto» → edit 0,59 / look 0,33), ou seja, a confiança informa.
+- `cf_router.plan` + `POST /plan`: planos em série (Choice do próximo app + Noul «já terminou?» numa só chamada). Noul é mal calibrado (0,43 logo após pedido cumprido), então: nunca repete app, para se finished ≥ 0,35 ou se o próximo tem p < 0,5. 4 planos reais corretos (edit→upscale→frame; text2video→clip; upscale; text2video→still).
+- UI: botão «Sugerir» na tela inicial (+ «Tenho imagem/vídeo»), mostra a cadeia de apps; clicar abre o app com o pedido preenchido. Verificado no navegador contra o engine real e o Jev real.
+- Pendente: o plano ainda não executa a cadeia sozinho (decisão apenas, pela regra de confirmação); mídia só entra como tipo; não testado com GPU.

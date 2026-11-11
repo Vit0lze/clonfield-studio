@@ -129,9 +129,20 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         body = await request.json()
         kinds = {k for k in (body.get("media") or []) if k in ("image", "video", "audio")}
         try:
-            return JSONResponse(cf_router.route(str(body.get("request", ""))[:2000], kinds, cf_apps.registry(), tier))
+            return JSONResponse(await run_in_threadpool(cf_router.route, str(body.get("request", ""))[:2000], kinds, cf_apps.registry(), tier))
         except ValueError as exc:
             return JSONResponse({"detail": str(exc)}, 400)
+
+    async def plan_request(request):
+        body = await request.json()
+        kinds = {k for k in (body.get("media") or []) if k in ("image", "video", "audio")}
+        try:
+            result = await run_in_threadpool(cf_router.plan, str(body.get("request", ""))[:2000], kinds, cf_apps.registry(), tier)
+        except ValueError as exc:
+            return JSONResponse({"detail": str(exc)}, 400)
+        except (RuntimeError, requests.RequestException, KeyError, TypeError) as exc:
+            return JSONResponse({"detail": f"Planejamento indisponível (Jev): {str(exc)[:160]}"}, 503)
+        return JSONResponse(result)
 
     async def models(request):
         return JSONResponse([cf_apps.model_card(key, tier) for key in cf_apps.IMAGE_MODELS])
@@ -361,6 +372,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/system", guard(system)),
         Route(f"{PREFIX}/apps", guard(apps)),
         Route(f"{PREFIX}/route", guard(route_request), methods=["POST"]),
+        Route(f"{PREFIX}/plan", guard(plan_request), methods=["POST"]),
         Route(f"{PREFIX}/models", guard(models)),
         Route(f"{PREFIX}/models/{{key}}", guard(model_detail)),
         Route(f"{PREFIX}/models/{{key}}/install", guard(install_model), methods=["POST"]),
