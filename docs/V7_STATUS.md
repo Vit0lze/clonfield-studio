@@ -19,3 +19,14 @@ o ClonField monta o PSD no servidor com psd-tools a partir desses arquivos. Núm
 ## Outras fontes
 Clonados e licenças lidas: JevRouter `b1cdf80` (MIT), scenario-labs/skills `b96506d` (MIT).
 Restante dos 93 links: **encontrado apenas**, nada examinado em profundidade nesta rodada.
+
+## JEV / Scenario (rodada 2)
+| Item | Estado | Evidência / limite |
+|---|---|---|
+| scenario-labs/skills `b96506d` (MIT) — quality-gate, refine-loop | lidos; **método adaptado** em `cf_refine.py` | Copiado o método: rubrica fixa antes de julgar, veredito por linha, correção mais barata primeiro (filtro determinístico → nova seed), 1 variável por rodada, regenerar da base, teto de rodadas, parar se a mesma linha falha sob 2 correções, manter a melhor. **Sem Scenario MCP/pago** |
+| Gate | só propriedades **medidas** (vazio, nitidez, exposição, tamanho, estrutura vs. referência) | NÃO há avaliador de IA: linhas de texto livre ficam "não avaliado" e nenhuma nota numérica é inventada. Limites do próprio Scenario valem aqui, em dobro: não detecta anatomia/identidade |
+| Refino automático | integrado como opção avançada em Criar/Editar/etc. (`refine`) | Testado com imagens PIL reais e `refine_outputs`; **não testado com geração real** (sem GPU/pesos) |
+| JevRouter `b1cdf80` (MIT) | lido; **contrato adaptado** em `cf_router.py` + `POST /route` | Probabilidades do provedor intocadas; disponibilidade em `router`; sem renormalizar; só decide, não executa |
+| Provedor Jev remoto | **NÃO integrado** | exige TYPESAFE_API_KEY/OPENROUTER_API_KEY; sem chave, sem teste real. Provedor em uso: heurístico local (palavras + tipo de mídia) |
+| JEV do proprietário | **não encontrado** na máquina | preciso do repositório/contrato para comparar, como a V7 exige |
+| ComfyUI-ScriptFlow, ComfyUI-Jev, AutoJev, model-comparison | não examinados | pendente |

@@ -15,6 +15,7 @@ import cf_civitai
 import cf_loras
 import cf_model_lab as lab
 import cf_openjutsu as openjutsu
+import cf_refine as refine
 import cf_region as region
 import cf_seedvr2 as seedvr2
 import cf_seethrough as seethrough
@@ -145,6 +146,8 @@ def image_fields(tier, refs_required=0, prompt_default="", prompt_label="Descrev
         dict(id="loras", type="loras", label="LoRAs", default=[], max=4, help="Ajuste a força de cada estilo."),
         dict(id="upscale", type="select", label="Ampliar depois", default="Nenhum", advanced=True,
              options=[opt(v, v) for v in ("Nenhum", "Lanczos 2×", "Real-ESRGAN 2×")]),
+        dict(id="refine", type="switch", label="Refino técnico automático", default=False, advanced=True,
+             help="Confere vazio, nitidez, exposição e tamanho; corrige com filtro ou nova seed (até 2 rodadas). Não julga estética nem identidade."),
         dict(id="negative", type="textarea", label="Evitar", default="", advanced=True, rows=2,
              help="Só tem efeito quando CFG > 1."),
         dict(id="steps", type="slider", label="Passos", default=0, min=0, max=60, step=1, advanced=True,
@@ -222,8 +225,32 @@ def run_image(ctx, p, tier):
     preset = lab.PRESETS[p["model"]]
     files = p.get("refs") or []
     width, height = dimensions(p.get("aspect", "auto"), p.get("quality", "standard"), tier, files)
-    return post_upscale(ctx, run_graph_images(ctx, preset, p, files, width, height, int(p.get("variations", 1))),
-                        p.get("upscale", "Nenhum"))
+    outputs = run_graph_images(ctx, preset, p, files, width, height, int(p.get("variations", 1)))
+    if p.get("refine"):
+        outputs = refine_outputs(ctx, preset, p, files, width, height, outputs)
+    return post_upscale(ctx, outputs, p.get("upscale", "Nenhum"))
+
+
+def refine_outputs(ctx, preset, p, files, width, height, outputs):
+    """Technical gate + capped loop (cf_refine). Measurable properties only: no aesthetic/identity judgement."""
+    base_seed = int(p.get("seed", -1))
+    base_seed = random.randrange(2**32 - 16) if base_seed < 0 else base_seed
+    names = ["not_blank", "sharp", "exposure"]
+    context = {}
+    finals, notes = [], []
+    for index, first in enumerate(outputs):
+        pending = [first]  # the baseline was already generated; only later rounds spend GPU
+
+        def generate(params, pending=pending):
+            if pending:
+                return pending.pop()
+            return run_graph_images(ctx, preset, {**p, "seed": params["seed"]}, files, width, height, 1)[0]
+        report = refine.refine(generate, {"seed": base_seed + index * 100}, context, names,
+                               ctx.out_dir / f"refino_{index + 1}", max_rounds=2)
+        finals.append(report["best"]["path"])
+        notes.append(f"Imagem {index + 1}: " + refine.summarize(report))
+    ctx.job.update(message=" | ".join(notes)[:900])
+    return finals
 
 
 LIGHT_KINDS = {"point": "point light", "softbox": "large soft area light", "rim": "rim light", "spot": "focused spotlight beam"}
