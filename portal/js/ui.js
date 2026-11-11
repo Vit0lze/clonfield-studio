@@ -93,6 +93,7 @@ const APP_ICONS = {
   compare: '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M12 5v14"/><path d="M9 10l-2 2 2 2M15 10l2 2-2 2"/>',
   openjutsu: '<circle cx="8" cy="8" r="2.5"/><circle cx="16" cy="16" r="2.5"/><path d="M13 7h6l-2-2M11 17H5l2 2"/>',
   workflow: '<circle cx="5.5" cy="7" r="2"/><circle cx="5.5" cy="17" r="2"/><circle cx="18.5" cy="12" r="2"/><path d="M7.5 7h2c3.5 0 3.5 5 7 5M7.5 17h2c3.5 0 3.5-5 7-5"/>',
+  layers: '<path d="M12 4l8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4"/><path d="M4 16l8 4 8-4"/>',
   speedtest: '<path d="M4.5 16a8 8 0 1 1 15 0"/><path d="M12 14l4-4"/><circle cx="12" cy="14" r="1.2"/>'
 };
 // One tile for every app: same shape and weight everywhere (menu, gallery, app header), a different glyph for each app.

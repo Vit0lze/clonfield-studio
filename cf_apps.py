@@ -17,6 +17,7 @@ import cf_model_lab as lab
 import cf_openjutsu as openjutsu
 import cf_region as region
 import cf_seedvr2 as seedvr2
+import cf_seethrough as seethrough
 import cf_upscale as upscale
 import cf_wan as wan
 import cf_workflows as workflows
@@ -389,6 +390,31 @@ def run_openjutsu(ctx, p, tier):
     return collect_job(ctx, job)
 
 
+def run_seethrough(ctx, p, tier):
+    import requests
+    profile = p.get("profile") or seethrough.DEFAULT_PROFILE
+    seed = int(p.get("seed", -1))
+    seed = random.randrange(2**32) if seed < 0 else seed
+    try:
+        graph = seethrough.build_graph(profile, seed, int(p.get("steps", 30)), "pending.png", p.get("resolution") or None,
+                                       bool(p.get("lama", True)), bool(p.get("split", True)))
+    except ValueError as exc:
+        raise JobError(str(exc)) from None
+    prepare = partial(seethrough.prepare, image=p["image"][0])
+    job = workflows.run(graph, ctx.out_dir, ctx.progress, prepare=prepare, title=f"Camadas · {profile}", control=ctx.control,
+                        family="seethrough", stall=1800)
+    outputs = collect_job(ctx, job)
+    ctx.progress(0.95, desc="Montando PSD e pacote de camadas")
+    try:
+        with requests.Session() as session:
+            session.trust_env = False
+            info, layers = seethrough.fetch_layers(session, ctx.out_dir)
+    except (requests.RequestException, OSError, ValueError, KeyError) as exc:
+        raise JobError(f"Camadas geradas, mas o pacote não pôde ser lido do worker: {exc}") from None
+    ctx.job.update(message=f"{len(layers)} camadas reais geradas (o número varia por imagem).")
+    return seethrough.write_package(info, layers, ctx.out_dir / job["id"]) + [o for o in outputs if o.suffix != ".psd"]
+
+
 def run_workflow(ctx, p, tier):
     try:
         graph = workflows.read_graph(p["graph"][0])
@@ -540,6 +566,16 @@ def build_registry():
                             options=[opt(k, k) for k in seedvr2.PROFILES]),
                        dict(id="scale", type="slider", label="Escala", default=2, min=1, max=4, step=0.25),
                        dict(id="seed", type="number", label="Seed", default=42, advanced=True)]),
+        App("seethrough", "Camadas de anime", "Editar", "Ilustração anime em camadas reais com transparência, profundidade e PSD.", "layers", run_seethrough,
+            lambda t: [dict(id="image", type="files", label="Ilustração anime", accept="image", max=1, min=1),
+                       dict(id="profile", type="select", label="Perfil de memória", default=seethrough.DEFAULT_PROFILE,
+                            options=[opt(k, k, f"Estimativa do autor: {v['claim']} de VRAM (não medido aqui)") for k, v in seethrough.PROFILES.items()]),
+                       dict(id="steps", type="slider", label="Passos", default=30, min=10, max=60, step=1, advanced=True),
+                       dict(id="resolution", type="slider", label="Resolução (px)", default=1024, min=512, max=1536, step=64, advanced=True),
+                       dict(id="split", type="switch", label="Separar olhos, orelhas e mãos em esquerda/direita", default=True, advanced=True),
+                       dict(id="lama", type="switch", label="Preencher cabelo com LaMa", default=True, advanced=True),
+                       dict(id="seed", type="number", label="Seed (-1 = aleatória)", default=-1, advanced=True)],
+            min_vram=8, note="Camadas por imagem variam; o app não promete um número fixo. Pesos LayerDiff: licença OpenRAIL++."),
         App("look", "Cor e contraste", "Melhorar", "Looks prontos com intensidade ajustável.", "finish", run_look,
             lambda t: [dict(id="image", type="files", label="Imagem", accept="image", max=1, min=1),
                        dict(id="look", type="chips", label="Look", default=finish.LOOKS[0], options=[opt(v, v) for v in finish.LOOKS]),
