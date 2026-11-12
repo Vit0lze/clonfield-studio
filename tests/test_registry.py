@@ -19,7 +19,8 @@ def tier(monkeypatch):
 def test_star_is_the_recipe_default_and_comes_first(tmp_path, monkeypatch):
     monkeypatch.setenv("CLONFIELD_COMFY_MODELS", str(tmp_path))
     slots = {s["id"]: s for s in reg.slots("qwen21", tmp_path / "civ")}
-    assert list(slots) == ["Difusão", "Encoder", "VAE", "sampler", "scheduler"]
+    assert list(slots) == ["Difusão", "Encoder", "VAE", "Upscaler", "sampler", "scheduler"]
+    assert slots["Upscaler"]["options"] == [] and slots["Upscaler"]["search"]["role"] == "Upscaler"  # still searchable when empty
     first = slots["Difusão"]["options"][0]
     assert first["star"] and first["value"] == "" and first["label"].startswith("qwen_image_2.1_int8")
     assert not first["installed"] and "baixa ao usar" in first["hint"]
@@ -42,26 +43,46 @@ def test_checkpoint_only_models_have_no_star_file_and_offer_search(tmp_path):
     assert slots["Checkpoint"]["options"] == [] and slots["Checkpoint"]["search"]["family"] == "sdxl"
 
 
-def test_sets_are_whole_recipes_and_keep_few_step_models_fixed(tier):
-    qwen, flux = lab.PRESETS["qwen21"], lab.PRESETS["flux2"]
-    steps = {n: reg.set_values(n, qwen, tier)["values"]["steps"] for n in reg.SETS}
-    assert steps == {"Rápido": 20, "Moderado": 40, "Qualidade": 50}
-    assert {reg.set_values(n, flux, tier)["values"]["steps"] for n in reg.SETS} == {4}
-    assert reg.set_values("Rápido", qwen, tier)["values"]["gen_factor"] < 1
-    comps = reg.set_values("Moderado", qwen, tier)["components"]
-    assert set(comps) == {"Difusão", "Encoder", "VAE"} and all(v.startswith("★") for v in comps.values())
-    assert "benchmark" in reg.set_values("Moderado", qwen, tier)["note"]
-    with pytest.raises(ValueError):
-        reg.set_values("Turbo", qwen, tier)
+def test_sets_pick_a_different_whole_pipeline_each(monkeypatch):
+    for vram, expected in ((15, ("z-image-turbo", "z-image", "qwen21")), (24, ("z-image-turbo", "krea2-turbo", "qwen21"))):
+        monkeypatch.setenv("CLONFIELD_FAKE_VRAM", str(vram))
+        t = cf_tiers.detect()
+        options = {o["value"]: o for o in reg.describe_sets(t, cf_apps.MODEL_INFO, cf_apps.IMAGE_MODELS)}
+        models = tuple(options[n]["recipe"]["model"] for n in reg.SETS)
+        assert models == expected and len(set(models)) == 3
+        assert "recipe" not in options["Manual"]
+    r = options["Qualidade"]["recipe"]
+    assert r["steps"] == 50 and set(r["components"]) == {"Difusão", "Encoder", "VAE"} and "benchmark" in r["note"]
+    assert options["Rápido"]["recipe"]["gen_factor"] < 1 and options["Rápido"]["recipe"]["steps"] == 8  # distilled keeps its steps
 
 
-def test_form_offers_four_sets_including_manual_and_the_set_field_before_steps(tier):
+def test_heavy_models_say_so_and_flux3_is_never_picked_silently(monkeypatch):
+    monkeypatch.setenv("CLONFIELD_FAKE_VRAM", "15")
+    t = cf_tiers.detect()
+    options = {o["value"]: o for o in reg.describe_sets(t, cf_apps.MODEL_INFO, cf_apps.IMAGE_MODELS)}
+    assert "Pesado" in options["Qualidade"]["recipe"]["warning"] and options["Rápido"]["recipe"]["warning"] == ""
+    assert all(o.get("recipe", {}).get("model") != "flux3" for o in options.values())
+
+
+def test_sets_for_apps_that_need_references_only_use_models_that_take_them(monkeypatch):
+    monkeypatch.setenv("CLONFIELD_FAKE_VRAM", "15")
+    t = cf_tiers.detect()
+    options = reg.describe_sets(t, cf_apps.MODEL_INFO, cf_apps.IMAGE_MODELS, needs_refs=True)
+    for o in options:
+        if "recipe" in o:
+            assert lab.PRESETS[o["recipe"]["model"]].refs >= 1
+
+
+def test_form_has_sections_set_before_model_and_variations_1_to_4(tier):
     fields = cf_apps.registry()["create"].describe(tier)["fields"]
     ids = [f["id"] for f in fields]
-    assert ids.index("model") < ids.index("set") < ids.index("steps")
-    options = next(f for f in fields if f["id"] == "set")["options"]
-    assert [o["value"] for o in options] == ["Rápido", "Moderado", "Qualidade", "Manual"]
-    assert "by_model" in options[0] and "by_model" not in options[3]
+    assert ids.index("set") < ids.index("model") < ids.index("steps")
+    assert [o["value"] for o in next(f for f in fields if f["id"] == "set")["options"]] == ["Rápido", "Moderado", "Qualidade", "Manual"]
+    var = next(f for f in fields if f["id"] == "variations")
+    assert var["type"] == "seg" and [o["value"] for o in var["options"]] == [1, 2, 3, 4]  # never limited by the card
+    assert {f.get("section") for f in fields if f["id"] in ("prompt", "set", "aspect", "loras")} == {"Pedido", "Modelo", "Formato", "Estilo"}
+    cfg = next(f for f in fields if f["id"] == "cfg")
+    assert cfg["step"] == 0.1 and cfg["decimals"] == 1
 
 
 def test_fast_set_generates_smaller_and_upscales_back_to_the_final_size(tier):

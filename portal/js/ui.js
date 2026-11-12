@@ -196,7 +196,8 @@ export function field(label, control, hint, extra) {
   if (target) target.id = id;
   const tag = target ? h("label", { for: id }, h("span", null, label), extra) : h("div", { class: "label" }, h("span", null, label), extra);
   if (!target) control.setAttribute("aria-label", label);
-  return h("div", { class: "field" }, tag, control, hint ? h("div", { class: "hint" }, hint) : null);
+  if (hint) tag.append(h("span", { class: "tip", tabindex: "0", role: "img", title: hint, "aria-label": hint }, "?"));
+  return h("div", { class: "field" }, tag, control);
 }
 
 export function ratioGlyph([w, hgt]) {
@@ -258,7 +259,7 @@ export function dropdown(options, value, onChange, { label = "", footer = null }
   const root = h("div", { class: "dd" }, button);
   let pop = null, active = -1;
 
-  const row = o => [o.ratio ? ratioGlyph(o.ratio) : null, h("span", { class: "dd-text" }, h("b", null, o.star ? star() : null, o.label), o.hint ? h("small", null, o.hint) : null),
+  const row = o => [o.ratio ? ratioGlyph(o.ratio) : null, o.thumb ? h("span", { class: "dd-thumb" }, o.thumb()) : null, h("span", { class: "dd-text" }, h("b", null, o.star ? star() : null, o.label), o.hint ? h("small", null, o.hint) : null),
     o.badge ? h("span", { class: `dd-badge ${o.installed === false ? "off" : ""}` }, o.badge) : null];
   const paintFace = () => { clear(face); face.append(...row(current()).filter(Boolean)); };
 
@@ -332,18 +333,23 @@ export function dropdown(options, value, onChange, { label = "", footer = null }
 }
 
 export function slider(f, value, onChange) {
-  const input = h("input", { type: "range", min: f.min, max: f.max, step: f.step || 1, value });
-  const out = h("output", null);
-  const paint = () => {
-    const v = Number(input.value);
+  const step = f.step || 1;
+  const decimals = f.decimals ?? (step < 1 ? String(step).split(".")[1].length : 0);
+  const fmt = v => (decimals ? Number(v).toFixed(decimals) : String(Math.round(v)));
+  const input = h("input", { type: "range", min: f.min, max: f.max, step, value, "aria-label": f.label || "valor" });
+  const num = h("input", { type: "number", class: "range-num mono", min: f.min, max: f.max, step, value: fmt(value), "aria-label": `${f.label || "valor"} (digitar)` });
+  const paint = v => {
     input.style.setProperty("--pct", `${((v - f.min) / (f.max - f.min)) * 100}%`);
-    out.textContent = f.zero_label && v === 0 ? f.zero_label : (Number.isInteger(f.step || 1) ? v : v.toFixed(2).replace(/0$/, ""));
+    num.value = f.zero_label && v === 0 ? "" : fmt(v);
+    num.placeholder = f.zero_label && v === 0 ? f.zero_label : "";
   };
-  input.addEventListener("input", () => { paint(); onChange(Number(input.value)); });
-  input.addEventListener("dblclick", () => { input.value = f.default ?? f.min; paint(); onChange(Number(input.value)); });
-  paint();
-  const box = h("div", { class: "range" }, input, out);
-  box.set = v => { input.value = v; paint(); };
+  const clamp = v => Math.min(f.max, Math.max(f.min, Math.round(v / step) * step));
+  input.addEventListener("input", () => { const v = Number(input.value); paint(v); onChange(v); });
+  num.addEventListener("change", () => { const typed = num.value === "" ? f.min : clamp(Number(num.value)); input.value = typed; paint(typed); onChange(typed); });
+  input.addEventListener("dblclick", () => { const v = f.default ?? f.min; input.value = v; paint(v); onChange(v); });
+  paint(Number(value));
+  const box = h("div", { class: "range" }, input, num);
+  box.set = v => { input.value = v; paint(Number(v)); };
   return box;
 }
 

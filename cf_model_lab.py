@@ -145,7 +145,7 @@ def names_and_sources(preset, chosen, expand):
 
 
 def make_graph(preset, names, prompt, negative, width, height, steps, cfg, seed, files, strength, expand,
-               lora_weights=()):
+               lora_weights=(), shift=3.0):
     if not prompt or not prompt.strip():
         raise ValueError("Escreva um prompt.")
     if not all(math.isfinite(x) and int(x) == x and 256 <= x <= 2048 and x % 32 == 0 for x in (width, height)):
@@ -189,7 +189,7 @@ def make_graph(preset, names, prompt, negative, width, height, steps, cfg, seed,
                      strength_model=model_weight, strength_clip=clip_weight)
         clip = [model[0], 1]
     if preset.clip_type == "lumina2":
-        model = node("ModelSamplingAuraFlow", model=model, shift=3.0)
+        model = node("ModelSamplingAuraFlow", model=model, shift=float(shift))
 
     references = []
     uploads = {}

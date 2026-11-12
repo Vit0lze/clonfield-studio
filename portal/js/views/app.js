@@ -19,7 +19,8 @@ export async function appView(id, navigate) {
   const binders = {};                         // field id -> programmatic update, used when a Conjunto is applied
   const TUNING = new Set(["steps", "cfg"]);   // touching these by hand means the user left the chosen Conjunto
   let setPick = null, setNote = null;
-  const markManual = () => { if (values.set && values.set !== "Manual") { values.set = "Manual"; setPick?.set("Manual"); paintSetNote(); } };
+  let markManualHook = () => {};
+  const markManual = () => { if (values.set && values.set !== "Manual") { values.set = "Manual"; setPick?.set("Manual"); markManualHook(); } };
   let follower = null, tick = null, current = null;
   // Reframes live per job: kept in memory while the page is open and in localStorage so they survive a reload.
   const reframes = new Map(), hydrated = new Set(), coverSaved = new Set();
@@ -85,7 +86,13 @@ export async function appView(id, navigate) {
     }
     if (f.type === "switch") return switchRow(f.label, values[f.id], v => { values[f.id] = v; });
     if (f.type === "set") return setControl(f);
-    if (f.type === "model") return modelPicker(f);
+    if (f.type === "model") return modelControl(f);
+    if (f.type === "seg") {
+      const box = seg(f.options, values[f.id], v => { values[f.id] = v; rerun(); });
+      box.classList.add("seg-grid");
+      binders[f.id] = v => { values[f.id] = v; [...box.children].forEach((b, i) => b.setAttribute("aria-pressed", String(f.options[i].value === v))); };
+      return field(f.label, box, f.help);
+    }
     if (f.type === "loras") return loraPanel(f);
     if (f.type === "files") return dropzone(f);
     if (f.type === "lights") {
@@ -99,81 +106,95 @@ export async function appView(id, navigate) {
 
   function currentModel() { return models.find(m => m.key === values.model); }
 
-  // ---- Conjunto (whole-pipeline preset) and the component slots it fills
-  let setField = null;
-  function paintSetNote() {
-    if (!setNote || !setField) return;
-    clear(setNote);
-    const option = setField.options.find(o => o.value === values.set);
-    const recipe = option?.by_model?.[values.model];
-    if (!recipe) { setNote.append(h("span", null, option?.hint || "")); return; }
-    setNote.append(h("span", null, option.hint),
-      h("span", { class: "mono" }, `${recipe.values.steps} passos · CFG ${recipe.values.cfg} · geração ${recipe.values.gen_factor < 1 ? "menor, ampliada depois" : "no tamanho do perfil"}`),
-      h("span", { class: "mono" }, Object.entries(recipe.components).map(([role, name]) => `${role}: ${name}`).join(" · ")),
-      h("span", { class: "dim" }, recipe.note));
+  // ---- Conjunto: a whole pipeline (model + encoder + VAE + steps + size). Manual opens every component slot.
+  let setField = null, setBox = null, summary = null;
+  const slotBox = h("div", { class: "slot-grid" });
+  const manualParams = h("div", { class: "manual-params" });
+  const manualWrap = h("div", { class: "manual-wrap", hidden: true },
+    h("h5", { class: "manual-h" }, "Componentes"), slotBox,
+    h("h5", { class: "manual-h" }, "Parâmetros"), manualParams,
+    h("p", { class: "manual-note" }, "ControlNet, detectores e VAD ainda não têm workflow conectado neste app, por isso não aparecem."));
+  const recipeOf = name => {
+    const o = setField?.options.find(x => x.value === name);
+    return ((values.refs?.length && o?.recipe_refs) || o?.recipe) || null;  // with reference images the set picks a model that takes them
+  };
+  const modelTitle = key => models.find(m => m.key === key)?.title || key;
+
+  function paintSummary() {
+    if (!summary) return;
+    clear(summary);
+    const manual = values.set === "Manual";
+    manualWrap.hidden = !manual;
+    if (manual) {
+      summary.append(h("p", { class: "sum-line" }, `${modelTitle(values.model)} · escolha cada componente abaixo`));
+      return;
+    }
+    const r = recipeOf(values.set);
+    if (!r) return;
+    const bigger = r.gen_factor < 1 ? "gera menor e amplia" : "gera no tamanho do perfil";
+    summary.append(...[h("p", { class: "sum-line" }, h("b", null, r.title), ` · ${r.steps} passos · ${bigger}`),
+      r.warning ? h("p", { class: "sum-warn" }, icon("alert", "sm"), r.warning) : null,
+      h("details", { class: "sum-more" }, h("summary", null, "O que este conjunto usa"),
+        h("ul", null, h("li", null, h("span", null, "Por quê"), r.why),
+          ...Object.entries(r.components).map(([role, name]) => h("li", null, h("span", null, role), h("code", null, name))),
+          h("li", null, h("span", null, "Aviso"), r.note)))].filter(Boolean));
   }
   function applySet() {
-    const option = setField?.options.find(o => o.value === values.set);
-    const recipe = option?.by_model?.[values.model];
-    if (!recipe) { values.slots = {}; paintSetNote(); loadSlots(); return; }  // Manual: nothing applied, slots follow the model
+    const r = recipeOf(values.set);
+    if (!r) { paintSummary(); loadSlots(); return; }  // Manual: nothing is applied, the user edits each slot
+    values.model = r.model;
+    binders.model?.(r.model);
     for (const key of ["steps", "cfg", "gen_factor", "sampler", "scheduler"]) {
-      values[key] = recipe.values[key];
-      binders[key]?.(recipe.values[key]);
+      values[key] = r[key];
+      binders[key]?.(r[key]);
     }
     values.slots = {};
-    paintSetNote();
-    loadSlots();
+    afterModel();
   }
   function setControl(f) {
     setField = f;
-    setPick = dropdown(f.options, values[f.id], v => { values[f.id] = v; applySet(); rerun(); }, { label: f.label });
-    setNote = h("div", { class: "set-note" });
-    paintSetNote();
-    return field(f.label, h("div", { class: "stack" }, setPick, setNote), f.help);
+    setBox = seg(f.options, values[f.id], v => { values[f.id] = v; applySet(); rerun(); });
+    setBox.classList.add("seg-grid");
+    setPick = { set: v => { values.set = v; [...setBox.children].forEach((b, i) => b.setAttribute("aria-pressed", String(f.options[i].value === v))); } };
+    summary = h("div", { class: "summary" });
+    refresh.push(() => { if (values.set !== "Manual") { const r = recipeOf(values.set); if (r && r.model !== values.model) applySet(); } });
+    return field(f.label, h("div", { class: "stack" }, setBox, summary), f.help);
   }
+  markManualHook = () => paintSummary();
 
-  const slotBox = h("div", { class: "stack slots" });
   let slotSerial = 0;
   async function loadSlots() {
     if (!app.fields.some(f => f.id === "slots")) return;
     const mine = ++slotSerial;
     let slots = [];
-    try { slots = await api.get(`/slots?model=${encodeURIComponent(values.model)}`); } catch { /* the slots panel just stays empty */ }
+    try { slots = await api.get(`/slots?model=${encodeURIComponent(values.model)}`); } catch { /* the panel stays empty */ }
     if (mine !== slotSerial) return;
     clear(slotBox);
     const m = currentModel();
     for (const slot of slots) {
       const isAlgo = slot.kind === "algorithm";
-      const key = isAlgo ? slot.id : slot.id;
       const current = isAlgo ? (values[slot.id] || "") : (values.slots?.[slot.id] || "");
       const options = slot.options.map(o => ({ value: o.value, label: o.label, star: o.star, installed: o.installed, hint: o.hint,
         badge: o.source === "worker" || o.source === "padrão" ? null : (o.installed ? "instalado" : "baixa ao usar") }));
-      if (!options.length) options.push({ value: "", label: "Escolher no catálogo", hint: "Este modelo não traz arquivo padrão", installed: false });
-      const pick = dropdown(options, current, v => { if (isAlgo) values[slot.id] = v; else (values.slots ||= {})[slot.id] = v; markManual(); rerun(); },
+      if (!options.length) options.push({ value: "", label: "Nenhum", hint: "Escolha no catálogo", installed: false });
+      const pick = dropdown(options, current, v => { if (isAlgo) values[slot.id] = v; else (values.slots ||= {})[slot.id] = v; rerun(); },
         { label: slot.label, footer: slot.search ? { label: "Pesquisar…", hint: "No worker, CivitAI e Hugging Face", onclick: () => openSearch({
           role: slot.search.role, label: slot.label, family: slot.search.family, familyTitle: m?.title || slot.search.family,
-          onUse: item => { (values.slots ||= {})[slot.id] = item.value; markManual(); loadSlots(); rerun(); } }) } : null });
-      slotBox.append(field(slot.label, pick, slot.search ? null : "Algoritmo do worker: só mostra o que o ComfyUI aceita."));
+          onUse: item => { (values.slots ||= {})[slot.id] = item.value; loadSlots(); rerun(); } }) } : null });
+      slotBox.append(h("div", { class: "slot" }, h("span", { class: "slot-label" }, slot.label), pick));
     }
+    paintSummary();
   }
 
-
-  function modelPicker(f) {
-    const box = h("div", { class: "mpick", role: "group" });
-    const paint = () => {
-      clear(box);
-      for (const m of models.filter(m => !f.options || f.options.some(o => o.value === m.key))) {
-        box.append(h("button", { class: "mopt", type: "button", "aria-pressed": String(values.model === m.key),
-          onclick: () => { values.model = m.key; paint(); onModelChange(); rerun(); } },
-          h("div", { class: "po" }, artFor("model", m.key)),
-          h("div", null, h("b", null, m.title), h("span", null, m.tagline),
-            h("span", { class: "mono" }, `${m.installed ? "instalado" : "baixa ao usar"}${m.fits ? "" : " · pesado p/ sua GPU"}`))));
-      }
-    };
-    paint();
-    return field(f.label, box, null, h("a", { href: "#/models" }, "Ver biblioteca"));
+  function modelControl(f) {
+    const options = models.filter(m => !f.options || f.options.some(o => o.value === m.key)).map(m => ({
+      value: m.key, label: m.title, hint: m.tagline, installed: m.installed, badge: m.installed ? "instalado" : "baixa ao usar", thumb: () => artFor("model", m.key) }));
+    const pick = dropdown(options, values.model, v => { values.model = v; markManual(); afterModel(); rerun(); }, { label: f.label });
+    binders[f.id] = v => { values[f.id] = v; pick.set(v); };
+    return field(f.label, pick, null, h("a", { href: "#/models", class: "tiny-link" }, "Biblioteca"));
   }
-  const modelListeners = [() => applySet()];
+
+  const modelListeners = [];
   const onModelChange = () => {
     const m = currentModel();
     advice.hidden = !(m && m.advice);
@@ -181,6 +202,7 @@ export async function appView(id, navigate) {
     if (m && m.advice) advice.append(icon("alert", "sm"), m.advice);
     modelListeners.forEach(fn => fn());
   };
+  const afterModel = () => { onModelChange(); loadSlots(); paintSummary(); };
 
   function loraPanel(f) {
     const box = h("div", { class: "stack" });
@@ -242,7 +264,8 @@ export async function appView(id, navigate) {
     const thumbs = h("div", { class: "thumbs" });
     const input = h("input", { type: "file", class: "sr", multiple: f.max > 1, accept: f.accept === "image" ? "image/*" : f.accept === "video" ? "video/*" : f.accept.includes(".") ? f.accept : "image/*,video/*,audio/*",
       onchange: () => add([...input.files]) });
-    const max = () => f.id === "refs" ? Math.min(f.max, currentModel()?.refs ?? f.max) : f.max;
+    const setDrives = () => f.id === "refs" && setField && values.set !== "Manual";  // the Conjunto will switch to a model that takes references
+    const max = () => f.id === "refs" ? (setDrives() && currentModel()?.refs === 0 ? f.max : Math.min(f.max, currentModel()?.refs ?? f.max)) : f.max;
     const zone = h("div", { class: "drop", tabindex: "0", role: "button", onclick: () => input.click(),
       onkeydown: e => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), input.click()),
       ondragover: e => { e.preventDefault(); zone.classList.add("over"); }, ondragleave: () => zone.classList.remove("over"),
@@ -251,7 +274,8 @@ export async function appView(id, navigate) {
       clear(zone);
       const limit = max();
       zone.append(icon("upload"), h("div", null, h("strong", null, limit > 1 ? "Solte os arquivos aqui" : "Solte o arquivo aqui"), " ou clique para escolher"),
-        h("span", { class: "hint mono" }, limit > 1 ? `${list.length}/${limit} · a ordem importa` : (f.accept || "").replace("image", "imagem").replace("video", "vídeo")));
+        h("span", { class: "hint mono" }, setDrives() && currentModel()?.refs === 0 ? "O conjunto troca para um modelo que aceita referências"
+          : limit > 1 ? `${list.length}/${limit} · a ordem importa` : (f.accept || "").replace("image", "imagem").replace("video", "vídeo")));
       zone.hidden = limit === 0;
     };
     const paint = () => {
@@ -524,9 +548,34 @@ export async function appView(id, navigate) {
   }
 
   // ---------- assemble ----------
-  const main = app.fields.filter(f => !f.advanced), extra = app.fields.filter(f => f.advanced);
-  const scroll = h("div", { class: "scroll" }, main.map(control), extra.length ? h("details", { class: "more" },
-    h("summary", null, h("span", null, "Ajustes avançados"), icon("chevron-down", "sm")), h("div", { class: "body" }, app.fields.some(f => f.id === "slots") ? [h("h4", { class: "slots-title" }, "Componentes do conjunto"), slotBox] : null, extra.map(control))) : null);
+  const main = app.fields.filter(f => !f.advanced && !f.manual), extra = app.fields.filter(f => f.advanced), manualFields = app.fields.filter(f => f.manual);
+  // Parameters that belong to Manual live inside the Manual panel; those tied to specific models hide when the model has no use for them.
+  for (const f of manualFields) {
+    const node = control(f);
+    if (!node) continue;
+    const wrap = h("div", { class: "param" }, node);
+    if (f.models) modelListeners.push(() => { wrap.hidden = !f.models.includes(values.model); });
+    manualParams.append(wrap);
+  }
+  // Visible fields are grouped by `section` so the panel reads as a few labelled blocks instead of one long list.
+  const sections = [];
+  for (const f of main) {
+    const name = f.section || "";
+    if (!sections.length || sections.at(-1).name !== name) sections.push({ name, fields: [] });
+    sections.at(-1).fields.push(f);
+  }
+  const hasSlots = app.fields.some(f => f.id === "slots");
+  const blocks = sections.map(sec => {
+    const nodes = [];
+    for (const f of sec.fields) {
+      const node = control(f);
+      if (node) nodes.push(node);
+      if (f.id === "model" && hasSlots) nodes.push(manualWrap);
+    }
+    return h("section", { class: "fsec" }, sec.name ? h("h4", { class: "fsec-title" }, sec.name) : null, ...nodes);
+  });
+  const scroll = h("div", { class: "scroll" }, blocks, extra.length ? h("details", { class: "more" },
+    h("summary", null, h("span", null, "Ajustes avançados"), icon("chevron-down", "sm")), h("div", { class: "body" }, extra.map(control))) : null);
   root.append(
     h("a", { class: "crumb", href: "#/apps" }, icon("chevron-left", "sm"), "Apps"),
     h("div", { class: "appview" },
@@ -535,7 +584,12 @@ export async function appView(id, navigate) {
         scroll,
         h("div", { class: "foot" }, advice, missingLine, runButton)),
       stage));
-  onModelChange();
+  // A model carried in from another app wins over the default Conjunto, so nothing is switched behind the user's back.
+  if (setField) {
+    const r = recipeOf(values.set);
+    if (prefill.model && r && prefill.model !== r.model) { values.set = "Manual"; setPick.set("Manual"); paintSummary(); onModelChange(); loadSlots(); }
+    else applySet();
+  } else onModelChange();
   rerun();
   idle();
   const last = store.lastJob(app.id);

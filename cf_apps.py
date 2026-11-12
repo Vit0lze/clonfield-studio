@@ -202,34 +202,40 @@ def image_fields(tier, refs_required=0, prompt_default="", prompt_label="Descrev
     models = [opt(k, MODEL_INFO[k]["name"], MODEL_INFO[k]["tagline"]) for k in IMAGE_MODELS]
     default_model = "flux2" if tier.vram_gb < 16 else "qwen21"
     return [
-        dict(id="prompt", type="textarea", label=prompt_label, default=prompt_default, required=True, rows=4),
-        dict(id="refs", type="files", label=refs_label, accept="image", max=16, min=refs_required,
+        dict(id="prompt", section="Pedido", type="textarea", label=prompt_label, default=prompt_default, required=True, rows=4),
+        dict(id="refs", section="Pedido", type="files", label=refs_label, accept="image", max=16, min=refs_required,
              help="A ordem importa: a primeira imagem é a principal."),
-        dict(id="model", type="model", label="Modelo", default=default_model, options=models),
-        dict(id="set", type="set", label="Conjunto", default="Moderado", options=registry_mod.describe_sets(tier),
-             help="Cada conjunto monta o pipeline inteiro: passos, tamanho de geração e componentes. Manual libera tudo."),
+        dict(id="set", section="Modelo", type="set", label="Conjunto", default="Moderado", options=registry_mod.describe_sets(tier, MODEL_INFO, IMAGE_MODELS, refs_required > 0),
+             help="Cada conjunto escolhe o pipeline inteiro: modelo, encoder, VAE, passos e tamanho de geração."),
+        dict(id="model", section="Modelo", type="model", label="Modelo", default=default_model, options=models),
         dict(id="gen_factor", type="hidden", default=1.0),
         dict(id="slots", type="hidden", default={}),
         dict(id="sampler", type="hidden", default=""), dict(id="scheduler", type="hidden", default=""),
-        dict(id="aspect", type="chips", label="Enquadramento", default="auto",
+        dict(id="aspect", section="Formato", type="chips", label="Enquadramento", default="auto",
              options=[dict(opt(n, ASPECT_INFO[n][0], ASPECT_INFO[n][1]), ratio=[a, b], group=ASPECT_INFO[n][2])
                       for n, a, b in ASPECTS]),
-        dict(id="quality", type="chips", label="Resolução final", default="standard", options=quality_options(tier)),
-        dict(id="variations", type="slider", label="Variações", default=1, min=1, max=tier.max_variations, step=1),
-        dict(id="loras", type="loras", label="LoRAs", default=[], max=4, help="Ajuste a força de cada estilo."),
+        dict(id="quality", section="Formato", type="chips", label="Resolução final", default="standard", options=quality_options(tier)),
+        dict(id="variations", section="Formato", type="seg", label="Variações", default=1,
+             options=[opt(n, str(n), "") for n in range(1, 5)], help="Cada variação roda em sequência com uma seed nova."),
+        dict(id="loras", section="Estilo", type="loras", label="LoRAs", default=[], max=4, help="Ajuste a força de cada estilo."),
         dict(id="upscale_method", type="select", label="Como ampliar até a resolução final", default=UPSCALE_METHODS[0], advanced=True,
              options=[opt(v, v) for v in UPSCALE_METHODS], help="Só vale para Muito alta e Ultra. Em blocos, para caber na placa."),
         dict(id="upscale", type="select", label="Ampliar depois", default="Nenhum", advanced=True,
              options=[opt(v, v) for v in ("Nenhum", "Lanczos 2×", "Real-ESRGAN 2×")]),
         dict(id="refine", type="switch", label="Refino técnico automático", default=False, advanced=True,
              help="Confere vazio, nitidez, exposição e tamanho; corrige com filtro ou nova seed (até 2 rodadas). Não julga estética nem identidade."),
-        dict(id="negative", type="textarea", label="Evitar", default="", advanced=True, rows=2,
-             help="Só tem efeito quando CFG > 1."),
-        dict(id="steps", type="slider", label="Passos", default=0, min=0, max=60, step=1, advanced=True,
+        dict(id="steps", type="slider", label="Passos", default=0, min=0, max=100, step=1, manual=True,
              help="0 usa o recomendado do modelo."),
-        dict(id="cfg", type="slider", label="CFG", default=0, min=0, max=10, step=0.5, advanced=True,
+        dict(id="cfg", type="slider", label="CFG", default=0, min=0, max=12, step=0.1, decimals=1, manual=True,
              help="0 usa o recomendado do modelo."),
-        dict(id="seed", type="number", label="Seed", default=-1, advanced=True, help="-1 sorteia a cada geração."),
+        dict(id="shift", type="slider", label="Shift (Z-Image)", default=3.0, min=0.5, max=10, step=0.1, decimals=1, manual=True,
+             models=["z-image", "z-image-turbo"], help="Deslocamento do agendador. Só os modelos Z-Image usam."),
+        dict(id="negative", type="textarea", label="Evitar", default="", manual=True, rows=2, help="Só tem efeito com CFG maior que 1."),
+        dict(id="expand", type="switch", label="Expansor de prompt local", default=False, manual=True, models=["flux3"],
+             help="FLUX.3 expande o pedido numa legenda detalhada antes de gerar."),
+        dict(id="seed", type="number", label="Seed", default=-1, manual=True, help="-1 sorteia a cada geração."),
+        dict(id="free_vram", type="switch", label="Liberar a VRAM ao terminar", default=False, manual=True,
+             help="Descarrega os modelos do worker quando o job acaba."),
     ]
 
 
@@ -264,7 +270,8 @@ def run_graph_images(ctx, preset, p, files, width, height, count, progress_total
         chosen = lab.selections(ENV["civitai"], preset, picked, []) if picked else {}
     except ValueError as exc:
         raise JobError(str(exc)) from None
-    names, sources = lab.names_and_sources(preset, chosen, False)
+    expand = bool(p.get("expand")) and preset.key == "flux3"  # local prompt expander only exists for FLUX.3
+    names, sources = lab.names_and_sources(preset, chosen, expand)
     for role, name in plain.items():
         folder = cf_civitai.ROLE_TYPES.get(role)
         if role not in preset.roles or not folder or Path(name).name != name or not (lab.models_root() / folder / name).is_file():
@@ -285,13 +292,19 @@ def run_graph_images(ctx, preset, p, files, width, height, count, progress_total
         ctx.check()
         try:
             graph, uploads, used = lab.make_graph(preset, names, p["prompt"], negative, width, height, steps, cfg,
-                                                  seed + index, files, 1.0, False, weights)
+                                                  seed + index, files, 1.0, expand, weights,
+                                                  shift=float(p.get("shift") or 3.0))
         except ValueError as exc:
             raise JobError(str(exc)) from None
         prepare = partial(lab.prepare, sources=sources, uploads=uploads, pending=(), asset_directory=ENV["civitai"])
         job = workflows.run(graph, ctx.out_dir, scaled(ctx, index, count), prepare=prepare,
                             title=f"{preset.title} · seed {used}", control=ctx.control, family=preset.key)
         outputs.extend(collect_job(ctx, job))
+    if p.get("free_vram"):
+        import requests
+        with requests.Session() as session:
+            session.trust_env = False
+            workflows.free_models(session)
     return outputs
 
 
@@ -315,7 +328,7 @@ def run_image(ctx, p, tier):
     files = p.get("refs") or []
     plan = resolution_plan(p.get("aspect", "auto"), p.get("quality", "standard"), tier, files, float(p.get("gen_factor") or 1.0))
     width, height = plan["native"]
-    outputs = run_graph_images(ctx, preset, p, files, width, height, int(p.get("variations", 1)))
+    outputs = run_graph_images(ctx, preset, p, files, width, height, max(1, min(4, int(p.get("variations", 1)))))
     if p.get("refine"):
         outputs = refine_outputs(ctx, preset, p, files, width, height, outputs)
     outputs = reach_final_size(ctx, outputs, plan, p.get("upscale_method"))
@@ -701,7 +714,7 @@ def relight_fields(tier):
     fields[0]["rows"] = 2
     fields[1]["max"] = 1
     fields[1]["help"] = ""
-    model = fields[2]
+    model = next(f for f in fields if f["id"] == "model")
     model["options"] = [m for m in model["options"] if lab.PRESETS[m["value"]].refs > 0]
     model["default"] = "flux2" if tier.vram_gb < 16 else "qwen21"
     prompt, refs, *rest = fields

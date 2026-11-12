@@ -67,8 +67,6 @@ def slots(model_key, civitai_dir):
         if role == "LoRA":
             continue  # LoRAs have their own multi-slot panel
         options = file_options(preset, role, civitai_dir)
-        if role == "Upscaler" and not options:
-            continue
         out.append(dict(id=role, kind="file", label=ROLES.get(role, role), options=options,
                         search=dict(role=role, family=model_key, sources=["huggingface", "civitai", "local"])))
     out.append(dict(id="sampler", kind="algorithm", label="Sampler", options=algorithm_options("KSampler", "sampler_name", preset.sampler),
@@ -79,38 +77,63 @@ def slots(model_key, civitai_dir):
 
 
 # ---------------------------------------------------------------- whole-set presets
+# A set is a WHOLE pipeline, not a slider position: it chooses the model (and with it the encoder and VAE files), the
+# step count and the generation size. Rápido = lightest model that fits the card, Moderado = best speed/quality balance,
+# Qualidade = highest-fidelity model (may be heavy for the card, and says so). Choices come from MODEL_INFO's speed/quality
+# ratings and the card's VRAM; they are initial recipes, not measurements (see NOTE).
 SETS = ["Rápido", "Moderado", "Qualidade"]  # Manual = no set: every slot edited by hand
-NOTE = "Receita inicial derivada dos dados do preset; ainda sem benchmark A/B nesta placa (use Sistema › Benchmark)."
+NOTE = "Receita inicial: escolhida pelas notas de velocidade e qualidade do catálogo, ainda sem benchmark A/B nesta placa."
+GEN_FACTOR = {"Rápido": 0.75, "Moderado": 1.0, "Qualidade": 1.0}
+EXCLUDED_FROM_AUTO = {"flux3"}  # needs a long visual caption or the local prompt expander, so it is never picked silently
 
 
 def distilled(preset):
     return preset.steps <= 16
 
 
-def set_values(set_name, preset, tier):
-    """Whole-set recipe for one model: generation steps/CFG, sampler/scheduler, generation-size factor and the component
-    list. Few-step (distilled) models keep their steps: more steps do not buy quality there."""
-    if set_name not in SETS:
-        raise ValueError("Conjunto desconhecido: " + str(set_name))
-    base = preset.steps
+def steps_for(set_name, preset):
     if distilled(preset):
-        steps = base if set_name != "Rápido" else max(4, min(base, math.ceil(base * 0.5)))
-    else:
-        steps = {"Rápido": math.ceil(base * 0.5), "Moderado": base, "Qualidade": min(80, round(base * 1.25))}[set_name]
-    values = dict(steps=steps, cfg=preset.cfg, sampler="", scheduler="", gen_factor={"Rápido": 0.75, "Moderado": 1.0, "Qualidade": 1.0}[set_name])
-    components = {role: ("★ " + Path(spec[1]).name) for role, spec in preset.files.items()}
-    return dict(values=values, components=components, note=NOTE)
+        return preset.steps
+    return {"Rápido": math.ceil(preset.steps * 0.5), "Moderado": preset.steps, "Qualidade": min(80, round(preset.steps * 1.25))}[set_name]
 
 
-def describe_sets(tier):
-    """Per-model values so the form can apply a set when the model changes."""
+def pick_models(tier, info, allowed, needs_refs):
+    """{'Rápido': key, 'Moderado': key, 'Qualidade': key} from the catalogue ratings and the card's VRAM."""
+    pool = [k for k in allowed if k in lab.PRESETS and k not in EXCLUDED_FROM_AUTO and (not needs_refs or lab.PRESETS[k].refs >= 1)]
+    if not pool:
+        return {}
+    fits = [k for k in pool if tier.vram_gb >= info[k]["min_vram"]] or pool
+    fast = max(fits, key=lambda k: (info[k]["speed"], info[k]["quality"]))
+    best = max(pool, key=lambda k: (info[k]["quality"], -info[k]["speed"]))
+    rest = [k for k in fits if k not in (fast, best)]
+    better = [k for k in rest if info[k]["quality"] >= info[fast]["quality"]] or rest  # Moderado must not be worse than Rápido
+    middle = max(better, key=lambda k: (info[k]["quality"], info[k]["speed"])) if better else fast
+    return {"Rápido": fast, "Moderado": middle, "Qualidade": best}
+
+
+def set_recipe(set_name, model_key, tier, info):
+    preset = lab.PRESETS[model_key]
+    heavy = tier.vram_gb < info[model_key]["min_vram"]
+    why = {"Rápido": "o mais rápido que cabe na sua placa", "Moderado": "melhor equilíbrio entre velocidade e qualidade",
+           "Qualidade": "a maior fidelidade do catálogo"}[set_name]
+    return dict(model=model_key, title=info[model_key]["name"], why=why, steps=steps_for(set_name, preset), cfg=preset.cfg,
+                gen_factor=GEN_FACTOR[set_name], sampler="", scheduler="",
+                components={role: Path(spec[1]).name for role, spec in preset.files.items()},
+                warning=(f"Pesado para a sua placa (recomendado ≥ {info[model_key]['min_vram']} GB): usa offload e fica mais lento." if heavy else ""),
+                note=NOTE)
+
+
+def describe_sets(tier, info, allowed, needs_refs=False):
+    """Options for the Conjunto control; each carries the whole recipe so the form can apply it without asking the server."""
+    chosen = pick_models(tier, info, allowed, needs_refs)
+    chosen_refs = pick_models(tier, info, allowed, True)  # the same sets once the user attaches reference images
+    texts = {"Rápido": "Menor latência", "Moderado": "Equilíbrio", "Qualidade": "Fidelidade", "Manual": "Tudo à mão"}
     out = []
-    for name, text in (("Rápido", "Menos passos e geração menor: menor latência, qualidade mínima aceitável."),
-                       ("Moderado", "Passos e tamanho recomendados do modelo."),
-                       ("Qualidade", "Mais passos (modelos não destilados) e geração no limite da sua placa."),
-                       ("Manual", "Você escolhe cada componente e parâmetro.")):
-        entry = dict(value=name, label=name, hint=text)
-        if name != "Manual":
-            entry["by_model"] = {key: set_values(name, preset, tier) for key, preset in lab.PRESETS.items()}
+    for name in (*SETS, "Manual"):
+        entry = dict(value=name, label=name, hint=texts[name])
+        if name != "Manual" and name in chosen:
+            entry["recipe"] = set_recipe(name, chosen[name], tier, info)
+            if name in chosen_refs and chosen_refs[name] != chosen[name]:
+                entry["recipe_refs"] = set_recipe(name, chosen_refs[name], tier, info)
         out.append(entry)
     return out
