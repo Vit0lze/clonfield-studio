@@ -7,16 +7,28 @@ export async function systemView() {
   const t = info.tier;
   const bar = (p) => h("div", { class: "bar" }, h("i", { style: { "--p": Math.min(1, Math.max(0, p)) } }));
   const speed = h("div", { class: "hint mono" });
+  const table = h("div", { class: "bench-table" });
+  const fmtDate = ts => new Date(ts * 1000).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const paint = history => {
+    clear(table);
+    if (!history.length) return table.append(h("p", { class: "muted" }, "Nenhuma medição ainda. O primeiro teste inclui carregar o modelo (e baixá-lo, se faltar)."));
+    table.append(h("div", { class: "bench-row head" }, ...["Quando", "Placa", "Frio", "Quente", "Passos/s", "VRAM", "Grande"].map(x => h("span", null, x))),
+      ...history.slice().reverse().map(r => h("div", { class: "bench-row" },
+        h("span", null, fmtDate(r.time)), h("span", null, `${r.gpu.replace("NVIDIA ", "")} · ${r.vram_gb} GB`), h("span", { class: "mono" }, `${r.cold_seconds} s`),
+        h("span", { class: "mono" }, `${r.warm_seconds} s`), h("span", { class: "mono" }, r.steps_per_second), h("span", { class: "mono" }, r.vram_used_gb ? `${r.vram_used_gb} GB` : "—"),
+        h("span", { class: "mono" }, r.big ? `${r.big.side}² · ${r.big.seconds} s` : "—"))));
+  };
+  paint(await api.get("/benchmarks").catch(() => []));
   const speedBtn = h("button", { class: "btn", type: "button", onclick: async () => {
     speedBtn.disabled = true; speed.textContent = "Enviando…";
     try {
-      const job = await api.post("/jobs", { app: "speedtest", params: {} });
-      api.follow(job.id, snap => {
+      const job = await api.post("/jobs", { app: "benchmark", params: {} });
+      api.follow(job.id, async snap => {
         speed.textContent = isFinal(snap.status) ? (snap.message || snap.desc) : snap.desc;
-        if (isFinal(snap.status)) speedBtn.disabled = false;
+        if (isFinal(snap.status)) { speedBtn.disabled = false; paint(await api.get("/benchmarks").catch(() => [])); }
       });
     } catch (error) { toast(error.message, "err"); speedBtn.disabled = false; speed.textContent = ""; }
-  } }, icon("bolt", "sm"), "Medir velocidade");
+  } }, icon("bolt", "sm"), "Rodar benchmark");
   const logBox = h("pre", { class: "log" }, logs.worker || "Sem log do ComfyUI neste ambiente.");
   const worker = info.worker;
   root.append(h("div", { class: "section-head" }, h("div", null, h("h2", null, "Sistema"), h("p", null, "O Studio ajusta resolução, qualidade e flags do ComfyUI ao que sua placa aguenta."))),
@@ -34,7 +46,10 @@ export async function systemView() {
         h("div", { class: "fact" }, "Civitai", h("span", { class: `badge ${info.credentials.civitai ? "ok" : "warn"}` }, info.credentials.civitai ? "token ativo" : "sem token"))),
       h("section", { class: "panel" }, h("div", { class: "row between" }, h("h3", null, "Worker ComfyUI"), h("span", { class: `badge ${worker.ok ? "ok" : "warn"}` }, worker.ok ? `v${worker.version || "?"}` : "parado")),
         worker.ok ? h("p", { class: "muted" }, `${worker.running} executando · ${worker.pending} na fila`) : h("p", { class: "advice" }, icon("alert", "sm"), "O worker não responde. Rode a célula do ComfyUI no Colab."),
-        h("div", { class: "row" }, speedBtn, h("button", { class: "btn ghost", type: "button", onclick: async () => { const r = await api.post("/queue/clear"); toast(`${r.cancelled} job(s) cancelado(s).`); } }, "Limpar fila")), speed),
+        h("div", { class: "row" }, h("button", { class: "btn ghost", type: "button", onclick: async () => { const r = await api.post("/queue/clear"); toast(`${r.cancelled} job(s) cancelado(s).`); } }, "Limpar fila"))),
+      h("section", { class: "panel", style: { gridColumn: "1 / -1" } },
+        h("div", { class: "row between" }, h("div", null, h("h3", null, "Benchmark da placa"), h("p", { class: "muted" }, "FLUX.2 Klein, 4 passos, seeds novas a cada rodada: 1 frio (com carga do modelo) + 3 quentes em 512², e 1 grande no limite do seu perfil.")), speedBtn),
+        speed, table),
       h("section", { class: "panel", style: { gridColumn: "1 / -1" } }, h("h3", null, "Log do worker"), logBox)));
   logBox.scrollTop = logBox.scrollHeight;
   return { el: root };

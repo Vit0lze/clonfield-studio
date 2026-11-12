@@ -139,3 +139,10 @@ def test_bad_token_falls_back_to_local_and_says_so(monkeypatch):
     monkeypatch.setenv("TYPESAFE_API_TOKEN", "invalid-token-for-test")
     result = cf_router.route("cortar um trecho", {"video"}, cf_apps.registry(), cf_tiers.detect())
     assert result["provider"] == "local" and "recusou" in result["fallback"] and result["choice"] == "clip"
+
+
+def test_benchmark_is_a_system_job_not_a_creative_app():
+    registry = cf_apps.registry()
+    assert "speedtest" not in registry and registry["benchmark"].hidden and registry["benchmark"].group == "Sistema"
+    visible = [a.id for a in registry.values() if not a.hidden]
+    assert "benchmark" not in visible and "create" in visible

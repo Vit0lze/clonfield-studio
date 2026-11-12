@@ -95,7 +95,7 @@ const APP_ICONS = {
   workflow: '<circle cx="5.5" cy="7" r="2"/><circle cx="5.5" cy="17" r="2"/><circle cx="18.5" cy="12" r="2"/><path d="M7.5 7h2c3.5 0 3.5 5 7 5M7.5 17h2c3.5 0 3.5-5 7-5"/>',
   layers: '<path d="M12 4l8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4"/><path d="M4 16l8 4 8-4"/>',
   factory: '<rect x="6" y="3.5" width="12" height="17" rx="2.5"/><path d="M10 9.5l4 2.5-4 2.5z"/>',
-  speedtest: '<path d="M4.5 16a8 8 0 1 1 15 0"/><path d="M12 14l4-4"/><circle cx="12" cy="14" r="1.2"/>'
+  benchmark: '<path d="M4.5 16a8 8 0 1 1 15 0"/><path d="M12 14l4-4"/><circle cx="12" cy="14" r="1.2"/>'
 };
 // One tile for every app: same shape and weight everywhere (menu, gallery, app header), a different glyph for each app.
 export function appGlyph(id, size = "") {

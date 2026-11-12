@@ -123,7 +123,13 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
 
     async def apps(request):
         registry = cf_apps.registry()
-        return JSONResponse([app.describe(tier) for app in registry.values()])
+        return JSONResponse([app.describe(tier) for app in registry.values() if not app.hidden])
+
+    async def benchmarks(request):
+        try:
+            return JSONResponse(json.loads((cf_apps.ENV["base"] / "benchmarks.json").read_text()))
+        except (OSError, ValueError):
+            return JSONResponse([])
 
     async def route_request(request):
         body = await request.json()
@@ -371,6 +377,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
     routes = [
         Route(f"{PREFIX}/system", guard(system)),
         Route(f"{PREFIX}/apps", guard(apps)),
+        Route(f"{PREFIX}/benchmarks", guard(benchmarks)),
         Route(f"{PREFIX}/route", guard(route_request), methods=["POST"]),
         Route(f"{PREFIX}/plan", guard(plan_request), methods=["POST"]),
         Route(f"{PREFIX}/models", guard(models)),

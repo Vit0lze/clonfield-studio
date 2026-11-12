@@ -6,7 +6,7 @@ export async function historyView(navigate) {
   const jobs = await api.get("/jobs?limit=200");
   let kind = "all";
   const gallery = h("div", { class: "gallery" });
-  const entries = jobs.filter(j => j.status === "concluído").flatMap(j => j.results.map(r => ({ r, j }))).filter(x => x.r.kind === "image" || x.r.kind === "video");
+  const entries = jobs.filter(j => j.status === "concluído" && j.app !== "benchmark").flatMap(j => j.results.map(r => ({ r, j }))).filter(x => x.r.kind === "image" || x.r.kind === "video");
   const paint = () => {
     clear(gallery);
     const shown = entries.filter(x => kind === "all" || x.r.kind === kind);

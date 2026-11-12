@@ -43,7 +43,7 @@ export async function homeView(navigate) {
 
   const [apps, jobs] = await Promise.all([store.loadApps(), api.get("/jobs?limit=40").catch(() => [])]);
   store.jobs = jobs;
-  const shots = jobs.filter(j => j.status === "concluído").flatMap(j => j.results.map(r => ({ r, j }))).filter(x => x.r.kind !== "audio" && x.r.kind !== "file").slice(0, 12);
+  const shots = jobs.filter(j => j.status === "concluído" && j.app !== "benchmark").flatMap(j => j.results.map(r => ({ r, j }))).filter(x => x.r.kind !== "audio" && x.r.kind !== "file").slice(0, 12);
   if (shots.length) {
     recent.append(h("div", { class: "section-head" }, h("div", null, h("h2", null, "Continue de onde parou")), h("a", { class: "btn ghost", href: "#/history" }, "Histórico", icon("chevron-right", "sm"))),
       h("div", { class: "strip" }, shots.map(({ r, j }, i) => h("a", { class: "shot", href: "#/history", style: { "--i": i }, title: j.title },

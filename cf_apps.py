@@ -307,14 +307,49 @@ def run_relight(ctx, p, tier):
     return run_image(ctx, {**p, "prompt": prompt}, tier)
 
 
-def run_speedtest(ctx, p, tier):
+def run_benchmark(ctx, p, tier):
+    """GPU benchmark: one cold run (model load included), then warm runs with fresh seeds so ComfyUI's cache cannot
+    answer. Wall-clock per run; VRAM from ComfyUI's own stats right after the run. History in <base>/benchmarks.json."""
+    import json as _json
+    import statistics
+    import requests
     preset = lab.PRESETS["flux2"]
-    started = time.monotonic()
-    out = run_graph_images(ctx, preset, {"prompt": "A red sphere on a white table, studio light", "steps": 4, "cfg": 1, "seed": 7},
-                           [], 512, 512, 1)
-    elapsed = time.monotonic() - started
-    ctx.job.update(message=f"512 × 512 · 4 passos em {elapsed:.1f} s (inclui carga de modelo na primeira vez). Rode de novo para medir só a geração.")
-    return out
+    prompt = "A red sphere on a white table, studio light"
+    plan = [("frio · 512²", 512, True), ("quente · 512² #1", 512, False), ("quente · 512² #2", 512, False),
+            ("quente · 512² #3", 512, False)]
+    side = min(1024, tier.max_side)
+    if side > 512:
+        plan.append((f"quente · {side}²", side, False))
+    seeds = random.sample(range(2**31), len(plan))
+    runs, last = [], []
+    for index, (label, size, cold) in enumerate(plan):
+        ctx.check()
+        ctx.progress(index / len(plan), desc=f"Benchmark · {label}")
+        begin = time.monotonic()
+        last = run_graph_images(ctx, preset, {"prompt": prompt, "steps": 4, "cfg": 1, "seed": seeds[index]}, [], size, size, 1)
+        seconds = time.monotonic() - begin
+        vram_used = None
+        try:
+            stats = requests.get(f"{workflows.SERVER}/system_stats", timeout=3).json()["devices"][0]
+            vram_used = round((stats["vram_total"] - stats["vram_free"]) / 1024**3, 2)
+        except (requests.RequestException, KeyError, IndexError, ValueError):
+            pass
+        runs.append(dict(label=label, side=size, cold=cold, seconds=round(seconds, 2), vram_gb=vram_used))
+    warm512 = [r["seconds"] for r in runs if not r["cold"] and r["side"] == 512]
+    big = next((r for r in runs if r["side"] > 512), None)
+    record = dict(time=int(time.time()), gpu=tier.gpu, vram_gb=round(tier.vram_gb, 1), tier=tier.label, model=preset.title, steps=4,
+                  cold_seconds=runs[0]["seconds"], warm_seconds=round(statistics.median(warm512), 2),
+                  steps_per_second=round(4 / statistics.median(warm512), 2), big=big, vram_used_gb=max((r["vram_gb"] or 0) for r in runs) or None,
+                  runs=runs)
+    path = ENV["base"] / "benchmarks.json"
+    try:
+        history = _json.loads(path.read_text())
+    except (OSError, ValueError):
+        history = []
+    path.write_text(_json.dumps((history + [record])[-20:], ensure_ascii=False, indent=1))
+    ctx.job.update(message=f"{tier.gpu}: frio {record['cold_seconds']} s · quente {record['warm_seconds']} s ({record['steps_per_second']} passos/s)"
+                           + (f" · {big['side']}² em {big['seconds']} s" if big else ""))
+    return last
 
 
 def run_region(ctx, p, tier):
@@ -546,9 +581,9 @@ def sizes_options(sizes):
 
 
 class App:
-    def __init__(self, id, title, group, tagline, art, runner, fields, lane="gpu", min_vram=0, note=""):
+    def __init__(self, id, title, group, tagline, art, runner, fields, lane="gpu", min_vram=0, note="", hidden=False):
         self.id, self.title, self.group, self.tagline, self.art = id, title, group, tagline, art
-        self.runner, self.fields, self.lane, self.min_vram, self.note = runner, fields, lane, min_vram, note
+        self.runner, self.fields, self.lane, self.min_vram, self.note, self.hidden = runner, fields, lane, min_vram, note, hidden
 
     def describe(self, tier):
         blocked = self.min_vram and tier.vram_gb < self.min_vram
@@ -692,8 +727,8 @@ def build_registry():
         App("workflow", "Workflow ComfyUI", "Avançado", "Execute um grafo em API JSON.", "workflow", run_workflow,
             lambda t: [dict(id="graph", type="files", label="Workflow API JSON", accept=".json", max=1, min=1),
                        dict(id="media", type="files", label="Mídias de entrada", accept="image,video,audio", max=8, min=0)]),
-        App("speedtest", "Teste de velocidade", "Avançado", "Mede sua placa com uma imagem mínima.", "workflow", run_speedtest,
-            lambda t: []),
+        App("benchmark", "Benchmark da placa", "Sistema", "Frio, quente e VRAM medidos com seeds novas.", "workflow", run_benchmark,
+            lambda t: [], hidden=True),
     ]
 
 
