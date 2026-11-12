@@ -150,7 +150,7 @@ def resolution_plan(aspect, quality, tier, files=None, gen_factor=1.0):
                 text=f"Geração {native[0]}×{native[1]} → ampliação {factor:g}× → saída {final[0]}×{final[1]}")
 
 
-UPSCALE_METHODS = ["Auto (recomendado)", "Real-ESRGAN fotografia", "Real-ESRGAN anime", "Clássico (Lanczos)"]
+UPSCALE_METHODS = ["Auto (recomendado)", *upscale.MODELS, "Clássico (Lanczos)"]
 
 
 def reach_final_size(ctx, outputs, plan, method):
@@ -165,11 +165,10 @@ def reach_final_size(ctx, outputs, plan, method):
     chosen = method or UPSCALE_METHODS[0]
     note = ""
     if chosen.startswith("Auto"):
-        chosen = "Real-ESRGAN fotografia" if (device == "cuda" or plan["scale"] <= 2) else "Clássico (Lanczos)"
+        chosen = "RealESRGAN_x4plus (fotografia)" if (device == "cuda" or plan["scale"] <= 2) else "Clássico (Lanczos)"
         if chosen.startswith("Clássico"):
             note = " (sem GPU: ampliação clássica em vez de Real-ESRGAN)"
-    mode = {"Real-ESRGAN fotografia": "RealESRGAN_x4plus (fotografia)", "Real-ESRGAN anime": "RealESRGAN anime 6B (desenho)",
-            "Clássico (Lanczos)": "Lanczos (rápido, sem IA)"}[chosen]
+    mode = "Lanczos (rápido, sem IA)" if chosen.startswith("Clássico") else chosen
     finals = []
     for index, path in enumerate(outputs):
         ctx.check()
@@ -763,7 +762,7 @@ def build_registry():
         App("upscale", "Ampliar imagem", "Melhorar", "Lanczos ou Real-ESRGAN, sem esperar o ComfyUI.", "upscale", run_upscale,
             lambda t: [dict(id="image", type="files", label="Imagem", accept="image", max=1, min=1),
                        dict(id="mode", type="chips", label="Método", default="Lanczos (rápido, sem IA)",
-                            options=[opt("Lanczos (rápido, sem IA)", "Lanczos", "instantâneo")] + [opt(k, k.split(" (")[0], k.split("(")[-1].rstrip(")")) for k in upscale.MODELS]),
+                            options=[opt("Lanczos (rápido, sem IA)", "Lanczos", "instantâneo")] + [opt(k, upscale.short(k), f"{v['use']} · {v['license']}") for k, v in upscale.MODELS.items()]),
                        dict(id="scale", type="slider", label="Escala", default=2, min=1, max=4, step=0.5),
                        dict(id="tile", type="slider", label="Bloco", default=128 if t.vram_gb < 16 else 256, min=64, max=512, step=32, advanced=True),
                        dict(id="sharpen", type="slider", label="Nitidez", default=0, min=0, max=200, step=10, advanced=True)],
