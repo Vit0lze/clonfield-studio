@@ -13,7 +13,9 @@ import cf_chat
 
 @pytest.fixture(scope="module")
 def api(tmp_path_factory):
-    tmp_path = tmp_path_factory.mktemp("chat")
+    import cf_factory
+    # The vendored engine binds its data folder once per process, so reuse it when another module configured it first.
+    tmp_path = cf_factory.data().parent if cf_factory._state["data"] is not None else tmp_path_factory.mktemp("chat")
     mp = pytest.MonkeyPatch()
     mp.setenv("CLONFIELD_FAKE_VRAM", "15")
     mp.setenv("CLONFIELD_COMFY_MODELS", str(tmp_path / "models"))

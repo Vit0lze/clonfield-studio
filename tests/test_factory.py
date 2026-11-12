@@ -14,9 +14,10 @@ import cf_factory as factory  # noqa: E402
 
 @pytest.fixture(scope="module")
 def configured(tmp_path_factory):
-    base = tmp_path_factory.mktemp("cfbase")
-    factory.configure(base)
-    return base
+    # The engine reads its paths once per process; another test module may have configured it first, so reuse that folder.
+    if factory._state["data"] is None:
+        factory.configure(tmp_path_factory.mktemp("cfbase"))
+    return factory.data().parent
 
 
 def test_formats_and_example_script_load_from_the_vendored_snapshot(configured):
