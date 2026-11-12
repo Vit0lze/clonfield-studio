@@ -638,6 +638,19 @@ def install_civitai_lora(ctx, family, model, version, file):
     return []
 
 
+def install_civitai_component(ctx, family, role, model, version, file):
+    """Download one Civitai component (VAE, encoder, upscaler, checkpoint...) SHA-256 checked, into the shared inventory."""
+    from cf_civitai import entry_for, install
+    try:
+        entry, _record = entry_for(lab.PRESETS[family], model, version, file, role)
+        ctx.progress(0.05, desc=f"Baixando {entry['title']} do Civitai")
+        install(entry, ENV["civitai"], ctx.progress)
+    except (ValueError, KeyError, StopIteration) as exc:
+        raise JobError(str(exc) or "Não foi possível instalar este componente.") from None
+    ctx.progress(1.0, desc=f"{role} instalado")
+    return []
+
+
 def install_lora(ctx, name):
     try:
         cf_loras.ensure(ENV["base"], name, ctx.progress)

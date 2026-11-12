@@ -23,7 +23,9 @@ from starlette.concurrency import run_in_threadpool
 
 import cf_apps
 import cf_registry as registry_mod
+import cf_search
 import cf_router
+import cf_assets
 import cf_civitai
 import cf_jobs
 import cf_loras
@@ -195,6 +197,30 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             card["installed"] = any(n.endswith(f'__cv{card["version"]}.safetensors') for n in have)
             del card["covers"]
         return JSONResponse({"items": cards, "next": nxt}, headers={"Cache-Control": "no-store"})
+
+    async def search_components(request):
+        q = request.query_params
+        try:
+            items, nxt = await run_in_threadpool(cf_search.search, q.get("role", ""), q.get("family", ""), q.get("source", "local"),
+                                                 q.get("q", "")[:180], cf_apps.ENV["civitai"], q.get("cursor") or None)
+        except ValueError as exc:
+            return JSONResponse({"detail": str(exc)}, 400)
+        except (requests.RequestException, cf_assets.CivitaiHTTPError, OSError) as exc:
+            return JSONResponse({"detail": f"A fonte não respondeu agora: {str(exc)[:160]}"}, 502)
+        return JSONResponse({"items": items, "next": nxt}, headers={"Cache-Control": "no-store"})
+
+    async def install_component(request):
+        body = await request.json()
+        family, role = str(body.get("family", "")), str(body.get("role", ""))
+        if family not in cf_apps.lab.PRESETS or role not in ("Difusão", "Checkpoint", "Encoder", "VAE", "Upscaler"):
+            return JSONResponse({"detail": "Pedido de instalação inválido."}, 400)
+        try:
+            model, version, file = int(body["model"]), int(body["version"]), int(body["file"])
+        except (KeyError, TypeError, ValueError):
+            return JSONResponse({"detail": "Pedido de instalação inválido."}, 400)
+        job = manager.submit("install-component", f"Instalar {role} {model}", {"model": model}, "cpu",
+                             lambda ctx: cf_apps.install_civitai_component(ctx, family, role, model, version, file))
+        return JSONResponse(public_job(job), 202)
 
     async def civitai_install(request):
         body = await request.json()
@@ -385,6 +411,8 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/system", guard(system)),
         Route(f"{PREFIX}/apps", guard(apps)),
         Route(f"{PREFIX}/slots", guard(slots)),
+        Route(f"{PREFIX}/search", guard(search_components)),
+        Route(f"{PREFIX}/components/install", guard(install_component), methods=["POST"]),
         Route(f"{PREFIX}/benchmarks", guard(benchmarks)),
         Route(f"{PREFIX}/route", guard(route_request), methods=["POST"]),
         Route(f"{PREFIX}/plan", guard(plan_request), methods=["POST"]),

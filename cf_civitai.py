@@ -537,33 +537,33 @@ def model_card(model, version, files, preset):
     }
 
 
-def browse_loras(preset, query="", cursor=None, sort="downloads"):
+def browse_loras(preset, query="", cursor=None, sort="downloads", role="LoRA"):
     """One card per Civitai model, with the newest version that fits the preset's base model."""
-    params = {"limit": 24, "types": QUERY_TYPES["LoRA"], "nsfw": "true", "sort": SORTS.get(sort, SORTS["downloads"])}
+    params = {"limit": 24, "types": QUERY_TYPES[role], "nsfw": "true", "sort": SORTS.get(sort, SORTS["downloads"])}
     if query.strip():
         params["query"] = query.strip()[:180]
     if cursor:
         params["cursor"] = cursor
-    if preset.api_bases:
+    if preset.api_bases and role != "Upscaler":  # upscalers are independent of the diffusion family
         params["baseModels"] = preset.api_bases
     result = api_json("models", params)
     cards = []
     for model in result.get("items") or []:
         for version in model.get("modelVersions") or []:
-            files = matching_files(model, version, preset, "LoRA")
+            files = matching_files(model, version, preset, role)
             if files:
                 cards.append(model_card(model, version, files, preset))
                 break
     return cards, (result.get("metadata") or {}).get("nextCursor")
 
 
-def entry_for(preset, model_id, version_id, file_id):
+def entry_for(preset, model_id, version_id, file_id, role="LoRA"):
     """Rebuild a downloadable entry from the Civitai record, never from client-sent fields."""
     model = api_json(f"models/{int(model_id)}")
     for version in model.get("modelVersions") or []:
         if version.get("id") != int(version_id):
             continue
-        for entry in matching_files(model, version, preset, "LoRA"):
+        for entry in matching_files(model, version, preset, role):
             if entry["file"] == int(file_id):
                 return {**entry, "creator": str((model.get("creator") or {}).get("username") or "")}, model
     raise ValueError("Esse arquivo não está mais disponível para este modelo no Civitai.")
