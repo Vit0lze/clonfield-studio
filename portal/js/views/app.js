@@ -1,4 +1,4 @@
-import { api, store, isFinal } from "../api.js";
+import { api, store, isFinal, events } from "../api.js";
 import { lightEditor } from "../lights.js";
 import { openSearch } from "../search.js";
 import { h, icon, clear, seg, dropdown, actionMenu, appGlyph, rememberCover, slider, switchRow, field, toast, illustration, posterEl, artFor, fmtClock, fmtBytes } from "../ui.js";
@@ -314,7 +314,7 @@ export async function appView(id, navigate) {
   // ---------- stage ----------
   function idle() {
     clear(stage).append(h("div", { class: "idle" }, illustration("idle"), h("h3", null, app.title),
-      h("p", { class: "muted" }, app.note || "Ajuste à esquerda e gere. O resultado aparece aqui, e você pode enviá-lo para outro app."),
+      h("p", { class: "muted" }, app.note || (setField ? "Descreva abaixo e toque em Gerar. O resultado aparece aqui, e você pode enviá-lo para outro app." : "Ajuste à esquerda e gere. O resultado aparece aqui, e você pode enviá-lo para outro app.")),
       app.blocked ? h("p", { class: "advice" }, icon("alert", "sm"), app.blocked_reason) : null));
   }
   function running(job) {
@@ -565,6 +565,7 @@ export async function appView(id, navigate) {
     sections.at(-1).fields.push(f);
   }
   const hasSlots = app.fields.some(f => f.id === "slots");
+  const sectionNodes = {};
   const blocks = sections.map(sec => {
     const nodes = [];
     for (const f of sec.fields) {
@@ -572,18 +573,94 @@ export async function appView(id, navigate) {
       if (node) nodes.push(node);
       if (f.id === "model" && hasSlots) nodes.push(manualWrap);
     }
+    sectionNodes[sec.name] = nodes;
     return h("section", { class: "fsec" }, sec.name ? h("h4", { class: "fsec-title" }, sec.name) : null, ...nodes);
   });
-  const scroll = h("div", { class: "scroll" }, blocks, extra.length ? h("details", { class: "more" },
-    h("summary", null, h("span", null, "Ajustes avançados"), icon("chevron-down", "sm")), h("div", { class: "body" }, extra.map(control))) : null);
-  root.append(
-    h("a", { class: "crumb", href: "#/apps" }, icon("chevron-left", "sm"), "Apps"),
-    h("div", { class: "appview" },
-      h("section", { class: "panel controls" },
-        h("div", { class: "head" }, h("div", { class: "title" }, appGlyph(app.id), h("h2", null, app.title)), h("p", { class: "muted" }, app.tagline)),
-        scroll,
-        h("div", { class: "foot" }, advice, missingLine, runButton)),
-      stage));
+  const extraNodes = extra.map(control).filter(Boolean);
+
+  if (setField) {
+    // ---- Dock layout (image apps): one prompt bar at the bottom, settings behind chips, results above.
+    // The same controls as the classic panel, moved into popovers, so nothing about the form logic changes.
+    const open = { current: null };
+    const closeAll = () => { open.current?.close(); };
+    const chipDefs = [];
+    const pop = (name, glyph, nodes, summary, wide = false) => {
+      const panel = h("div", { class: `dock-pop${wide ? " wide" : ""}`, role: "dialog", "aria-label": name, hidden: true }, ...nodes);
+      const label = h("span", { class: "chip-sum" });
+      const button = h("button", { class: "dock-chip", type: "button", "aria-haspopup": "dialog", "aria-expanded": "false", onclick: () => toggle() }, icon(glyph, "sm"), h("span", { class: "chip-name" }, name), label);
+      const wrap = h("div", { class: "dock-chip-wrap" }, button, panel);
+      const api2 = { close() { panel.hidden = true; button.setAttribute("aria-expanded", "false"); if (open.current === api2) open.current = null; } };
+      function toggle() {
+        if (!panel.hidden) return api2.close();
+        closeAll();
+        panel.hidden = false; button.setAttribute("aria-expanded", "true"); open.current = api2;
+      }
+      chipDefs.push(() => { label.textContent = summary(); });
+      return wrap;
+    };
+    const optLabel = (id, value) => app.fields.find(f => f.id === id)?.options?.find(o => o.value === value)?.label || value;
+    const chips = [
+      pop("Modelo", "cube", [...(sectionNodes["Modelo"] || [])], () => `${values.set === "Manual" ? "Manual" : values.set} · ${modelTitle(values.model)}`, true),
+      pop("Formato", "frame", [...(sectionNodes["Formato"] || [])], () => `${optLabel("aspect", values.aspect).replace(/ ·.*$/, "")} · ${optLabel("quality", values.quality)} · ${values.variations}×`),
+      sectionNodes["Estilo"] ? pop("Estilo", "sparkle", [...sectionNodes["Estilo"]], () => (values.loras?.length ? `${values.loras.length} LoRA${values.loras.length > 1 ? "s" : ""}` : "nenhum")) : null,
+      extraNodes.length ? pop("Mais", "sliders", extraNodes, () => "") : null,
+    ].filter(Boolean);
+    refresh.push(() => chipDefs.forEach(fn => fn()));
+    const outside = e => { if (open.current && !e.target.closest(".dock-chip-wrap, .dd-pop, .sr-overlay")) closeAll(); };
+    document.addEventListener("pointerdown", outside, true);
+    cleanups.push(() => document.removeEventListener("pointerdown", outside, true));
+    root.addEventListener("keydown", e => { if (e.key === "Escape") closeAll(); });
+
+    const pedido = sectionNodes["Pedido"] || [];
+    const promptField = pedido[0], refsField = pedido[1];
+    const promptArea = promptField?.querySelector("textarea");
+    if (promptArea) { promptArea.placeholder = `${app.fields.find(f => f.id === "prompt")?.label || "Descreva a imagem"}…`; promptArea.rows = 1; }
+    const fileInput = refsField?.querySelector("input[type=file]");
+    const attach = h("button", { class: "dock-attach", type: "button", "aria-label": "Anexar imagens de referência", title: "Anexar referências", onclick: () => fileInput?.click() }, icon("plus"));
+    const dock = h("div", { class: "dock" },
+      refsField ? h("div", { class: "dock-refs" }, refsField) : null,
+      h("div", { class: "dock-bar" }, attach, promptField, runButton),
+      h("div", { class: "dock-meta" }, h("div", { class: "dock-chips" }, chips), h("div", { class: "dock-notes" }, advice, missingLine)));
+    dock.addEventListener("dragover", e => { e.preventDefault(); dock.classList.add("over"); });
+    dock.addEventListener("dragleave", () => dock.classList.remove("over"));
+    dock.addEventListener("drop", e => {
+      e.preventDefault(); dock.classList.remove("over");
+      if (!fileInput || !e.dataTransfer.files.length) return;
+      const transfer = new DataTransfer();
+      [...e.dataTransfer.files].forEach(f => transfer.items.add(f));
+      fileInput.files = transfer.files; fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    // Earlier results of this app, newest first: click to bring one back to the stage.
+    const recents = h("div", { class: "recents", "aria-label": "Resultados anteriores" });
+    const paintRecents = () => {
+      clear(recents);
+      const done = (store.jobs || []).filter(j => j.app === app.id && j.status === "concluído").flatMap(j => j.results.filter(r => r.kind === "image").slice(0, 1).map(r => ({ r, j }))).slice(0, 14);
+      recents.hidden = !done.length;
+      done.forEach(({ r, j }) => recents.append(h("button", { class: `recent${current?.id === j.id ? " on" : ""}`, type: "button", title: j.title, onclick: () => { api.get(`/jobs/${j.id}`).then(watch); } },
+        h("img", { src: api.url(r.url), alt: j.title, loading: "lazy" }))));
+    };
+    const onJobs = () => paintRecents();
+    events.addEventListener("jobs", onJobs);
+    cleanups.push(() => events.removeEventListener("jobs", onJobs));
+    (store.jobs?.length ? Promise.resolve() : store.refreshJobs()).then(paintRecents).catch(() => {});
+
+    root.append(h("div", { class: "appview dock-layout" },
+      h("div", { class: "dock-top" }, h("a", { class: "crumb", href: "#/apps" }, icon("chevron-left", "sm"), "Apps"),
+        h("div", { class: "dock-title" }, appGlyph(app.id, "sm"), h("h2", null, app.title))),
+      stage, recents, dock));
+    root.classList.add("dock-view");
+  } else {
+    root.append(
+      h("a", { class: "crumb", href: "#/apps" }, icon("chevron-left", "sm"), "Apps"),
+      h("div", { class: "appview" },
+        h("section", { class: "panel controls" },
+          h("div", { class: "head" }, h("div", { class: "title" }, appGlyph(app.id), h("h2", null, app.title)), h("p", { class: "muted" }, app.tagline)),
+          h("div", { class: "scroll" }, blocks, extra.length ? h("details", { class: "more" },
+            h("summary", null, h("span", null, "Ajustes avançados"), icon("chevron-down", "sm")), h("div", { class: "body" }, extraNodes)) : null),
+          h("div", { class: "foot" }, advice, missingLine, runButton)),
+        stage));
+  }
   // A model carried in from another app wins over the default Conjunto, so nothing is switched behind the user's back.
   if (setField) {
     const r = recipeOf(values.set);
