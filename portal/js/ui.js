@@ -143,11 +143,6 @@ const ART_BY_ID = { relight: "app-image", text2video: "model-wan", portrait: "ap
 const MODEL_ART = { qwen21: "model-qwen21", flux2: "model-flux2", flux3: "model-flux3", krea2: "model-krea2", "krea2-turbo": "model-krea2-turbo", "z-image": "model-zimage", "z-image-turbo": "model-zimage-turbo" };
 export function artFor(kind, id, art) {
   const file = kind === "model" ? MODEL_ART[id] : (ART_BY_ID[id] || APP_ART[art]);
-  if (kind === "model") {
-    let mine = null;
-    try { mine = localStorage.getItem(`cf-cover-${id}`); } catch { /* private mode */ }
-    if (mine) return h("img", { src: mine, alt: "", loading: "lazy", decoding: "async", class: "mine" });
-  }
   if (!file) return posterEl(kind + id);
   return h("img", { src: `./assets/art/${file}.webp`, alt: "", loading: "lazy", decoding: "async" });
 }
@@ -359,20 +354,35 @@ export function switchRow(label, value, onChange) {
   return h("label", { class: "switch" }, h("span", null, label), box);
 }
 
-// Remember the latest result of each model as its cover (a small JPEG kept in this browser only).
-export function rememberCover(modelKey, url) {
-  if (!modelKey || !url) return;
-  const img = new Image();
-  img.crossOrigin = "anonymous";
-  img.onload = () => {
-    try {
-      const scale = Math.min(1, 480 / Math.max(img.naturalWidth, img.naturalHeight));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.round(img.naturalWidth * scale); canvas.height = Math.round(img.naturalHeight * scale);
-      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-      localStorage.setItem(`cf-cover-${modelKey}`, canvas.toDataURL("image/jpeg", 0.8));
-    } catch { /* tainted canvas or storage full: keep the authored cover */ }
-  };
-  img.src = url;
+// Covers are authored (./assets/art, versioned by the ?v= of the page). An older build saved the last result of each model
+// into localStorage as `cf-cover-*` and then preferred it over the authored art; that override is gone and the leftovers are removed.
+export function purgeLegacyCovers() {
+  try { Object.keys(localStorage).filter(k => k.startsWith("cf-cover-")).forEach(k => localStorage.removeItem(k)); } catch { /* private mode */ }
 }
-export function forgetCover(modelKey) { try { localStorage.removeItem(`cf-cover-${modelKey}`); } catch { /* ignore */ } }
+
+/**
+ * Keyed reconciliation: keep the DOM node of every item whose key is still present, create only the new ones, move nodes only when
+ * the order really changed and drop the missing ones. A node is rebuilt only when `sig(item)` changed. This is what stops images from
+ * being recreated (and flickering) every time a list repaints.
+ */
+export function reconcile(parent, items, { key, sig, create, update }) {
+  const existing = new Map();
+  for (const node of [...parent.children]) { if (node.__key !== undefined) existing.set(node.__key, node); else node.remove(); }
+  const seen = new Set();
+  let previous = null;
+  items.forEach(item => {
+    const k = key(item), signature = sig ? sig(item) : undefined;
+    let node = existing.get(k);
+    if (node && sig && node.__sig !== signature) { const fresh = create(item); node.replaceWith(fresh); node = fresh; }
+    else if (node) update?.(node, item);
+    else node = create(item);
+    node.__key = k; node.__sig = signature;
+    seen.add(k);
+    const expected = previous ? previous.nextSibling : parent.firstChild;
+    if (node !== expected) parent.insertBefore(node, expected);
+    previous = node;
+  });
+  for (const [k, node] of existing) if (!seen.has(k)) node.remove();
+}
+/** A URL without its signature, so a re-signed link to the same file does not count as a change. */
+export const bareUrl = url => (url || "").split("?")[0];

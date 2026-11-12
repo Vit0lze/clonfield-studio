@@ -262,6 +262,23 @@ def catalog_cards(records, installed, page_models):
     return list(by_model.values())
 
 
+COVER_CACHE = {"dir": None}
+NEGATIVE_TTL = {"forbidden": 600, "failed": 60, "none": 3600}
+_cover_negative = {}  # key -> (until, kind, message)
+
+
+def set_cover_cache(path):
+    """Where fetched covers live on disk, so they survive a restart and are never downloaded twice."""
+    COVER_CACHE["dir"] = Path(path) if path else None
+    if COVER_CACHE["dir"]:
+        COVER_CACHE["dir"].mkdir(parents=True, exist_ok=True)
+
+
+def _cache_file(key, suffix):
+    directory = COVER_CACHE["dir"]
+    return directory / f"{key}{suffix}" if directory and re.fullmatch(r"[0-9a-f]{64}", key) else None
+
+
 def register_cover(model, version, covers):
     key = hashlib.sha256(json.dumps([model, version, covers], sort_keys=True).encode()).hexdigest()
     with _cover_lock:
@@ -269,7 +286,27 @@ def register_cover(model, version, covers):
         _cover_sources.move_to_end(key)
         if len(_cover_sources) > 1024:
             _cover_sources.popitem(last=False)
+    path = _cache_file(key, ".src.json")
+    if path and not path.exists():
+        try:
+            path.write_text(json.dumps([model, version, covers]), encoding="utf-8")
+        except OSError:
+            pass
     return key
+
+
+def _registered(key):
+    with _cover_lock:
+        found = _cover_sources.get(key)
+    if found is None and (path := _cache_file(key, ".src.json")) and path.is_file():  # after a restart
+        try:
+            model, version, covers = json.loads(path.read_text(encoding="utf-8"))
+            found = (model, version, covers)
+            with _cover_lock:
+                _cover_sources[key] = found
+        except (OSError, ValueError):
+            found = None
+    return found
 
 
 @lru_cache(maxsize=256)
@@ -305,8 +342,41 @@ def fetch_cover_bytes(session, url):
 
 
 def read_catalog_cover(key):
+    """Cover bytes for a registered key: disk cache first, then the CDN once; failures are remembered briefly so a 403 is not retried on every repaint."""
+    data_file, type_file = _cache_file(key, ".bin"), _cache_file(key, ".type")
+    if data_file and data_file.is_file() and type_file and type_file.is_file():
+        try:
+            return data_file.read_bytes(), type_file.read_text(encoding="utf-8").strip()
+        except OSError:
+            pass
+    now = time.time()
     with _cover_lock:
-        registered = _cover_sources.get(key)
+        blocked = _cover_negative.get(key)
+    if blocked and blocked[0] > now:
+        raise (FileNotFoundError if blocked[1] == "none" else OSError)(blocked[2])
+    try:
+        data, media_type = _download_cover(key)
+    except FileNotFoundError as exc:
+        if "Atualize a busca" not in str(exc):
+            with _cover_lock:
+                _cover_negative[key] = (now + NEGATIVE_TTL["none"], "none", str(exc))
+        raise
+    except OSError as exc:
+        kind = "forbidden" if "403" in str(exc) else "failed"
+        with _cover_lock:
+            _cover_negative[key] = (now + NEGATIVE_TTL[kind], kind, str(exc))
+        raise
+    if data_file and type_file:
+        try:
+            data_file.write_bytes(data)
+            type_file.write_text(media_type, encoding="utf-8")
+        except OSError:
+            pass
+    return data, media_type
+
+
+def _download_cover(key):
+    registered = _registered(key)
     if registered is None:
         raise FileNotFoundError("Atualize a busca para carregar esta capa.")
     model, version, embedded = registered

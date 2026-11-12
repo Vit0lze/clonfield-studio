@@ -65,12 +65,16 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
     uploads = base / "uploads"
     uploads.mkdir(parents=True, exist_ok=True)
     cf_apps.configure(base, out_dir)
+    cf_civitai.set_cover_cache(base / "cache" / "covers")
     manager = cf_jobs.Manager(out_dir)
     tier = cf_tiers.detect()
     secret = secret.encode() if isinstance(secret, str) else secret
 
     def sign(rel, ttl=6 * 3600):
-        expires = int(time.time()) + ttl
+        # The expiry is rounded to a fixed window, so the same file gets the SAME url on every poll within the window.
+        # A url that changes every second makes the browser refetch (and repaint) every image on every refresh.
+        window = ttl // 2
+        expires = (int(time.time()) // window + 2) * window
         mac = hmac.new(secret, f"{rel}|{expires}".encode(), hashlib.sha256).hexdigest()[:32]
         return f"{PREFIX}/files/{rel}?e={expires}&s={mac}"
 
@@ -481,7 +485,11 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             return JSONResponse({"detail": str(exc)}, 404)
         except OSError as exc:
             return JSONResponse({"detail": str(exc)}, 502)
-        return Response(data, media_type=media_type, headers={"Cache-Control": "private, max-age=21600", "X-Content-Type-Options": "nosniff"})
+        etag = f'"{key[:32]}"'  # the key is a hash of what the cover is, so it never changes for one key
+        headers = {"Cache-Control": "private, max-age=86400", "ETag": etag, "X-Content-Type-Options": "nosniff"}
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers=headers)
+        return Response(data, media_type=media_type, headers=headers)
 
     async def install_model(request):
         key = request.path_params["key"]

@@ -1,6 +1,6 @@
 // Library: ONE page for every kind of component, with the same three views (Recomendados / Instalados / Explorar) and the same card.
 import { api } from "../api.js";
-import { h, icon, clear, seg, dropdown, illustration } from "../ui.js";
+import { h, icon, clear, seg, dropdown, illustration, reconcile, bareUrl } from "../ui.js";
 import { favFirst, onFavs, starButton } from "../favs.js";
 import { catalogCard } from "../catalog.js";
 
@@ -53,10 +53,13 @@ export async function libraryView(navigate, wanted) {
   }
 
   function paintGrid() {
-    clear(grid);
-    const shown = favFirst(items.filter(i => !(hideAdult && i.adult)), kind, i => i.favorite.id);
-    const ordered = shown;
-    ordered.forEach(i => grid.append(catalogCard(i, { navigate, onChange: () => load(true) })));
+    const ordered = favFirst(items.filter(i => !(hideAdult && i.adult)), kind, i => i.favorite.id);
+    // Keyed: a card is rebuilt only when what it shows changed, so covers do not remount on every repaint.
+    reconcile(grid, ordered, {
+      key: i => `${i.kind}|${i.favorite.id}`,
+      sig: i => JSON.stringify({ ...i, cover: bareUrl(i.cover) }),
+      create: i => catalogCard(i, { navigate, onChange: () => load(true) })
+    });
     if (!ordered.length && !loading) grid.append(h("div", { class: "empty" }, illustration("empty"), h("h3", null, emptyTitle()), h("p", null, emptyBody())));
   }
   const emptyTitle = () => view === "installed" ? `Nenhum item instalado em ${category().title}` : view === "explore" ? "Nada encontrado" : "Nada recomendado aqui ainda";

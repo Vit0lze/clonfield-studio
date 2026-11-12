@@ -1,5 +1,6 @@
 import { api, session, store, events, isFinal } from "./api.js";
-import { h, icon, clear, toast } from "./ui.js";
+import { h, icon, clear, toast, purgeLegacyCovers } from "./ui.js";
+purgeLegacyCovers();
 import { connectView } from "./views/connect.js";
 import { homeView } from "./views/home.js";
 import { appsView } from "./views/apps.js";

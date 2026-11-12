@@ -3,7 +3,7 @@ import { anchorPopover } from "../popover.js";
 import { lightEditor } from "../lights.js";
 import { openSearch } from "../search.js";
 import { favFirst, starButton, isFav } from "../favs.js";
-import { h, icon, clear, seg, dropdown, actionMenu, appGlyph, rememberCover, slider, switchRow, field, toast, illustration, posterEl, artFor, fmtClock, fmtBytes } from "../ui.js";
+import { h, icon, clear, seg, dropdown, actionMenu, appGlyph, reconcile, bareUrl, slider, switchRow, field, toast, illustration, posterEl, artFor, fmtClock, fmtBytes } from "../ui.js";
 
 const SEND_TO = { image: ["upscale", "look", "frame", "animate", "edit", "relight", "compare"], video: ["clip", "still", "board", "seedvr2"] };
 const NAME_LIMITS = { image: "imagem", video: "vídeo" };
@@ -423,8 +423,6 @@ export async function appView(id, navigate) {
     }
     const results = job.results || [];
     if (!reframes.get(job.id)?.reframed) hydrate(job);
-    const firstImage = results.find(r => r.kind === "image");
-    if (firstImage && values.model && app.fields.some(f => f.type === "model") && !coverSaved.has(job.id)) { coverSaved.add(job.id); rememberCover(values.model, api.url(firstImage.url)); }
     const reframedNow = reframes.get(job.id)?.reframed;
     const media = results.filter(r => r.kind === "image" || r.kind === "video").map((r, i) => (i === 0 && reframedNow ? { ...reframedNow, original: r } : r));
     const grid = h("div", { class: `grid${media.length === 1 ? " one" : ""}` });
@@ -714,12 +712,17 @@ export async function appView(id, navigate) {
 
     // Earlier results of this app, newest first: click to bring one back to the stage.
     const recents = h("div", { class: "recents", "aria-label": "Resultados anteriores" });
+    // Keyed by job + file: a poll that changes nothing touches nothing, so thumbnails never remount or flicker.
     const paintRecents = () => {
-      clear(recents);
       const done = (store.jobs || []).filter(j => j.app === app.id && j.status === "concluído").flatMap(j => j.results.filter(r => r.kind === "image").slice(0, 1).map(r => ({ r, j }))).slice(0, 14);
       recents.hidden = !done.length;
-      done.forEach(({ r, j }) => recents.append(h("button", { class: `recent${current?.id === j.id ? " on" : ""}`, type: "button", title: j.title, onclick: () => { api.get(`/jobs/${j.id}`).then(watch); } },
-        h("img", { src: api.url(r.url), alt: j.title, loading: "lazy" }))));
+      reconcile(recents, done, {
+        key: ({ r, j }) => `${j.id}|${bareUrl(r.url)}`,
+        sig: ({ r, j }) => `${j.title}|${bareUrl(r.url)}`,
+        create: ({ r, j }) => h("button", { class: "recent", type: "button", title: j.title, onclick: () => { api.get(`/jobs/${j.id}`).then(watch); } },
+          h("img", { src: api.url(r.url), alt: j.title, loading: "lazy" })),
+        update: (node, { j }) => node.classList.toggle("on", current?.id === j.id)
+      });
     };
     const onJobs = () => paintRecents();
     events.addEventListener("jobs", onJobs);
