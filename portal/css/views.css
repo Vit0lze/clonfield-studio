@@ -602,17 +602,15 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
 .dock-chip .chip-name { font-weight: 600; color: var(--text); }
 .dock-chip .chip-sum { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dock-chip .chip-sum:empty { display: none; }
-.dock-pop { position: absolute; bottom: calc(100% + 12px); left: 0; z-index: 30; width: min(380px, 86vw); max-height: min(560px, 62vh); overflow-y: auto; display: grid; gap: 16px; align-content: start; padding: 16px; border-radius: 20px; background: rgba(16, 11, 13, .98); border: 1px solid var(--line); box-shadow: 0 24px 60px rgba(0, 0, 0, .6); animation: popIn .18s cubic-bezier(.16, 1, .3, 1); }
-.dock-pop.wide { width: min(460px, 90vw); }
+.dock-pop { position: fixed; z-index: 60; width: min(380px, calc(100vw - 16px)); max-height: min(560px, 62vh); overflow-y: auto; display: grid; gap: 16px; align-content: start; padding: 16px; border-radius: 20px; background: rgba(16, 11, 13, .98); border: 1px solid var(--line); box-shadow: 0 24px 60px rgba(0, 0, 0, .6); animation: popIn .18s cubic-bezier(.16, 1, .3, 1); }
+.dock-pop.wide { width: min(460px, calc(100vw - 16px)); }
 .dock-pop[hidden] { display: none; }
 @keyframes popIn { from { opacity: 0; transform: translateY(6px) scale(.985); } }
 .dock-notes { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--dim); min-width: 0; }
 .dock-notes .advice { margin: 0; padding: 4px 8px; font-size: 12px; }
 .dock-notes .hint { margin: 0; }
-@media (max-width: 960px) { .dock-layout { height: auto; min-height: 0; } .dock-layout .stage { min-height: 320px; height: auto; } .dock { position: sticky; bottom: calc(70px + env(safe-area-inset-bottom)); z-index: 20; } .dock-bar .btn.primary { min-width: 0; padding: 0 16px; } .dock-pop { position: fixed; left: 8px; right: 8px; bottom: calc(150px + env(safe-area-inset-bottom)); width: auto; } }
+@media (max-width: 960px) { .dock-layout { height: auto; min-height: 0; } .dock-layout .stage { min-height: 320px; height: auto; } .dock { position: sticky; bottom: calc(70px + env(safe-area-inset-bottom)); z-index: 20; } .dock-bar .btn.primary { min-width: 0; padding: 0 16px; } }
 @media (prefers-reduced-motion: reduce) { .dock-pop { animation: none; } }
-.dock-chip-wrap { position: static; }
-.dock-pop { left: 12px; }
 
 /* ---- favourites: the yellow star (the red ★ is default compatibility, a different thing) */
 .fav-star { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 0; background: rgba(10, 6, 7, .55); color: rgba(255, 255, 255, .7); cursor: pointer; flex: none; backdrop-filter: blur(6px); transition: color .15s, transform .12s, background .15s; }

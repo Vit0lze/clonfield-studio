@@ -1,4 +1,5 @@
 import { api, store, isFinal, events } from "../api.js";
+import { anchorPopover } from "../popover.js";
 import { lightEditor } from "../lights.js";
 import { openSearch } from "../search.js";
 import { favFirst, starButton } from "../favs.js";
@@ -604,12 +605,16 @@ export async function appView(id, navigate) {
       const label = h("span", { class: "chip-sum" });
       const button = h("button", { class: "dock-chip", type: "button", "aria-haspopup": "dialog", "aria-expanded": "false", onclick: () => toggle() }, icon(glyph, "sm"), h("span", { class: "chip-name" }, name), label);
       const wrap = h("div", { class: "dock-chip-wrap" }, button, panel);
-      const api2 = { close() { panel.hidden = true; button.setAttribute("aria-expanded", "false"); if (open.current === api2) open.current = null; } };
+      let anchor = null;
+      const api2 = { close() { anchor?.destroy(); anchor = null; panel.hidden = true; button.setAttribute("aria-expanded", "false"); if (open.current === api2) open.current = null; } };
       function toggle() {
-        if (!panel.hidden) return api2.close();
+        if (!panel.hidden) { api2.close(); return button.focus(); }
         closeAll();
         panel.hidden = false; button.setAttribute("aria-expanded", "true"); open.current = api2;
+        anchor = anchorPopover(button, panel);
+        panel.querySelector("input, select, textarea, button")?.focus({ preventScroll: true });
       }
+      cleanups.push(() => api2.close());
       chipDefs.push(() => { label.textContent = summary(); });
       return wrap;
     };
@@ -621,7 +626,7 @@ export async function appView(id, navigate) {
       extraNodes.length ? pop("Mais", "sliders", extraNodes, () => "") : null,
     ].filter(Boolean);
     refresh.push(() => chipDefs.forEach(fn => fn()));
-    const outside = e => { if (open.current && !e.target.closest(".dock-chip-wrap, .dd-pop, .sr-overlay")) closeAll(); };
+    const outside = e => { if (open.current && !e.target.closest(".dock-chip-wrap, .dock-pop, .dd-pop, .sr-overlay")) closeAll(); };
     document.addEventListener("pointerdown", outside, true);
     cleanups.push(() => document.removeEventListener("pointerdown", outside, true));
     const onEsc = e => { if (e.key === "Escape" && open.current) { closeAll(); e.stopPropagation(); } };
