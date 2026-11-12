@@ -52,22 +52,36 @@ def civitai_search(role, family, civitai_dir, query, cursor):
     return items, nxt
 
 
+UPSCALER_QUERIES = ("esrgan", "swinir", "4x upscaler", "super resolution", "hat upscaler")
+# Weights the Studio's spandrel loader cannot read (other runtimes) and things that are not image upscalers at all.
+NOT_UPSCALERS = ("qwen", "flux", "wan", "ltx", "edit", "lora", "sdxl", "stable-diffusion", "video", "onnx", "coreml", "tflite", "litert", "gguf", "mlx", "qualcomm", "tensorrt", "openvino", "nomos-1", "awq", "keras", "axera", "ldm-super", "-int4", "-int8")
+
+
+def hf_ask(text, limit=20):
+    response = requests.get(HF_API, params={"search": text, "sort": "downloads", "direction": "-1", "limit": limit}, timeout=15)
+    response.raise_for_status()
+    return response.json()
+
+
 def hf_search(role, family, query):
     preset = lab.PRESETS[family]
-    words = " ".join(x for x in (query.strip(), ROLE_HINT.get(role, "")) if x)
-    if role == "Upscaler":  # upscalers do not depend on the diffusion family
-        words = f"{query.strip()} upscale esrgan".strip()
-    elif not query.strip():
-        words = " ".join((preset.api_bases[0] if preset.api_bases else family, ROLE_HINT.get(role, ""))).strip()
-    def ask(text):
-        response = requests.get(HF_API, params={"search": text, "sort": "downloads", "direction": "-1", "limit": 20}, timeout=15)
-        response.raise_for_status()
-        return response.json()
-
-    found = ask(words)
-    if not found and not query.strip() and role != "Upscaler":  # the family name was too specific: fall back to its first word + the role
-        token = "".join(ch for ch in (preset.api_bases[0] if preset.api_bases else family).split()[0] if ch.isalpha())
-        found = ask(f"{token} {ROLE_HINT.get(role, '')}".strip())
+    if role == "Upscaler":  # upscalers do not depend on the diffusion family: search real upscaler names, drop other runtimes
+        queries = [f"{query.strip()} upscale".strip()] if query.strip() else list(UPSCALER_QUERIES)
+        pool = {}
+        for text in queries:
+            for model in hf_ask(text, 15):
+                repo = model.get("id") or model.get("modelId") or ""
+                if repo and not any(bad in repo.lower() for bad in NOT_UPSCALERS):
+                    pool.setdefault(repo, model)
+        found = sorted(pool.values(), key=lambda m: -(m.get("downloads") or 0))[:20]
+    else:
+        words = " ".join(x for x in (query.strip(), ROLE_HINT.get(role, "")) if x)
+        if not query.strip():
+            words = " ".join((preset.api_bases[0] if preset.api_bases else family, ROLE_HINT.get(role, ""))).strip()
+        found = hf_ask(words)
+        if not found and not query.strip():  # the family name was too specific: fall back to its first word + the role
+            token = "".join(ch for ch in (preset.api_bases[0] if preset.api_bases else family).split()[0] if ch.isalpha())
+            found = hf_ask(f"{token} {ROLE_HINT.get(role, '')}".strip())
     defaults = {spec[0] for spec in preset.files.values()}
     items = []
     for model in found:

@@ -93,7 +93,7 @@ def online():
 
 
 @pytest.mark.skipif(not online(), reason="offline")
-@pytest.mark.parametrize("kind,family,source", [("model", "sdxl", "civitai"), ("vae", "sdxl", "civitai"), ("upscaler", "qwen21", "civitai"), ("lora", "qwen21", "civitai"), ("encoder", "qwen21", "huggingface")])
+@pytest.mark.parametrize("kind,family,source", [("model", "z-image", "civitai"), ("vae", "qwen21", "civitai"), ("upscaler", "qwen21", "civitai"), ("lora", "qwen21", "civitai"), ("encoder", "qwen21", "huggingface"), ("upscaler", "qwen21", "huggingface")])
 def test_live_explore_returns_contract_valid_items_for_every_kind(api, kind, family, source):
     items = get(api, kind=kind, view="explore", family=family, source=source)
     assert items
@@ -103,3 +103,12 @@ def test_live_explore_returns_contract_valid_items_for_every_kind(api, kind, fam
     if source == "huggingface":
         assert all(i["status"] == "descoberto" for i in items)  # discovery is not compatibility
         assert all(not a["enabled"] for i in items for a in i["actions"] if a["id"] == "install")
+
+
+@pytest.mark.skipif(not online(), reason="offline")
+def test_huggingface_upscaler_search_returns_upscalers_not_qwen_edit_loras(api):
+    items = get(api, kind="upscaler", view="explore", family="qwen21", source="huggingface")
+    assert len(items) >= 8
+    titles = " ".join(i["title"].lower() for i in items)
+    assert not any(bad in titles for bad in ("qwen", "flux", "onnx", "gguf", "mlx"))
+    assert any(k in titles for k in ("esrgan", "swinir", "upscal", "sr"))

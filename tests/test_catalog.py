@@ -34,9 +34,9 @@ def test_favourites_toggle_persist_and_validate(api):
     assert api.post("/clonfield/api/favorites/toggle", json={"kind": "app", "id": ""}).status_code == 400
 
 
-def test_lora_families_cover_every_recipe_family_including_checkpoint_ones(api):
+def test_lora_families_list_only_the_models_the_studio_can_run(api):
     families = {f["key"]: f for f in api.get("/clonfield/api/lora-families").json()}
-    assert {"qwen21", "flux2", "flux3", "krea2", "z-image", "sdxl", "sd15"} <= set(families)
+    assert {"qwen21", "flux2", "flux3", "krea2", "krea2-turbo", "z-image", "z-image-turbo"} == set(families)  # only runnable models; no SDXL/SD1.5
     assert all({"title", "installed", "loras_installed"} <= set(f) for f in families.values())
     assert families["qwen21"]["installed"] is False  # nothing downloaded in the test sandbox
 

@@ -386,8 +386,8 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         have = cf_loras.local(base)
         out = []
         for key, preset in cf_apps.lab.PRESETS.items():
-            if key not in cf_apps.LORA_FAMILIES:
-                continue
+            if key not in cf_apps.LORA_FAMILIES or key not in cf_apps.MODEL_INFO:
+                continue  # only the models the Studio can actually run: no SDXL / SD 1.5 in the lists
             info = cf_apps.MODEL_INFO.get(key, {})
             files = [cf_apps.lab.models_root() / Path(f[1]).parts[-2] / Path(f[1]).name for f in preset.files.values()]
             installed = bool(files) and all(p.is_file() for p in files)
