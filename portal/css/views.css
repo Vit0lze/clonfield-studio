@@ -632,3 +632,4 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
 .explore-results { max-height: none; overflow: visible; }
 .mcover { position: relative; }
 .mcover .fav-star { position: absolute; top: 14px; right: 14px; }
+.tile-wrap > .fav-star { top: auto; bottom: 14px; right: 14px; }

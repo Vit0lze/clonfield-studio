@@ -48,3 +48,10 @@ carga). Rodada seguinte de 1,1 s é provável cache (mesma seed). Nada mais foi 
 1. MOSS BBox: app próprio ou modo em Criar/Editar região? (plano: perguntar só se não houver decisão anterior)
 2. «T4 de 12 GB»: teto de VRAM ou RAM do host? (medido agora: T4 15 GB VRAM, 12,7 GB RAM host)
 Todo o resto é decisão técnica minha.
+
+
+## Rodada 7 (favoritos, upscalers, catálogo explorável)
+- **Favoritos (estrela amarela, ≠ ★ vermelha de compatibilidade):** apps, modelos, LoRAs, upscalers e resultados de busca de componentes; salvos no servidor (`favorites.json`); aparecem primeiro nas listas e em filtros «Favoritos». Não há favorito para resultados gerados (imagens) nem para opções de slot instaladas.
+- **Upscalers:** de 2 para **9** (Real-ESRGAN x4plus/anime/geral v3, NMKD-Siax, Remacri, UltraSharp, UltraSharp V2, OmniSR x2/x4), revisão HF fixada e SHA-256 conferido quando publicado; licença dos pesos exibida (NC marcado). 9/9 carregam e ampliam em CPU de verdade.
+- **Modelos › Explorar:** checkpoints, difusão, VAEs, encoders (CivitAI por base compatível, Hugging Face só descoberta, no worker) e upscalers; tamanhos reais de download no Catálogo (Qwen 17,3 GB, FLUX.2 16,1 GB, Krea 19,0 GB, Z-Image 14,6 GB; FLUX.3 indisponível por repositório restrito).
+- **LoRAs:** a família agora cobre todos os modelos (inclui SDXL e SD 1.5), com marca de modelo instalado e contagem de LoRAs prontas; aba Favoritas.
