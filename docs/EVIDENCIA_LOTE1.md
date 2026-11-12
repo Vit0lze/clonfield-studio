@@ -15,6 +15,11 @@ CF_PY=/caminho/do/python ./run.sh      # semeia LoRAs/jobs reais mínimos, sobe 
 
 `CLONFIELD_FAKE_VRAM=15` só libera os apps na UI desta máquina. Não é medida de GPU e nenhum resultado abaixo a usa como tal.
 
+## Resultado final dos testes (2026-11-12, após o último commit de código)
+
+- `pytest tests` (sem os `*_live` que dependem de GPU/credenciais específicas): **102 passed, 5 skipped**. Os testes `live` incluídos (Jev, Gemma, Civitai, Hugging Face) rodaram com credencial real; o Gemma respondeu 500 numa rodada isolada e passou na seguinte (instabilidade externa da API, não do código).
+- Playwright: **53 passed** (engine real, Chromium headless).
+
 ## Resumo
 
 | Item | Estado | Antes (falhava) | Depois |
