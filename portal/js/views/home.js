@@ -52,7 +52,7 @@ export async function homeView(navigate) {
     h("div", { class: "art" }, h("img", { src: "./assets/art/hero.webp", alt: "" })),
     h("h1", null, "A sala está ", h("em", null, "escura"), ". O que projetamos hoje?"),
     h("div", { class: "quick" }, input, h("div", { class: "quick-actions" }, suggestButton, h("button", { class: "btn primary lg", type: "button", onclick: go }, icon("sparkle", "sm"), "Criar"))),
-    h("div", { class: "seg plan-have" }, have("image"), have("video")), plan));
+    h("div", { class: "plan-have" }, attachButton, picker, thumbs), plan));
 
   const recent = h("div");
   const featured = h("div", { class: "mosaic" });
