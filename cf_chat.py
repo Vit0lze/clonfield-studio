@@ -143,3 +143,29 @@ def build_params(app, fields, text, session):
     if missing:
         raise Missing(missing)
     return params
+
+
+# ---------------------------------------------------------------- atomic edits (a background writer and requests share files)
+_edit_lock = threading.RLock()
+
+
+def update(base, ident, change):
+    """Load, apply `change(session)` and save under one lock. Returns False if the conversation no longer exists."""
+    with _edit_lock:
+        try:
+            session = load(base, ident)
+        except KeyError:
+            return False
+        change(session)
+        save(base, session)
+        return True
+
+
+def history_for_llm(session, limit=8):
+    out = []
+    for m in session["messages"][-limit:]:
+        if m["role"] == "user" and m.get("text"):
+            out.append({"usuario": m["text"][:300]})
+        elif m["role"] == "assistant" and m.get("text") and not m.get("pending"):
+            out.append({"assistente": m["text"][:300]})
+    return out

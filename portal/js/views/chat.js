@@ -1,38 +1,49 @@
-// Chat: persistent sessions. A message becomes a plan (the router proposes, you press «Executar» per step); every original,
+// Chat: persistent sessions. A message becomes a path (the router proposes, you press «Executar» per step); every original,
 // job and result stays inside the session, so projects never mix references.
+// Layout: a quiet transcript. Your lines are pills, the assistant writes plain text, the path is a rail of steps, a result is a
+// framed picture. Session media lives in a drawer instead of repeating every image under the thread.
 import { api, store, isFinal } from "../api.js";
-import { h, icon, clear, toast, appGlyph, fmtClock } from "../ui.js";
+import { h, icon, clear, toast, appGlyph } from "../ui.js";
 
-const when = ts => new Date(ts * 1000).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const when = ts => {
+  const d = new Date(ts * 1000), today = new Date();
+  return d.toDateString() === today.toDateString()
+    ? d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+};
+const WEAK = 0.6;  // below this, extra steps are tucked under «Outros caminhos» instead of competing with the main one
 
 export async function chatView(navigate, sessionId) {
   const root = h("div", { class: "view chatview" });
   let sessions = await api.get("/sessions");
-  let session = null, pending = [], followers = new Map(), sending = false, armedDelete = null;
-  const snaps = new Map(), updaters = new Map();  // last snapshot per job + the card currently showing it
-  const unmount = () => followers.forEach(f => f.stop());
+  const llm = await api.get("/llm").catch(() => ({ available: false }));
+  let session = null, pending = [], sending = false, armedDelete = null, drawerOpen = false, poller = null;
+  const followers = new Map(), snaps = new Map(), updaters = new Map(), drafts = new Map();
+  const unmount = () => { followers.forEach(f => f.stop()); clearInterval(poller); };
 
-  const list = h("div", { class: "chat-list", role: "list" });
-  const thread = h("div", { class: "chat-thread", "aria-live": "polite" });
-  const strip = h("div", { class: "media-strip" });
+  const list = h("nav", { class: "chat-list", "aria-label": "Conversas" });
+  const head = h("header", { class: "chat-head" });
+  const drawer = h("div", { class: "media-drawer", hidden: true });
+  const thread = h("div", { class: "chat-thread", role: "log", "aria-live": "polite" });
   const chips = h("div", { class: "composer-chips" });
-  const input = h("textarea", { class: "input", rows: 2, placeholder: "Descreva o que quer fazer. Anexe imagens ou vídeos com o clipe.", "aria-label": "Mensagem",
-    onkeydown: e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } } });
+  const input = h("textarea", { class: "composer-input", rows: 1, placeholder: "O que vamos criar?", "aria-label": "Mensagem",
+    oninput: () => grow(), onkeydown: e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } } });
+  const grow = () => { input.style.height = "auto"; input.style.height = `${Math.min(input.scrollHeight, 160)}px`; };
   const picker = h("input", { type: "file", class: "sr", multiple: true, accept: "image/*,video/*,audio/*", onchange: () => attach([...picker.files]) });
-  const sendButton = h("button", { class: "btn primary", type: "button", onclick: () => send() }, icon("bolt", "sm"), "Enviar");
+  const sendButton = h("button", { class: "send", type: "button", "aria-label": "Enviar", onclick: () => send() }, icon("arrow-right"));
 
-  // ------------------------------------------------------------------ sessions list
+  // ------------------------------------------------------------------ sessions
   function paintList() {
     clear(list);
-    list.append(h("button", { class: "btn block", type: "button", onclick: newSession }, icon("plus", "sm"), "Nova conversa"));
-    if (!sessions.length) list.append(h("p", { class: "muted pad" }, "Nenhuma conversa ainda. Cada uma guarda suas próprias mídias."));
+    list.append(h("button", { class: "new-chat", type: "button", onclick: newSession }, icon("plus", "sm"), h("span", null, "Nova conversa")));
     for (const s of sessions) {
       const confirming = armedDelete === s.id;
-      list.append(h("div", { class: `chat-item${session?.id === s.id ? " on" : ""}`, role: "listitem" },
-        h("button", { class: "chat-open", type: "button", onclick: () => openSession(s.id) }, h("b", null, s.title), h("span", null, `${when(s.updated)} · ${s.media} mídia(s)`)),
-        h("button", { class: `btn ghost sm${confirming ? " danger" : ""}`, type: "button", "aria-label": confirming ? "Confirmar exclusão" : `Excluir ${s.title}`,
+      list.append(h("div", { class: `chat-item${session?.id === s.id ? " on" : ""}` },
+        h("button", { class: "chat-open", type: "button", "aria-current": session?.id === s.id ? "true" : null, onclick: () => navigate(`#/chat/${s.id}`) },
+          h("b", null, s.title), h("span", null, when(s.updated))),
+        h("button", { class: `chat-del${confirming ? " armed" : ""}`, type: "button", "aria-label": confirming ? "Confirmar exclusão" : `Excluir ${s.title}`,
           onclick: () => confirming ? remove(s.id) : (armedDelete = s.id, paintList(), setTimeout(() => { if (armedDelete === s.id) { armedDelete = null; paintList(); } }, 4000)) },
-          confirming ? "Excluir de vez?" : icon("trash", "sm"))));
+          confirming ? "Excluir?" : icon("trash", "sm"))));
     }
   }
   async function refreshList() { sessions = await api.get("/sessions"); paintList(); }
@@ -44,69 +55,114 @@ export async function chatView(navigate, sessionId) {
     await refreshList();
     if (session?.id === id) navigate("#/chat");
   }
-  async function openSession(id) { navigate(`#/chat/${id}`); }
+
+  // ------------------------------------------------------------------ header + media drawer
+  function paintHead() {
+    clear(head);
+    const count = session.media.length;
+    const title = h("h2", { class: "chat-title", tabindex: "0", title: "Clique para renomear", onclick: () => rename(title) }, session.title);
+    head.append(title, h("div", { class: "chat-head-actions" },
+      llm.available ? h("span", { class: "tip", tabindex: "0", role: "img", title: `As respostas são escritas pelo Gemma 4 31B (Google AI Studio). O texto das mensagens e os tipos de mídia (não os arquivos) vão ao Google.`,
+        "aria-label": "Respostas escritas pelo Gemma, via Google AI Studio" }, "i") : null,
+      h("button", { class: "chip-btn", type: "button", "aria-expanded": String(drawerOpen), disabled: !count, onclick: () => { drawerOpen = !drawerOpen; paintHead(); paintDrawer(); } },
+        icon("image", "sm"), `${count} ${count === 1 ? "mídia" : "mídias"}`)));
+  }
+  function rename(node) {
+    const field = h("input", { class: "chat-title edit", value: session.title, maxlength: 80, "aria-label": "Nome da conversa" });
+    const done = async save => {
+      if (save && field.value.trim() && field.value.trim() !== session.title) {
+        session.title = field.value.trim();
+        await api.post(`/sessions/${session.id}/rename`, { title: session.title }).catch(error => toast(error.message, "err"));
+        refreshList();
+      }
+      paintHead();
+    };
+    field.addEventListener("keydown", e => { if (e.key === "Enter") done(true); if (e.key === "Escape") done(false); });
+    field.addEventListener("blur", () => done(true));
+    node.replaceWith(field); field.focus(); field.select();
+  }
+  function paintDrawer() {
+    drawer.hidden = !drawerOpen || !session.media.length;
+    clear(drawer);
+    if (drawer.hidden) return;
+    drawer.append(...session.media.map(m => h("figure", { class: "drawer-item" }, thumb(m, "sm"), h("figcaption", null, m.origin === "result" ? "resultado" : "original"))));
+  }
 
   // ------------------------------------------------------------------ thread
   const media = id => session.media.find(m => m.id === id);
-  const thumb = m => !m || m.gone || !m.url ? h("span", { class: "thumb file" }, m?.gone ? "expirou" : "?")
-    : m.kind === "image" ? h("a", { class: "thumb", href: api.url(m.url), target: "_blank", rel: "noopener" }, h("img", { src: api.url(m.url), alt: m.name, loading: "lazy" }))
-    : m.kind === "video" ? h("video", { class: "thumb", src: api.url(m.url), controls: true, muted: true, preload: "metadata" }) : h("span", { class: "thumb file" }, m.name);
-
-  const stepState = (messageIndex, step) => {
-    const job = session.messages.slice(messageIndex + 1).find(m => m.role === "job" && m.app === step.app);
+  const thumb = (m, size = "md") => {
+    if (!m || m.gone || !m.url) return h("span", { class: `thumb ${size} file` }, m?.gone ? "expirou" : "?");
+    if (m.kind === "image") return h("a", { class: `thumb ${size}`, href: api.url(m.url), target: "_blank", rel: "noopener", "aria-label": `Abrir ${m.name}` }, h("img", { src: api.url(m.url), alt: m.name, loading: "lazy" }));
+    if (m.kind === "video") return h("video", { class: `thumb ${size}`, src: api.url(m.url), controls: true, muted: true, preload: "metadata" });
+    return h("span", { class: `thumb ${size} file` }, m.name);
+  };
+  const stepRun = (index, step) => {
+    const job = session.messages.slice(index + 1).find(m => m.role === "job" && m.app === step.app);
     return job ? { ...job, status: snaps.get(job.job)?.status || "enviado" } : null;
   };
 
-  function planCard(message, index) {
+  function pathBlock(message, index) {
     const plan = message.plan;
-    const label = plan.provider === "jev" ? "Plano do Jev" : "Plano (heurística local)";
-    const box = h("div", { class: "plan-card" }, h("div", { class: "plan-head" }, h("b", null, label), h("span", { class: "muted" }, "Decisão só sugere: você aprova cada passo.")),
-      plan.note ? h("p", { class: "sum-warn" }, icon("alert", "sm"), plan.note) : null);
-    if (!plan.steps.length) box.append(h("p", { class: "muted" }, "Nenhum app disponível para isto com as mídias e a placa atuais. Anexe a mídia certa ou descreva de outro jeito."));
-    plan.steps.forEach((step, i) => {
-      const ran = stepState(index, step);
+    const promptBox = h("textarea", { class: "path-prompt", rows: 1, "aria-label": "Prompt usado nos passos", value: drafts.get(message.id) ?? plan.prompt ?? plan.text,
+      oninput: () => { drafts.set(message.id, promptBox.value); autogrow(promptBox); } });
+    const autogrow = el => { el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; };
+    requestAnimationFrame(() => autogrow(promptBox));
+
+    const strong = plan.steps.filter((s, i) => i === 0 || (s.probability ?? 1) >= WEAK);
+    const weak = plan.steps.filter(s => !strong.includes(s));
+    const nextIndex = strong.findIndex(s => !stepRun(index, s) && !s.missing?.length);
+
+    const row = (step, i, primary) => {
+      const ran = stepRun(index, step);
       const blocked = step.missing?.length && !ran;
       const waits = blocked && i > 0;
-      box.append(h("div", { class: "plan-row" },
-        h("span", { class: "plan-n" }, i + 1),
-        appGlyph(step.app, "sm"),
-        h("div", { class: "plan-main" }, h("b", null, step.title),
-          blocked ? h("span", { class: "muted" }, waits ? "usa o resultado do passo anterior" : `Falta: ${step.missing.join(", ")}`)
-            : step.probability != null ? h("span", { class: "muted mono" }, `${Math.round(step.probability * 100)}% de confiança`) : null),
-        h("div", { class: "plan-actions" },
-          ran ? h("span", { class: `sr-chip ${ran.status === "concluído" ? "ok" : ""}` }, ran.status || "enviado")
-            : h("button", { class: "btn primary sm", type: "button", disabled: blocked && !waits, title: blocked && !waits ? `Falta: ${step.missing.join(", ")}` : "",
-              onclick: e => run(plan.text, step, e.currentTarget) }, icon("bolt", "sm"), "Executar"),
-          h("a", { class: "btn ghost sm", href: `#/apps/${step.app}`, onclick: () => store.prefill({ app: step.app, values: { prompt: plan.text } }) }, "Abrir no app"))));
-    });
-    return box;
+      return h("li", { class: `step${ran ? " done" : ""}${blocked && !waits ? " blocked" : ""}` },
+        h("span", { class: "step-dot", "aria-hidden": "true" }, ran?.status === "concluído" ? icon("check", "sm") : String(i + 1)),
+        h("div", { class: "step-main" },
+          h("span", { class: "step-title" }, appGlyph(step.app, "sm"), h("b", null, step.title)),
+          h("small", null, ran ? (ran.status === "concluído" ? "pronto" : ran.status) : blocked ? (waits ? "usa o resultado do passo anterior" : `falta ${step.missing.join(", ").toLowerCase()}`)
+            : step.probability != null ? `${Math.round(step.probability * 100)}% de certeza` : "")),
+        h("div", { class: "step-actions" },
+          ran ? null : h("button", { class: `btn sm${primary ? " primary" : ""}`, type: "button", disabled: blocked && !waits, title: blocked && !waits ? `Falta ${step.missing.join(", ")}` : "",
+            onclick: e => run(promptBox.value, step, e.currentTarget) }, "Executar"),
+          h("a", { class: "step-open", href: `#/apps/${step.app}`, title: "Abrir no app com este prompt", onclick: () => store.prefill({ app: step.app, values: { prompt: promptBox.value } }) }, icon("external", "sm"))));
+    };
+
+    return h("div", { class: "path" },
+      h("p", { class: "path-label" }, plan.provider === "jev" ? "Caminho sugerido" : "Caminho (heurística local)", h("span", null, " · você aprova cada passo")),
+      plan.note ? h("p", { class: "path-note" }, icon("alert", "sm"), plan.note) : null,
+      plan.steps.length ? h("div", { class: "path-prompt-wrap" }, h("span", { class: "path-prompt-tag" }, "Prompt"), promptBox) : null,
+      !plan.steps.length ? h("p", { class: "muted" }, "Nenhum app serve para isso com as mídias e a placa atuais. Anexe a mídia certa ou descreva de outro jeito.") : null,
+      h("ol", { class: "steps" }, strong.map((s, i) => row(s, plan.steps.indexOf(s), i === nextIndex))),
+      weak.length ? h("details", { class: "weak" }, h("summary", null, `Outros caminhos (${weak.length})`), h("ol", { class: "steps" }, weak.map(s => row(s, plan.steps.indexOf(s), false)))) : null);
   }
 
-  function jobCard(message) {
-    const state = h("span", { class: "muted mono" }, "…");
+  function resultBlock(message) {
+    const status = h("span", { class: "result-status" }, "enviado");
     const bar = h("i", { style: { transform: "scaleX(0.02)" } });
-    const results = h("div", { class: "job-results" });
-    const card = h("div", { class: "job-card" }, h("div", { class: "plan-head" }, appGlyph(message.app, "sm"), h("b", null, message.title), state), h("div", { class: "bar" }, bar), results);
-    const paintResults = () => {
-      clear(results);
-      session.media.filter(m => m.job === message.job).forEach(m => results.append(thumb(m)));
+    const track = h("div", { class: "result-bar", role: "progressbar" }, bar);
+    const frames = h("div", { class: "result-frames" });
+    const card = h("div", { class: "result" }, h("div", { class: "result-head" }, appGlyph(message.app, "sm"), h("b", null, message.title), status), track, frames);
+    const paintFrames = () => {
+      clear(frames);
+      session.media.filter(m => m.job === message.job).forEach(m => frames.append(h("figure", { class: "frame" }, thumb(m, "lg"),
+        h("figcaption", null, h("a", { href: api.url(m.url), download: m.name }, "Baixar")))));
     };
     const apply = snap => {
-      state.textContent = isFinal(snap.status) ? (snap.status === "concluído" ? (snap.message || "pronto") : snap.message || snap.status) : (snap.desc || "").slice(0, 70);
-      bar.style.transform = `scaleX(${isFinal(snap.status) ? 1 : Math.max(0.02, Math.min(1, snap.fraction || 0))})`;
-      card.classList.toggle("fail", isFinal(snap.status) && snap.status !== "concluído");
+      const final = isFinal(snap.status);
+      status.textContent = final ? (snap.status === "concluído" ? (snap.message ? snap.message.slice(0, 90) : "pronto") : snap.message || snap.status) : (snap.desc || "").slice(0, 70);
+      bar.style.transform = `scaleX(${final ? 1 : Math.max(0.02, Math.min(1, snap.fraction || 0))})`;
+      track.hidden = final;
+      card.classList.toggle("fail", final && snap.status !== "concluído");
     };
-    paintResults();
+    paintFrames();
     updaters.set(message.job, apply);
     if (snaps.has(message.job)) apply(snaps.get(message.job));
     if (!followers.has(message.job)) {
       followers.set(message.job, api.follow(message.job, async snap => {
         snaps.set(message.job, snap);
         updaters.get(message.job)?.(snap);
-        if (isFinal(snap.status)) {
-          session = await api.get(`/sessions/${session.id}`);
-          paintAll();
-        }
+        if (isFinal(snap.status)) { session = await api.get(`/sessions/${session.id}`); paintAll(); }
       }));
     }
     return card;
@@ -115,23 +171,42 @@ export async function chatView(navigate, sessionId) {
   function paintThread() {
     clear(thread);
     if (!session.messages.length) {
-      thread.append(h("div", { class: "empty" }, h("h3", null, "Conte o que quer criar"), h("p", null, "Ex.: «troca a roupa dessa foto, amplia 2x e recorta pra story». Eu proponho o caminho e você aprova cada passo.")));
+      thread.append(h("div", { class: "chat-empty" }, h("h3", null, "O que vamos criar?"),
+        h("p", null, "Descreva o resultado e anexe as mídias. Eu monto o caminho e você aprova cada passo."),
+        h("ul", { class: "try" }, ["troca a roupa dessa foto, amplia 2x e recorta pra story", "um clipe de drone sobre uma floresta", "separa esse desenho anime em camadas"].map(t =>
+          h("li", null, h("button", { type: "button", onclick: () => { input.value = t; grow(); input.focus(); } }, t))))));
     }
     session.messages.forEach((m, i) => {
-      if (m.role === "user") thread.append(h("div", { class: "bubble user" }, m.text ? h("p", null, m.text) : null,
-        m.media?.length ? h("div", { class: "bubble-media" }, m.media.map(id => thumb(media(id)))) : null));
-      else if (m.role === "assistant" && m.plan) thread.append(h("div", { class: "bubble bot" }, planCard(m, i)));
-      else if (m.role === "job") thread.append(h("div", { class: "bubble bot" }, jobCard(m)));
+      if (m.role === "user") {
+        thread.append(h("div", { class: "msg user" }, m.media?.length ? h("div", { class: "msg-media" }, m.media.map(id => thumb(media(id), "sm"))) : null, m.text ? h("p", null, m.text) : null));
+      } else if (m.role === "assistant" && m.plan) {
+        thread.append(h("div", { class: "msg bot" }, pathBlock(m, i)));
+      } else if (m.role === "assistant" && m.kind === "text") {
+        if (m.pending) thread.append(h("div", { class: "msg bot typing", "aria-label": "O Gemma está escrevendo" }, h("span", { class: "dots" }, h("i"), h("i"), h("i"))));
+        else if (m.text) thread.append(h("div", { class: `msg bot${m.error ? " warn" : ""}` }, h("p", null, m.text), m.question ? h("p", { class: "ask" }, m.question) : null));
+      } else if (m.role === "job") {
+        thread.append(h("div", { class: "msg bot" }, resultBlock(m)));
+      }
     });
     thread.scrollTop = thread.scrollHeight;
   }
-  function paintStrip() {
-    clear(strip);
-    if (!session.media.length) return;
-    strip.append(h("span", { class: "strip-title" }, "Mídia da sessão"),
-      ...session.media.map(m => h("div", { class: "strip-item", title: m.name }, thumb(m), h("small", null, m.origin === "result" ? "resultado" : "original"))));
+  const paintAll = () => { paintList(); paintHead(); paintDrawer(); paintThread(); watchPending(); };
+
+  // The path is instant; the Gemma text arrives 20-40 s later, so poll while a reply is pending.
+  function watchPending() {
+    const waiting = session?.messages.some(m => m.pending);
+    if (!waiting) { clearInterval(poller); poller = null; return; }
+    if (poller) return;
+    let tries = 0;
+    poller = setInterval(async () => {
+      if (++tries > 90) { clearInterval(poller); poller = null; return; }
+      try {
+        const fresh = await api.get(`/sessions/${session.id}`);
+        const key = s => JSON.stringify(s.messages.map(m => [m.id, m.pending, m.text]));
+        if (key(fresh) !== key(session)) { session = fresh; paintAll(); }
+      } catch { /* keep polling */ }
+    }, 2500);
   }
-  const paintAll = () => { paintList(); paintThread(); paintStrip(); };
 
   // ------------------------------------------------------------------ actions
   async function attach(files) {
@@ -146,8 +221,8 @@ export async function chatView(navigate, sessionId) {
   }
   function paintChips() {
     clear(chips);
-    pending.forEach((m, i) => chips.append(h("span", { class: "chip-file" }, m.name, m.pending ? ` ${Math.round((m.progress || 0) * 100)}%` : "",
-      h("button", { type: "button", "aria-label": `Remover ${m.name}`, onclick: () => { pending.splice(i, 1); paintChips(); } }, icon("x", "sm")))));
+    pending.forEach((m, i) => chips.append(h("span", { class: "chip-file" }, m.pending ? h("i", { class: "chip-bar", style: { transform: `scaleX(${m.progress || 0.05})` } }) : null,
+      h("span", null, m.name), h("button", { type: "button", "aria-label": `Remover ${m.name}`, onclick: () => { pending.splice(i, 1); paintChips(); } }, icon("x", "sm")))));
   }
   async function send() {
     if (sending || !session) return;
@@ -155,13 +230,13 @@ export async function chatView(navigate, sessionId) {
     const ready = pending.filter(m => !m.pending);
     if (pending.some(m => m.pending)) return toast("Aguarde o envio dos anexos terminar.", "err");
     if (!text && !ready.length) return input.focus();
-    sending = true; sendButton.disabled = true; sendButton.textContent = "Pensando…";
+    sending = true; sendButton.disabled = true;
     try {
       session = await api.post(`/sessions/${session.id}/message`, { text, media: ready.map(({ id, name, kind }) => ({ id, name, kind })) });
-      input.value = ""; pending = []; paintChips();
+      input.value = ""; grow(); pending = []; paintChips();
       paintAll(); refreshList();
     } catch (error) { toast(error.message, "err"); }
-    finally { sending = false; sendButton.disabled = false; clear(sendButton).append(icon("bolt", "sm"), "Enviar"); }
+    finally { sending = false; sendButton.disabled = false; input.focus(); }
   }
   async function run(text, step, button) {
     button.disabled = true;
@@ -170,27 +245,25 @@ export async function chatView(navigate, sessionId) {
       session = await api.get(`/sessions/${session.id}`);
       store.refreshJobs().catch(() => {});
       paintAll();
-    } catch (error) {
-      button.disabled = false;
-      toast(error.message, "err");
-    }
+    } catch (error) { button.disabled = false; toast(error.message, "err"); }
   }
 
   // ------------------------------------------------------------------ assemble
-  const composer = h("div", { class: "composer" }, chips, h("div", { class: "composer-row" }, input,
-    h("div", { class: "composer-actions" }, h("button", { class: "btn", type: "button", "aria-label": "Anexar mídia", onclick: () => picker.click() }, icon("upload", "sm"), "Anexar"), picker, sendButton)));
+  const composer = h("div", { class: "composer" }, chips,
+    h("div", { class: "composer-bar" },
+      h("button", { class: "attach", type: "button", "aria-label": "Anexar imagem, vídeo ou áudio", title: "Anexar", onclick: () => picker.click() }, icon("plus")),
+      picker, input, sendButton));
   root.append(h("div", { class: "chat" }, h("aside", { class: "chat-side" }, list),
-    h("section", { class: "chat-main" }, thread, strip, composer)));
+    h("section", { class: "chat-main" }, head, drawer, thread, composer)));
 
   if (sessionId) {
     try { session = await api.get(`/sessions/${sessionId}`); }
     catch { toast("Essa conversa não existe mais.", "err"); sessionId = null; }
   }
   if (!session) {
-    if (sessions.length) { navigate(`#/chat/${sessions[0].id}`); }
-    else { const created = await api.post("/sessions", {}); sessions = await api.get("/sessions"); session = created; }
+    if (sessions.length) navigate(`#/chat/${sessions[0].id}`);
+    else { session = await api.post("/sessions", {}); sessions = await api.get("/sessions"); }
   }
-  if (session) paintAll(); else paintList();
-  if (session && !session.messages.length) input.focus();
+  if (session) { paintAll(); if (!session.messages.length) input.focus(); } else paintList();
   return { el: root, destroy: unmount };
 }

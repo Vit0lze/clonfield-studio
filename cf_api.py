@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -27,6 +28,8 @@ import cf_search
 import cf_router
 import cf_assets
 import cf_chat
+import cf_env
+import cf_llm
 import cf_civitai
 import cf_jobs
 import cf_loras
@@ -206,6 +209,29 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         cf_chat.save(base, session)
         return JSONResponse({"ok": True})
 
+    def write_reply(session_id, reply_id, plan_id, snap):
+        """Runs in a thread: Gemma takes ~20-40 s, so the plan is already on screen while it writes."""
+        try:
+            out = cf_llm.converse(snap["text"], snap["kinds"], snap["titles"], snap["conversation"], snap["history"], snap["apps"])
+            error = None
+        except (cf_llm.LLMError, requests.RequestException) as exc:
+            out, error = None, str(exc)[:160]
+
+        def apply(session):
+            for m in session["messages"]:
+                if m["id"] == reply_id:
+                    m["pending"] = False
+                    if out:
+                        m["text"], m["question"], m["model"] = out["reply"], out["question"], cf_llm.models()[0]
+                    else:
+                        m["text"], m["error"] = f"Não consegui falar com o Gemma agora ({error}). O plano acima continua valendo.", True
+                elif plan_id and m["id"] == plan_id and out and out.get("prompt") and m["plan"].get("prompt") == m["plan"].get("text"):
+                    m["plan"]["prompt"] = out["prompt"]  # only fills the box if the user has not rewritten it
+        cf_chat.update(base, session_id, apply)
+
+    async def llm_info(request):
+        return JSONResponse(dict(available=cf_llm.available(), model=cf_llm.models()[0], keys=cf_env.status()))
+
     async def sessions_message(request):
         session = session_or_404(request.path_params["id"])
         if session is None:
@@ -223,9 +249,11 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         cf_chat.retitle(session, text)
         if text:
             registry = cf_apps.registry()
+            conversation = False
             try:
                 plan = await run_in_threadpool(cf_router.plan, text, cf_chat.kinds(session), registry, tier)
                 note = ""
+                conversation = bool(plan.get("conversation"))
             except (RuntimeError, requests.RequestException, KeyError, TypeError, ValueError) as exc:
                 routed = await run_in_threadpool(cf_router.route, text, cf_chat.kinds(session), registry, tier, None, cf_router.local_provider)
                 best = next((c for c in routed["candidates"] if c["router"]["available"]), None)
@@ -242,7 +270,17 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
                 except cf_chat.Missing as gap:
                     missing = gap.labels
                 steps.append(dict(app=step["app"], title=step["title"], probability=step.get("probability"), missing=missing))
-            cf_chat.add_message(session, "assistant", plan=dict(provider=plan.get("provider", "jev"), steps=steps, text=text, note=note))
+            plan_id = None
+            if steps and not conversation:
+                plan_id = cf_chat.add_message(session, "assistant", plan=dict(provider=plan.get("provider", "jev"), steps=steps, text=text, prompt=text, note=note))["id"]
+            reply = cf_chat.add_message(session, "assistant", text="", pending=cf_llm.available(), kind="text")
+            if not cf_llm.available():
+                reply["text"] = ("" if steps else "Entendi, mas o assistente de conversa (Gemma) não está configurado neste ambiente, então só consigo sugerir passos quando o pedido for uma tarefa.")
+            else:
+                history = cf_chat.history_for_llm(session)[:-1]
+                snapshot = dict(text=text, kinds=cf_chat.kinds(session), titles=[s["title"] for s in steps], conversation=conversation or not steps,
+                                history=history, apps=[{"id": a.id, "titulo": a.title, "faz": a.tagline} for a in registry.values() if not a.hidden])
+                threading.Thread(target=write_reply, args=(session["id"], reply["id"], plan_id, snapshot), daemon=True).start()
         cf_chat.save(base, session)
         return JSONResponse(with_urls(session))
 
@@ -279,17 +317,13 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
                 copy = target / re.sub(r"[^\w.\- ]", "_", source.name)[:120]
                 shutil.copyfile(source, copy)
                 fresh.append({"id": ident, "name": copy.name, "kind": cf_jobs.KINDS.get(copy.suffix.lower(), "file")})
-            try:
-                current = cf_chat.load(base, session_id)
-                cf_chat.add_media(current, fresh, "result", app=app.id, job=ctx.job.id)
-                cf_chat.save(base, current)
-            except KeyError:
-                pass  # the conversation was deleted while the job ran; the job result still stands
+            # False when the conversation was deleted while the job ran; the job result still stands.
+            cf_chat.update(base, session_id, lambda current: cf_chat.add_media(current, fresh, "result", app=app.id, job=ctx.job.id))
             return outputs
 
         job = manager.submit(app.id, app.title + (" · " + text[:40] if text else ""), params, lane, runner)
-        cf_chat.add_message(session, "job", job=public_job(job)["id"], app=app.id, title=app.title)
-        cf_chat.save(base, session)
+        job_id = public_job(job)["id"]
+        cf_chat.update(base, session_id, lambda current: cf_chat.add_message(current, "job", job=job_id, app=app.id, title=app.title))
         return JSONResponse(public_job(job), 202)
 
     async def models(request):
@@ -544,6 +578,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/system", guard(system)),
         Route(f"{PREFIX}/apps", guard(apps)),
         Route(f"{PREFIX}/slots", guard(slots)),
+        Route(f"{PREFIX}/llm", guard(llm_info)),
         Route(f"{PREFIX}/sessions", guard(sessions_list), methods=["GET"]),
         Route(f"{PREFIX}/sessions", guard(sessions_create), methods=["POST"]),
         Route(f"{PREFIX}/sessions/{{id}}", guard(sessions_get), methods=["GET"]),

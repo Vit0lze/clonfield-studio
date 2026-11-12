@@ -70,10 +70,8 @@ JEV_MODEL = "jev-latest"
 
 
 def jev_token():
-    for name in ("TYPESAFE_API_TOKEN", "TYPESAFE_API_KEY", "JEV_API_KEY"):
-        if os.environ.get(name):
-            return os.environ[name]
-    return None
+    import cf_env
+    return cf_env.secret("jev")
 
 
 def jev_provider(request, media, registry=None):
@@ -143,9 +141,10 @@ PRODUCES = {"clip": "video", "sequence": "video", "text2video": "video", "animat
 MAX_STEPS = 5
 FINISHED_AT = 0.35  # Noul is weakly calibrated (0.43 right after a fulfilled one-step request), so stop early
 MIN_NEXT = 0.65
+TASK_AT = 0.4  # below this (and no media attached) the message is conversation, not a job
 
 
-def jev_step(request, media, done, registry):
+def jev_step(request, media, done, registry, ask_task=False):
     """One call, two typed questions: which app next (Choice) and is the request already fulfilled (Noul)."""
     token = jev_token()
     if not token:
@@ -159,14 +158,15 @@ def jev_step(request, media, done, registry):
             "questions": {
                 "app": {"type": "choice", "criteria": criteria,
                         "instructions": "Which Studio app should run NEXT to move this request forward? Do not repeat steps already done. Respect required attachments."},
-                "finished": {"type": "noul", "instructions": "Is every part of the request already fulfilled by the steps already done?"}}}
+                "finished": {"type": "noul", "instructions": "Is every part of the request already fulfilled by the steps already done?"},
+                **({"task": {"type": "noul", "instructions": "Is the user asking the Studio to create, edit, transform or process an image, video or audio (a job to run)? Answer false for greetings, thanks, or questions about the tool itself."}} if ask_task else {})}}
     response = requests.post(JEV_ENDPOINT, json=body, headers={"Authorization": f"Bearer {token}"}, timeout=25)
     if response.status_code in (401, 403):
         raise RuntimeError("Jev recusou o token")
     response.raise_for_status()
     answers = response.json()["answers"]
     probs = {k: float(v) for k, v in answers["app"]["probabilities"].items() if k in CAPABILITIES}
-    return probs, float(answers["finished"]["noul"])
+    return probs, float(answers["finished"]["noul"]), (float(answers["task"]["noul"]) if "task" in answers else None)
 
 
 def plan(request, media, registry, tier):
@@ -177,7 +177,9 @@ def plan(request, media, registry, tier):
         raise ValueError("Descreva o que quer fazer.")
     steps, done = [], []
     for _ in range(MAX_STEPS):
-        probs, finished = jev_step(request, media, done, registry)
+        probs, finished, task = jev_step(request, media, done, registry, ask_task=not done)
+        if task is not None and task < TASK_AT:
+            return dict(request=request, media=sorted(media), provider="jev", steps=[], complete=False, conversation=True, task_p=round(task, 3))
         if done and finished >= FINISHED_AT:
             break
         options = []
@@ -201,4 +203,4 @@ def plan(request, media, registry, tier):
         done.append(app_id)
         media = media | {PRODUCES.get(app_id, "image" if CAPABILITIES[app_id][0] <= {"image"} else "video")}
     return dict(request=request, media=sorted(set(media or ())), provider="jev", steps=steps,
-                complete=bool(steps) and all(s["app"] for s in steps))
+                complete=bool(steps) and all(s["app"] for s in steps), conversation=False)
