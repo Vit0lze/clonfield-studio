@@ -166,33 +166,51 @@ def search_item(entry, kind, family, role):
     if entry["source"] == "huggingface" and not acts:
         acts.append(C.action("install", "Instalar", enabled=False, reason="O Studio não baixa nada do Hugging Face sozinho: use «Página» e confira arquitetura e licença."))
     status = {"instalado": "instalado", "compatível": "compatível", "padrão da receita": "compatível"}.get(entry["status"], "descoberto")
+    variant = entry.get("variant")
+    facts = ([("Downloads", f"{entry['downloads']:,}".replace(",", "."))] if entry.get("downloads") else [])
+    if variant:  # the file is part of what the card says: name, quantisation and whether Civitai marks it as the main file
+        facts = [("Arquivo", variant["file_name"]), ("Quantização", civitai.QUANT_LABEL.get(variant.get("quant"), "não informada")),
+                 *([("Na página do Civitai", "arquivo principal" if entry.get("primary") else "outro arquivo da mesma versão")] if "primary" in entry else []), *facts]
     return C.item(kind, entry["id"], entry["title"], entry["source"] if entry["source"] in C.SOURCES else "worker", status, subtitle=entry.get("author") or "",
-                  facts=([("Downloads", f"{entry['downloads']:,}".replace(",", "."))] if entry.get("downloads") else []),
+                  variant=variant, badges=[entry["quant_label"]] if entry.get("quant_label") else [],
+                  facts=facts,
                   size=int(entry["size_mb"] * 1_000_000) if entry.get("size_mb") else None, adult=entry.get("adult", False),
                   compat=dict(family=family, note=entry["compatible"], validated=False),
                   favorite=fav(kind, entry["source"], entry["id"], entry["title"], role=role, family=family, url=entry.get("url") or ""),
                   actions=acts, links=([dict(label="Página", url=entry["url"])] if entry.get("url") else []), value=entry.get("value"))
 
 
-def lora_card_item(card, family, ctx, have):
-    ok = any(n.endswith(f"__cv{card['version']}.safetensors") for n in have)
-    stats = card.get("stats") or {}
-    acts = [] if ok else [C.action("install", "Instalar" + (f" · {gb(int(card['files'][0]['size_mb'] * 1e6))}" if card["files"][0].get("size_mb") else ""),
-                                   call=dict(method="POST", path="/civitai/install", body=dict(family=family, model=card["model"], version=card["version"], file=card["files"][0]["file"]), follow=True))]
-    acts.append(C.action("use", "Usar no Criar", enabled=ok, reason="" if ok else "Instale primeiro.", prefill=dict(app="create", values=dict(model=family, loras=[dict(name=next((n for n in have if n.endswith(f"__cv{card['version']}.safetensors")), ""), strength=1, clip=1, on=True)]))))
-    return C.item("lora", f"{card['model']}/{card['version']}", card["title"], "civitai", "instalado" if ok else "compatível", subtitle=card.get("creator") or "",
-                  cover=ctx["card_cover"](card), badges=[card.get("badge") or ""] if card.get("badge") else [], adult=card.get("adult", False),
-                  facts=[("Downloads", f"{stats.get('downloads', 0):,}".replace(",", ".")), ("Curtidas", f"{stats.get('likes', 0):,}".replace(",", "."))],
-                  size=int(card["files"][0]["size_mb"] * 1e6) if card["files"][0].get("size_mb") else None, compat=dict(family=family, note=f"base {card.get('base', '')} = receita", validated=False),
-                  favorite=fav("lora", "civitai", f"{card['model']}/{card['version']}", card["title"], family=family, model=card["model"], version=card["version"], file=card["files"][0]["file"], url=card.get("page") or ""),
-                  actions=acts, links=([dict(label="Página", url=card["page"])] if card.get("page") else []), value=next((n for n in have if n.endswith(f"__cv{card['version']}.safetensors")), None))
+def lora_card_items(card, family, ctx, have):
+    """One item per downloadable FILE of the version (ranks / quantisations), each with its own identity, size and install state."""
+    files = sorted(card["files"], key=lambda f: (f.get("size_bytes") or 0))[:6]
+    many = len(card["files"]) > 1
+    out = []
+    for file in files:
+        mine = cf_loras.linked_name(file["name"], card["version"])
+        ok = mine in have
+        size = file.get("size_bytes") or 0
+        stats = card.get("stats") or {}
+        variant = dict(provider="civitai", model_id=card["model"], version_id=card["version"], file_id=file["file"], sha256=file.get("sha256"),
+                       quant=file.get("quant"), size_bytes=file.get("size_bytes"), file_name=file["name"])
+        expect = dict(name=file["name"], quant=file.get("quant"), size_bytes=file.get("size_bytes"), sha256=file.get("sha256"))
+        acts = [] if ok else [C.action("install", "Instalar" + (f" · {gb(size)}" if size else ""),
+                                       call=dict(method="POST", path="/civitai/install", body=dict(family=family, model=card["model"], version=card["version"], file=file["file"], expect=expect), follow=True))]
+        acts.append(C.action("use", "Usar no Criar", enabled=ok, reason="" if ok else "Instale primeiro.", prefill=dict(app="create", values=dict(model=family, loras=[dict(name=mine, strength=1, clip=1, on=True)]))))
+        label = file.get("quant_label") or Path(file["name"]).stem[:28]
+        out.append(C.item("lora", f"{card['model']}/{card['version']}/{file['file']}", card["title"] + (f" · {label}" if many else ""), "civitai", "instalado" if ok else "compatível",
+                          subtitle=card.get("creator") or "", cover=ctx["card_cover"](card), badges=[card.get("badge") or ""] if card.get("badge") else [], adult=card.get("adult", False),
+                          variant=variant, facts=[("Arquivo", file["name"]), ("Downloads", f"{stats.get('downloads', 0):,}".replace(",", ".")), ("Curtidas", f"{stats.get('likes', 0):,}".replace(",", "."))],
+                          size=size or None, compat=dict(family=family, note=f"base {card.get('base', '')} = receita", validated=False),
+                          favorite=fav("lora", "civitai", f"{card['model']}/{card['version']}/{file['file']}", card["title"], family=family, model=card["model"], version=card["version"], file=file["file"], url=card.get("page") or ""),
+                          actions=acts, links=([dict(label="Página", url=card["page"])] if card.get("page") else []), value=mine if ok else None))
+    return out
 
 
 def explore(kind, ctx, family, source, q, cursor):
     if kind == "lora":
         cards, nxt = civitai.browse_loras(lab.PRESETS[family], q, cursor, "downloads")
         have = [i["name"] for i in cf_loras.local(ctx["base"])]
-        return [lora_card_item(c, family, ctx, have) for c in cards], nxt
+        return [item for c in cards for item in lora_card_items(c, family, ctx, have)], nxt
     role = ROLE_OF[kind] or ("Checkpoint" if not lab.PRESETS[family].clip_type else "Difusão")
     items, nxt = [], None
     if kind == "upscaler" and source in (None, "", "embutido"):

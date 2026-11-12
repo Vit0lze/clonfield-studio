@@ -62,7 +62,9 @@ export function resultRow(item, { family, role, label, onUse, onChange }) {
   if (item.install) actions.push(h("button", { class: "btn sm", type: "button", onclick: e => install(e.currentTarget) }, "Instalar"));
   if (item.status === "instalado" && item.value !== undefined && onUse) actions.push(h("button", { class: "btn primary sm", type: "button", onclick: () => onUse(item) }, "Usar aqui"));
   return h("div", { class: "sr-row", role: "listitem" },
-    h("div", { class: "sr-main" }, h("b", null, item.title), h("span", { class: "muted" }, [item.author, item.size_mb ? `${item.size_mb} MB` : "", item.downloads ? `${item.downloads.toLocaleString("pt-BR")} downloads` : ""].filter(Boolean).join(" · ")),
+    h("div", { class: "sr-main" }, h("b", null, item.title), h("span", { class: "muted" }, [item.author, item.size_mb ? (item.size_mb >= 1000 ? `${(item.size_mb / 1000).toFixed(1).replace(".", ",")} GB` : `${item.size_mb} MB`) : "", item.downloads ? `${item.downloads.toLocaleString("pt-BR")} downloads` : ""].filter(Boolean).join(" · ")),
+      item.file_name ? h("span", { class: "sr-file mono", title: "O arquivo exato que será baixado e conferido (nome, tamanho e SHA-256) antes de entrar na pasta" },
+        item.quant_label ? h("b", { class: "sr-quant" }, item.quant_label) : null, ` ${item.file_name}`, item.primary === false ? " · não é o arquivo principal da página" : "") : null,
       h("span", { class: "sr-compat" }, `Compatibilidade: ${item.compatible}`)),
     chip, h("div", { class: "sr-actions" }, starButton(({ Difusão: "model", Checkpoint: "model", VAE: "vae", Encoder: "encoder", Upscaler: "upscaler", LoRA: "lora" })[role] || "model", `${item.source}:${item.id}`, { title: item.title, role, family, source: item.source, url: item.url || "" }), actions));
 }

@@ -43,12 +43,19 @@ def civitai_search(role, family, civitai_dir, query, cursor):
     have = {path.name for _k, _d, path in civitai.inventory(civitai_dir, preset, role)}
     items = []
     for card in cards:
-        file = card["files"][0]
-        installed = any(name.startswith(f'{card["version"]}-{file["file"]}-') for name in have)
-        items.append(dict(source="civitai", id=f'{card["model"]}/{card["version"]}/{file["file"]}', title=card["title"], author=card["creator"],
-                          size_mb=file["size_mb"], downloads=card["stats"]["downloads"], status="instalado" if installed else "compatível",
-                          compatible=f"base {card['base']} = receita", url=card["page"], adult=bool(card.get("adult")),
-                          install=None if installed else dict(model=card["model"], version=card["version"], file=file["file"])))
+        files = sorted(card["files"], key=lambda f: (f.get("size_bytes") or 0))[:6]  # one item per FILE: nothing is picked silently
+        many = len(card["files"]) > 1
+        for file in files:
+            installed = any(name.startswith(f'{card["version"]}-{file["file"]}-') for name in have)
+            tag = file.get("quant_label") or ""
+            variant = dict(provider="civitai", model_id=card["model"], version_id=card["version"], file_id=file["file"], sha256=file.get("sha256"),
+                           quant=file.get("quant"), size_bytes=file.get("size_bytes"), file_name=file["name"])
+            expect = dict(name=file["name"], quant=file.get("quant"), size_bytes=file.get("size_bytes"), sha256=file.get("sha256"))
+            items.append(dict(source="civitai", id=f'{card["model"]}/{card["version"]}/{file["file"]}', title=card["title"] + (f" · {tag}" if tag and many else ""), author=card["creator"],
+                              size_mb=round((file.get("size_bytes") or 0) / 1e6), downloads=card["stats"]["downloads"], status="instalado" if installed else "compatível",
+                              compatible=f"base {card['base']} = receita", url=card["page"], adult=bool(card.get("adult")), variant=variant,
+                              file_name=file["name"], quant_label=tag, primary=bool(file.get("primary")),
+                              install=None if installed else dict(model=card["model"], version=card["version"], file=file["file"], expect=expect)))
     return items, nxt
 
 

@@ -43,4 +43,6 @@ def test_civitai_search_by_role_only_returns_base_compatible_files_with_install_
     items, _ = search.search("VAE", "sdxl", "civitai", "", tmp_path)
     assert items and all(i["status"] in ("compatível", "instalado") for i in items)
     first = items[0]
-    assert set(first["install"]) == {"model", "version", "file"} and "SDXL" in first["compatible"].upper()
+    assert set(first["install"]) == {"model", "version", "file", "expect"} and "SDXL" in first["compatible"].upper()
+    # the item carries the identity of its file, and the install request carries what the user was shown
+    assert first["variant"]["file_id"] == first["install"]["file"] and first["install"]["expect"]["name"] == first["variant"]["file_name"]

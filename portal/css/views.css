@@ -712,3 +712,5 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
 .ltag.bad { color: var(--red-hi); border-color: rgba(255, 90, 101, .45); }
 .ltag.dim { color: var(--dim); }
 .lora-empty { display: grid; gap: 8px; justify-items: start; padding: 12px; border-radius: 12px; border: 1px dashed var(--line); color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.sr-file { display: block; font-size: 11px; color: var(--dim); overflow-wrap: anywhere; }
+.sr-quant { color: var(--text); background: var(--red-wash); border: 1px solid rgba(226, 52, 63, .4); border-radius: 999px; padding: 0 7px; font-weight: 600; margin-right: 4px; }

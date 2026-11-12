@@ -1,0 +1,298 @@
+{
+ "id": 3034876,
+ "name": "Qwen-Image-2.1-Uncensored-Omni-Quantized",
+ "type": "Checkpoint",
+ "nsfw": true,
+ "creator": {
+  "username": "chatrlabs",
+  "image": "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/d5afbede-63d5-45ba-bf3c-f8afdd51628e/width=96/chatrlabs.jpeg"
+ },
+ "stats": {
+  "downloadCount": 2380,
+  "thumbsUpCount": 68,
+  "thumbsDownCount": 0,
+  "commentCount": 4,
+  "tippedAmountCount": 0
+ },
+ "availability": "Public",
+ "modelVersions": [
+  {
+   "id": 3448331,
+   "name": "v1.0 — Step 90K Quantized",
+   "baseModel": "Qwen 2.1",
+   "availability": "Public",
+   "files": [
+    {
+     "id": 3352469,
+     "sizeKB": 4099194.1328125,
+     "name": "qwen-image-2.1-step90000-NVFP4-comfy.safetensors",
+     "overrideName": null,
+     "type": "Model",
+     "pickleScanResult": "Success",
+     "pickleScanMessage": null,
+     "virusScanResult": "Success",
+     "virusScanMessage": null,
+     "scannedAt": "2026-11-05T08:01:18.482Z",
+     "metadata": {
+      "format": "SafeTensor",
+      "fp": "nvfp4",
+      "isRequired": false
+     },
+     "hashes": {
+      "AutoV1": "A8C02F18",
+      "AutoV2": "E6E2FF4475",
+      "SHA256": "E6E2FF44754101EF769A345E525A9D4C4F491535093B2EE42CEBD09D43B8EECD",
+      "CRC32": "AD85FD8E",
+      "BLAKE3": "13C14643DA2B18ED6E6C1C88ACA5EAB3740C29708C0B112B16967BB6A45CBCBF",
+      "AutoV3": "2C2B44823A10",
+      "SHA256_12": "E6E2FF447541"
+     },
+     "downloadUrl": "https://civitai.com/api/download/models/3448331?fileId=3352469"
+    },
+    {
+     "id": 3352468,
+     "sizeKB": 4099142.78125,
+     "name": "qwen-image-2.1-step90000-Q4_0.gguf",
+     "overrideName": null,
+     "type": "Model",
+     "pickleScanResult": "Success",
+     "pickleScanMessage": null,
+     "virusScanResult": "Success",
+     "virusScanMessage": null,
+     "scannedAt": "2026-11-05T08:00:43.169Z",
+     "metadata": {
+      "format": "GGUF",
+      "quantType": "Q4_0",
+      "isRequired": false
+     },
+     "hashes": {
+      "AutoV1": "7B229C65",
+      "AutoV2": "8FA0B4E2C7",
+      "SHA256": "8FA0B4E2C7117ADC800961A2CDBA05B6B3358FC7D7BBE76B1AA0A6555E18396B",
+      "CRC32": "B52A9F4C",
+      "BLAKE3": "3F1BC023E92FFD0AB235FA4D6A8F218DC41FE85C53B3008639F4DE9E28A69A51",
+      "AutoV3": "5671702E0FA6",
+      "SHA256_12": "8FA0B4E2C711"
+     },
+     "downloadUrl": "https://civitai.com/api/download/models/3448331?fileId=3352468"
+    },
+    {
+     "id": 3352480,
+     "sizeKB": 6949989.666992188,
+     "name": "qwen-image-2.1-step90000-FP8-comfy.safetensors",
+     "overrideName": null,
+     "type": "Model",
+     "pickleScanResult": "Success",
+     "pickleScanMessage": null,
+     "virusScanResult": "Success",
+     "virusScanMessage": null,
+     "scannedAt": "2026-11-05T08:06:52.426Z",
+     "metadata": {
+      "format": "SafeTensor",
+      "fp": "fp8",
+      "isRequired": false
+     },
+     "hashes": {
+      "AutoV1": "8E4B50FF",
+      "AutoV2": "FF341F9485",
+      "SHA256": "FF341F9485D8F8E57EA4DBB4817EAC5F8FDDFD3C95299B20B66E691732CD698E",
+      "CRC32": "806C7C17",
+      "BLAKE3": "B4E56044CEF0D4356F9024D500C37A78D56261955237D86812185982F3F52D6A",
+      "AutoV3": "B473EBD1C596",
+      "SHA256_12": "FF341F9485D8"
+     },
+     "downloadUrl": "https://civitai.com/api/download/models/3448331?fileId=3352480",
+     "primary": true
+    },
+    {
+     "id": 3352470,
+     "sizeKB": 4369478.78125,
+     "name": "qwen-image-2.1-step90000-Q4_K_M.gguf",
+     "overrideName": null,
+     "type": "Model",
+     "pickleScanResult": "Success",
+     "pickleScanMessage": null,
+     "virusScanResult": "Success",
+     "virusScanMessage": null,
+     "scannedAt": "2026-11-05T08:02:22.831Z",
+     "metadata": {
+      "format": "GGUF",
+      "quantType": "Q4_K_M",
+      "isRequired": false
+     },
+     "hashes": {
+      "AutoV1": "7B229C65",
+      "AutoV2": "05BE65DEA6",
+      "SHA256": "05BE65DEA694885D0E81E783B172E68CF8D6A36A1143F778138DF31F0CC81C3D",
+      "CRC32": "36BBA98B",
+      "BLAKE3": "B3653960E3B429E3E23D3F3BAD05EEFC7C5ECF0E2537E8E107B7192612D2DF18",
+      "AutoV3": "99F612ABD685",
+      "SHA256_12": "05BE65DEA694"
+     },
+     "downloadUrl": "https://civitai.com/api/download/models/3448331?fileId=3352470"
+    },
+    {
+     "id": 3352483,
+     "sizeKB": 7507014.78125,
+     "name": "qwen-image-2.1-step90000-Q8_0.gguf",
+     "overrideName": null,
+     "type": "Model",
+     "pickleScanResult": "Success",
+     "pickleScanMessage": null,
+     "virusScanResult": "Success",
+     "virusScanMessage": null,
+     "scannedAt": "2026-11-05T08:11:51.711Z",
+     "metadata": {
+      "format": "GGUF",
+      "quantType": "Q8_0",
+      "isRequired": false
+     },
+     "hashes": {
+      "AutoV1": "7B229C65",
+      "AutoV2": "58AB4D7BAA",
+      "SHA256": "58AB4D7BAAA58AD7BDDA18E6AAFC22EEBCE1F494932D08C34667B88AB4FEE5CA",
+      "CRC32": "039DF726",
+      "BLAKE3": "413EBB8BC21BE462C71F9B84386DF158D9E8C35A69BC6C2E2A3B1024BD2DE61B",
+      "AutoV3": "E7C07AC352CC",
+      "SHA256_12": "58AB4D7BAAA5"
+     },
+     "downloadUrl": "https://civitai.com/api/download/models/3448331?fileId=3352483"
+    },
+    {
+     "id": 3352472,
+     "sizeKB": 5090374.78125,
+     "name": "qwen-image-2.1-step90000-Q5_K_M.gguf",
+     "overrideName": null,
+     "type": "Model",
+     "pickleScanResult": "Success",
+     "pickleScanMessage": null,
+     "virusScanResult": "Success",
+     "virusScanMessage": null,
+     "scannedAt": "2026-11-05T08:03:44.812Z",
+     "metadata": {
+      "format": "GGUF",
+      "quantType": "Q5_K_M",
+      "isRequired": false
+     },
+     "hashes": {
+      "AutoV1": "7B229C65",
+      "AutoV2": "5F577A47D0",
+      "SHA256": "5F577A47D0C53F524E4BC379AA12DC7DC85C8746379E95E0B6B71BF18F09B62E",
+      "CRC32": "B50352A5",
+      "BLAKE3": "8ED74FB259949E56E8AD428B96564848EC1301DF6AC470B5B4282654CFA473AB",
+      "AutoV3": "81E9A59FD907",
+      "SHA256_12": "5F577A47D0C5"
+     },
+     "downloadUrl": "https://civitai.com/api/download/models/3448331?fileId=3352472"
+    },
+    {
+     "id": 3352482,
+     "sizeKB": 7086710.1015625,
+     "name": "qwen-image-2.1-step90000-INT8-ConvRot-comfy.safetensors",
+     "overrideName": null,
+     "type": "Model",
+     "pickleScanResult": "Success",
+     "pickleScanMessage": null,
+     "virusScanResult": "Success",
+     "virusScanMessage": null,
+     "scannedAt": "2026-11-05T08:09:20.713Z",
+     "metadata": {
+      "format": "SafeTensor",
+      "fp": "int8",
+      "isRequired": false
+     },
+     "hashes": {
+      "AutoV1": "5902C44B",
+      "AutoV2": "90AD49EC21",
+      "SHA256": "90AD49EC21D9477F8AE4F976BA9A9A5D97B8C4248B813EAE2CC214A2F50F490E",
+      "CRC32": "97DC4B9F",
+      "BLAKE3": "47C2B1D51DB20957010E2A3E26092638A048496DF97B7FD1B57124CFEA2E39E5",
+      "AutoV3": "B665B5226627",
+      "SHA256_12": "90AD49EC21D9"
+     },
+     "downloadUrl": "https://civitai.com/api/download/models/3448331?fileId=3352482"
+    },
+    {
+     "id": 3352479,
+     "sizeKB": 5856326.78125,
+     "name": "qwen-image-2.1-step90000-Q6_K.gguf",
+     "overrideName": null,
+     "type": "Model",
+     "pickleScanResult": "Success",
+     "pickleScanMessage": null,
+     "virusScanResult": "Success",
+     "virusScanMessage": null,
+     "scannedAt": "2026-11-05T08:05:44.019Z",
+     "metadata": {
+      "format": "GGUF",
+      "quantType": "Q6_K",
+      "isRequired": false
+     },
+     "hashes": {
+      "AutoV1": "7B229C65",
+      "AutoV2": "8502230F8B",
+      "SHA256": "8502230F8B8D2A4CDB2946F7454778267C1F57827DB875ABADE580B9B49BBC12",
+      "CRC32": "B9D799B0",
+      "BLAKE3": "AECCCBCDA4230727D35F60C8325EAE352A23BF73695EDCE937A51B8F8D95A0A6",
+      "AutoV3": "A42BDC986413",
+      "SHA256_12": "8502230F8B8D"
+     },
+     "downloadUrl": "https://civitai.com/api/download/models/3448331?fileId=3352479"
+    },
+    {
+     "id": 3352486,
+     "sizeKB": 13896774.78125,
+     "name": "qwen-image-2.1-step90000-BF16.gguf",
+     "overrideName": null,
+     "type": "Model",
+     "pickleScanResult": "Success",
+     "pickleScanMessage": null,
+     "virusScanResult": "Success",
+     "virusScanMessage": null,
+     "scannedAt": "2026-11-05T08:17:29.953Z",
+     "metadata": {
+      "format": "GGUF",
+      "isRequired": false
+     },
+     "hashes": {
+      "AutoV1": "7B229C65",
+      "AutoV2": "027501FD6A",
+      "SHA256": "027501FD6ABB571A2415E9728C128E96ACDF3271222EA4FBF69F9EFAD4F136D3",
+      "CRC32": "D316DA72",
+      "BLAKE3": "2ACE3ABCCC114080F69893CC5822A9804BC3132508260C1382C9619CECE09770",
+      "AutoV3": "D716CCE6DACF",
+      "SHA256_12": "027501FD6ABB"
+     },
+     "downloadUrl": "https://civitai.com/api/download/models/3448331?fileId=3352486"
+    },
+    {
+     "id": 3365647,
+     "sizeKB": 14.1474609375,
+     "name": "workflow_example.json",
+     "overrideName": null,
+     "type": "Config",
+     "pickleScanResult": "Success",
+     "pickleScanMessage": null,
+     "virusScanResult": "Success",
+     "virusScanMessage": null,
+     "scannedAt": "2026-11-11T01:56:55.406Z",
+     "metadata": {
+      "format": "Other",
+      "isRequired": false
+     },
+     "hashes": {
+      "AutoV2": "D03EE34DBA",
+      "SHA256": "D03EE34DBA438BCF58F0E556288A6EDA99191669ED02FF473733516E7C821813",
+      "CRC32": "47CB31A7",
+      "BLAKE3": "F6DB5FC8F8E6F55BBAFB217F98D8EF59197C6F348F1FCC61947DA20AD3EF971A",
+      "AutoV3": "B2FCCE0C7C58",
+      "SHA256_12": "D03EE34DBA43"
+     },
+     "downloadUrl": "https://civitai.com/api/download/models/3448331?fileId=3365647"
+    }
+   ],
+   "images": []
+  }
+ ],
+ "_recorded": "real response of GET /api/v1/models/3034876 on 2026-11-12, trimmed to one version, no images"
+}

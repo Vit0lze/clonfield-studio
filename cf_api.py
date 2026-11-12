@@ -449,6 +449,19 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             return JSONResponse({"detail": f"A fonte não respondeu agora: {str(exc)[:160]}"}, 502)
         return JSONResponse({"items": items, "next": nxt}, headers={"Cache-Control": "no-store"})
 
+    def expected_variant(body):
+        """What the list showed the user for the file being installed. Only known keys, typed; the server re-checks it against Civitai."""
+        raw = body.get("expect")
+        if not isinstance(raw, dict):
+            return None
+        out = {}
+        for key in ("name", "quant", "sha256"):
+            if isinstance(raw.get(key), str):
+                out[key] = raw[key][:200]
+        if isinstance(raw.get("size_bytes"), int) and not isinstance(raw.get("size_bytes"), bool):
+            out["size_bytes"] = raw["size_bytes"]
+        return out or None
+
     async def install_component(request):
         body = await request.json()
         family, role = str(body.get("family", "")), str(body.get("role", ""))
@@ -459,7 +472,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         except (KeyError, TypeError, ValueError):
             return JSONResponse({"detail": "Pedido de instalação inválido."}, 400)
         job = manager.submit("install-component", f"Instalar {role} {model}", {"model": model}, "cpu",
-                             lambda ctx: cf_apps.install_civitai_component(ctx, family, role, model, version, file))
+                             lambda ctx: cf_apps.install_civitai_component(ctx, family, role, model, version, file, expected_variant(body)))
         return JSONResponse(public_job(job), 202)
 
     async def civitai_install(request):
@@ -472,7 +485,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         except (KeyError, TypeError, ValueError):
             return JSONResponse({"detail": "Pedido de instalação inválido."}, 400)
         job = manager.submit("install-lora", f"Instalar LoRA {model}", {"model": model}, "cpu",
-                             lambda ctx: cf_apps.install_civitai_lora(ctx, family, model, version, file))
+                             lambda ctx: cf_apps.install_civitai_lora(ctx, family, model, version, file, expected_variant(body)))
         return JSONResponse(public_job(job), 202)
 
     async def cover(request):

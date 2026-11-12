@@ -6,13 +6,14 @@ import io
 import json
 import os
 import re
+import struct
 import tempfile
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
 from threading import Lock
-from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
+from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlsplit
 
 import requests
 from PIL import Image, ImageOps
@@ -81,6 +82,94 @@ def file_role(model_type, file):
     return role
 
 
+
+# ---------------------------------------------------------------- variant identity
+# One Civitai version often holds many files of the SAME weights in different quantisations (NVFP4 ~4 GB, FP8 / INT8 ~6.9 GB,
+# BF16 ~13.6 GB). Each file is its own variant: provider + model + version + file id + sha256 + quantisation + size.
+QUANTS = (("nvfp4", "NVFP4", r"nv[-_ ]?fp4"), ("mxfp8", "MXFP8", r"mxfp8"), ("int8", "INT8", r"int8"), ("int6", "INT6", r"int6|w6a8"),
+          ("int4", "INT4", r"int4|w4a8|a4w4"), ("fp8", "FP8", r"fp8|e4m3|e5m2"), ("bf16", "BF16", r"bf16"), ("fp16", "FP16", r"fp16|f16"),
+          ("fp32", "FP32", r"fp32"))
+QUANT_LABEL = {key: label for key, label, _ in QUANTS}
+
+
+def quant_of(*texts):
+    """The quantisation a file name (then version name) announces, or None."""
+    for text in texts:
+        lowered = str(text or "").lower()
+        for key, _label, pattern in QUANTS:
+            if re.search(pattern, lowered):
+                return key
+    return None
+
+
+def quant_label(name, quant):
+    if not quant:
+        return ""
+    return QUANT_LABEL[quant] + (" ConvRot" if quant == "int8" and "convrot" in str(name).lower() else "")
+
+
+def human_bytes(n):
+    return (f"{n / 1e9:.1f}".replace(".", ",") + " GB") if n >= 1e9 else f"{round(n / 1e6)} MB"
+
+
+def variant_of(entry):
+    """The immutable identity of one downloadable file."""
+    return dict(provider="civitai", model_id=entry["model"], version_id=entry["version"], file_id=entry["file"], sha256=entry.get("sha256"),
+                quant=entry.get("quant"), size_bytes=entry.get("size_bytes"), file_name=entry["name"])
+
+
+def check_delivery(entry, headers):
+    """Compare what the CDN says it is about to deliver with what the list announced. Refuses before a single GB is downloaded."""
+    announced, problems = entry.get("quant"), []
+    disposition = next((v for k, v in headers.items() if k.lower() == "content-disposition"), "")
+    match = re.search(r"filename\*?=(?:UTF-8\'\')?\"?([^\";]+)\"?", str(disposition), re.I)
+    delivered_name = Path(unquote(match[1]).replace("\\", "/")).name if match else None
+    length = next((v for k, v in headers.items() if k.lower() == "content-range"), "")
+    total = int(length.rpartition("/")[2]) if re.search(r"/\d+$", length or "") else int(next((v for k, v in headers.items() if k.lower() == "content-length"), 0) or 0)
+    if delivered_name and delivered_name.casefold() != entry["name"].casefold():
+        got = quant_of(delivered_name)
+        problems.append(f"o arquivo entregue é «{delivered_name}»" + (f" ({QUANT_LABEL[got]})" if got else "") + f", não «{entry['name']}»" + (f" ({QUANT_LABEL[announced]})" if announced else ""))
+    wanted = entry.get("size_bytes") or 0
+    if total and wanted and abs(total - wanted) > max(1 << 20, wanted // 100):
+        problems.append(f"o tamanho entregue é {human_bytes(total)} e o anunciado era {human_bytes(wanted)}")
+    if problems:
+        raise ValueError("Divergência entre o que a lista anunciou e o que o Civitai entrega: " + "; ".join(problems) + ". Nada foi baixado.")
+
+
+def sniff_quant(path):
+    """Coarse family of a safetensors file from its own header (dtypes / scale tensors); None when it cannot tell."""
+    try:
+        with Path(path).open("rb") as handle:
+            size = struct.unpack("<Q", handle.read(8))[0]
+            if size > 64 << 20:
+                return None
+            header = json.loads(handle.read(size))
+    except (OSError, ValueError, struct.error):
+        return None
+    weight = {}
+    for name, info in header.items():
+        if name == "__metadata__" or not isinstance(info, dict):
+            continue
+        start, end = info.get("data_offsets", [0, 0])
+        weight[info.get("dtype")] = weight.get(info.get("dtype"), 0) + (end - start)
+    if not weight:
+        return None
+    if any(str(name).endswith("weight_scale_2") for name in header):
+        return "nvfp4"
+    dtype = max(weight, key=weight.get)
+    return {"I8": "int8", "F8_E4M3": "fp8", "F8_E5M2": "fp8", "F16": "fp16", "BF16": "bf16", "F32": "fp32"}.get(dtype)
+
+
+# declared -> sniffed families that agree with it. Only quantisations whose bytes are unambiguous are compared.
+AGREES = {"nvfp4": {"nvfp4"}, "int8": {"int8"}, "fp8": {"fp8"}, "mxfp8": {"fp8", "mxfp8"}, "bf16": {"bf16"}, "fp16": {"fp16", "bf16"}, "fp32": {"fp32"}}
+
+
+def verify_variant(path, entry):
+    declared, seen = entry.get("quant"), sniff_quant(path)
+    if declared in AGREES and seen and seen not in AGREES[declared]:
+        raise ValueError(f"Divergência: a lista anunciou {QUANT_LABEL[declared]}, mas os tensores baixados são {QUANT_LABEL.get(seen, seen)}. O arquivo foi descartado.")
+
+
 def matching_files(model, version, preset, role):
     base = str(version.get("baseModel") or "")
     # Upscale operates on rendered pixels and is independent of the diffusion family.
@@ -110,6 +199,8 @@ def matching_files(model, version, preset, role):
                          "preset": preset.key, "base": base, "title": str(model.get("name") or "Recurso"),
                          "revision": str(version.get("name") or version["id"]),
                          "model": model.get("id"), "sha256": digest, "size_kb": file.get("sizeKB"),
+                         "size_bytes": int((file.get("sizeKB") or 0) * 1024), "primary": bool(file.get("primary")),
+                         "quant": quant_of(name, version.get("name")), "quant_label": quant_label(name, quant_of(name, version.get("name"))),
                          "download": download, "split_check": bool(ambiguous_split), "covers": covers,
                          "availability": version.get("availability")})
     return accepted
@@ -473,6 +564,7 @@ def install(entry, directory, progress=None):
                 with requests.Session() as session, request(session, entry["download"], os.getenv("CIVITAI_TOKEN"), stream=True) as response:
                     if response.headers.get("Content-Type", "").startswith(("text/", "application/json")):
                         raise ValueError("O servidor devolveu uma página em vez de um arquivo.")
+                    check_delivery(entry, response.headers)  # name and size must be what the list announced, before downloading
                     got, window = 0, time.monotonic()
                     total = int(response.headers.get("Content-Length") or 0)
                     for chunk in response.iter_content(1024 * 1024):
@@ -488,6 +580,7 @@ def install(entry, directory, progress=None):
                     raise ValueError("Arquivo vazio ou SHA-256 diferente do publicado.")
                 if role != "Workflow":
                     check_tensor(temporary, role)
+                    verify_variant(temporary, entry)
                 temporary.replace(dest)
             except CivitaiHTTPError as exc:
                 if exc.status == 401:
@@ -600,7 +693,8 @@ def model_card(model, version, files, preset):
         "stats": {"downloads": int(stats.get("downloadCount") or 0), "likes": int(stats.get("thumbsUpCount") or 0),
                   "saves": int(stats.get("favoriteCount") or stats.get("collectedCount") or 0),
                   "comments": int(stats.get("commentCount") or 0)},
-        "files": [{"file": f["file"], "name": f["name"], "size_mb": round((f.get("size_kb") or 0) / 1024, 1)} for f in files],
+        "files": [{"file": f["file"], "name": f["name"], "size_mb": round((f.get("size_kb") or 0) / 1024, 1), "quant": f.get("quant"), "quant_label": f.get("quant_label"),
+                   "primary": f.get("primary", False), "sha256": f.get("sha256"), "size_bytes": f.get("size_bytes")} for f in files],
         "covers": covers, "cover_id": register_cover(model["id"], version["id"], covers),
         "adult": bool(model.get("nsfw")) or any(int(i.get("nsfwLevel") or 0) >= 4 for i in (version.get("images") or [])[:1] if isinstance(i, dict)),
         "page": f'{API}/models/{model["id"]}?modelVersionId={version["id"]}', "preset": preset.key,
@@ -627,13 +721,22 @@ def browse_loras(preset, query="", cursor=None, sort="downloads", role="LoRA"):
     return cards, (result.get("metadata") or {}).get("nextCursor")
 
 
-def entry_for(preset, model_id, version_id, file_id, role="LoRA"):
-    """Rebuild a downloadable entry from the Civitai record, never from client-sent fields."""
+def entry_for(preset, model_id, version_id, file_id, role="LoRA", expect=None):
+    """Rebuild a downloadable entry from the Civitai record, never from client-sent fields. `expect` is what the list showed
+    the user (name, quantisation, size, sha256): if the record now says something else the install is refused, not adapted."""
     model = api_json(f"models/{int(model_id)}")
     for version in model.get("modelVersions") or []:
         if version.get("id") != int(version_id):
             continue
         for entry in matching_files(model, version, preset, role):
             if entry["file"] == int(file_id):
+                if expect:
+                    differs = [label for label, key in (("nome", "name"), ("quantização", "quant"), ("sha256", "sha256")) if expect.get(key) and str(expect[key]).lower() != str(entry.get(key) or "").lower()]
+                    if expect.get("size_bytes") and abs(int(expect["size_bytes"]) - int(entry.get("size_bytes") or 0)) > max(1 << 20, int(entry.get("size_bytes") or 0) // 100):
+                        differs.append("tamanho")
+                    if differs:
+                        shown = f"{QUANT_LABEL.get(expect.get('quant'), expect.get('quant') or '?')} · {human_bytes(int(expect.get('size_bytes') or 0))}"
+                        now = f"{QUANT_LABEL.get(entry.get('quant'), entry.get('quant') or '?')} · {human_bytes(int(entry.get('size_bytes') or 0))}"
+                        raise ValueError(f"Divergência de variante ({', '.join(differs)}): a lista mostrou {shown}, o Civitai agora oferece {now} para este arquivo. Atualize a busca.")
                 return {**entry, "creator": str((model.get("creator") or {}).get("username") or "")}, model
     raise ValueError("Esse arquivo não está mais disponível para este modelo no Civitai.")

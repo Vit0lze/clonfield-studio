@@ -655,12 +655,12 @@ LORA_FAMILIES = {"sdxl": ["sdxl"], "sd15": ["sd15"],
                  "z-image-turbo": ["z-image", "z-image-turbo"]}
 
 
-def install_civitai_lora(ctx, family, model, version, file):
+def install_civitai_lora(ctx, family, model, version, file, expect=None):
     """Download one Civitai LoRA (SHA-256 checked) and register it in base/loras with its card data."""
     from cf_civitai import entry_for, install
     try:
         preset = lab.PRESETS[family]
-        entry, record = entry_for(preset, model, version, file)
+        entry, record = entry_for(preset, model, version, file, expect=expect)
         ctx.progress(0.05, desc=f"Baixando {entry['title']} do Civitai")
         source = install(entry, ENV["civitai"], ctx.progress)
         card = cf_civitai.model_card(record, next(v for v in record["modelVersions"] if v["id"] == entry["version"]), [entry], preset)
@@ -671,11 +671,11 @@ def install_civitai_lora(ctx, family, model, version, file):
     return []
 
 
-def install_civitai_component(ctx, family, role, model, version, file):
+def install_civitai_component(ctx, family, role, model, version, file, expect=None):
     """Download one Civitai component (VAE, encoder, upscaler, checkpoint...) SHA-256 checked, into the shared inventory."""
     from cf_civitai import entry_for, install
     try:
-        entry, _record = entry_for(lab.PRESETS[family], model, version, file, role)
+        entry, _record = entry_for(lab.PRESETS[family], model, version, file, role, expect=expect)
         ctx.progress(0.05, desc=f"Baixando {entry['title']} do Civitai")
         install(entry, ENV["civitai"], ctx.progress)
     except (ValueError, KeyError, StopIteration) as exc:

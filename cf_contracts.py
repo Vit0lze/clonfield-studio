@@ -50,14 +50,17 @@ def part(label, size, shared_with=None, installed=False):
     return dict(label=label, size=size, shared_with=list(shared_with or []), installed=bool(installed))
 
 
+VARIANT_KEYS = ("provider", "model_id", "version_id", "file_id", "sha256", "quant", "size_bytes", "file_name")
+
+
 def item(kind, id, title, source, status, *, subtitle="", cover=None, badges=(), facts=(), size=None, size_parts=(), license=None,
-         compat=None, favorite=None, actions=(), links=(), adult=False, value=None, art=None):
+         compat=None, favorite=None, actions=(), links=(), adult=False, value=None, art=None, variant=None):
     """Build one CatalogItem. `value` is what a form slot stores to use it; `art` names a bundled illustration."""
     out = dict(kind=kind, id=str(id), title=str(title), subtitle=subtitle or "", source=source, status=status, cover=cover, art=art,
                badges=list(badges), facts=[dict(label=a, value=str(b)) for a, b in facts], size=size, size_parts=list(size_parts),
                license=license, compat=compat or dict(family=None, note="", validated=False),
                favorite=favorite or dict(kind=kind, id=f"{source}:{id}", meta=dict(title=str(title))),
-               actions=list(actions), links=list(links), adult=bool(adult), value=value)
+               actions=list(actions), links=list(links), adult=bool(adult), value=value, variant=variant)
     check(out)
     return out
 
@@ -77,6 +80,11 @@ def check(entry):
         raise ContractError("tamanho precisa ser bytes inteiros ou None")
     if entry["size_parts"] and entry["size"] is not None and entry["size"] > sum(p["size"] or 0 for p in entry["size_parts"]):
         raise ContractError("tamanho maior que a soma das partes")
+    variant = entry.get("variant")
+    if variant is not None:  # one immutable identity per file: a partial one would let the wrong file pass as the right one
+        missing = [k for k in VARIANT_KEYS if k not in variant]
+        if missing or not variant.get("provider") or variant.get("file_id") is None:
+            raise ContractError(f"variante incompleta ({', '.join(missing) or 'provider/file_id vazio'}): {entry.get('title')}")
     fav = entry["favorite"]
     if not isinstance(fav, dict) or not fav.get("kind") or not fav.get("id"):
         raise ContractError("favorito sem kind/id")

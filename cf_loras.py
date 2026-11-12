@@ -207,12 +207,16 @@ def available(base, comfy_root, family_key):
     return {"family": norm(family_key), "family_label": label_of(family_key), "items": items, "counts": counts}
 
 
+def linked_name(file_name, version):
+    """The name a Civitai LoRA file gets in base/loras: one per FILE of a version, so two ranks of one version never collide."""
+    return f'{re.sub(r"[^a-zA-Z0-9._-]", "_", Path(file_name).stem)[:90]}__cv{version}.safetensors'
+
+
 def link_civitai(base, entry, source, families, covers, page):
     """Make a Civitai download usable as a normal LoRA: file in base/loras plus a sidecar with its card data."""
     directory = Path(base) / "loras"
     directory.mkdir(parents=True, exist_ok=True)
-    stem = re.sub(r"[^a-zA-Z0-9._-]", "_", Path(entry["name"]).stem)[:90]
-    target = directory / f'{stem}__cv{entry["version"]}.safetensors'
+    target = directory / linked_name(entry["name"], entry["version"])
     if not target.exists():
         try:
             os.link(source, target)
@@ -220,7 +224,8 @@ def link_civitai(base, entry, source, families, covers, page):
             shutil.copy2(source, target)
     target.with_suffix(".json").write_text(json.dumps({
         "title": entry["title"], "creator": entry.get("creator"), "model": entry["model"], "version": entry["version"],
-        "families": families, "covers": covers, "page": page, "revision": entry.get("revision")}, ensure_ascii=False), encoding="utf-8")
+        "families": families, "covers": covers, "page": page, "revision": entry.get("revision"),
+        "file": entry.get("file"), "file_name": entry.get("name"), "sha256": entry.get("sha256"), "quant": entry.get("quant"), "size_bytes": entry.get("size_bytes")}, ensure_ascii=False), encoding="utf-8")
     return target
 
 
