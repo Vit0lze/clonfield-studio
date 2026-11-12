@@ -30,8 +30,10 @@ import cf_upscale
 import cf_router
 import cf_assets
 import cf_chat
+import cf_contracts
 import cf_env
 import cf_favorites
+import cf_library
 import cf_llm
 import cf_civitai
 import cf_jobs
@@ -228,8 +230,8 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
                         m["text"], m["question"], m["model"] = out["reply"], out["question"], cf_llm.models()[0]
                     else:
                         m["text"], m["error"] = f"Não consegui falar com o Gemma agora ({error}). O plano acima continua valendo.", True
-                elif plan_id and m["id"] == plan_id and out and out.get("prompt") and m["plan"].get("prompt") == m["plan"].get("text"):
-                    m["plan"]["prompt"] = out["prompt"]  # only fills the box if the user has not rewritten it
+                elif plan_id and m["id"] == plan_id and out and out.get("prompt") and m["plan"].get("prompt") == m["plan"].get("text") and not any(x["role"] == "job" for x in session["messages"]):
+                    m["plan"]["prompt"] = out["prompt"]  # only fills the box if the user has not rewritten it and nothing has run yet
         cf_chat.update(base, session_id, apply)
 
     async def favorites_list(request):
@@ -352,6 +354,31 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         if name not in cf_upscale.MODELS:
             return JSONResponse({"detail": "Upscaler desconhecido."}, 400)
         job = manager.submit("install-upscaler", f"Instalar {cf_upscale.short(name)}", {"name": name}, "cpu", lambda ctx: cf_apps.install_upscaler(ctx, name))
+        return JSONResponse(public_job(job), 202)
+
+    def library_context():
+        return dict(base=base, civitai_dir=cf_apps.ENV["civitai"], tier=tier, info=cf_apps.MODEL_INFO, sizes=cf_sizes.sizes_for(base),
+                    cover=lambda entry: cover_url(entry["model"], entry["version"], entry["covers"]),
+                    card_cover=lambda card: sign(f"cover/{card['cover_id']}").replace("/files/", "/", 1) if card.get("cover_id") else None)
+
+    async def library_categories(request):
+        return JSONResponse([dict(c, views=list(c["views"]), sources=list(c["sources"]), roles=list(c["roles"])) for c in cf_contracts.CATEGORIES])
+
+    async def library_items(request):
+        q = request.query_params
+        try:
+            items, nxt = await run_in_threadpool(cf_library.library, q.get("kind", ""), q.get("view", "recommended"), library_context(),
+                                                 q.get("family", "qwen21"), q.get("source", "civitai"), q.get("q", "")[:180], q.get("cursor") or None)
+        except ValueError as exc:
+            return JSONResponse({"detail": str(exc)}, 400)
+        except (requests.RequestException, cf_assets.CivitaiHTTPError, OSError) as exc:
+            return JSONResponse({"detail": f"A fonte não respondeu agora: {str(exc)[:160]}"}, 502)
+        return JSONResponse({"items": items, "next": nxt}, headers={"Cache-Control": "no-store"})
+
+    async def recipe_file_install(request):
+        body = await request.json()
+        repo, filename = str(body.get("repo", "")), str(body.get("file", ""))
+        job = manager.submit("install-component", f"Instalar {Path(filename).name}", {"file": filename}, "cpu", lambda ctx: cf_apps.install_recipe_file(ctx, repo, filename))
         return JSONResponse(public_job(job), 202)
 
     async def lora_families(request):
@@ -623,6 +650,9 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/slots", guard(slots)),
         Route(f"{PREFIX}/llm", guard(llm_info)),
         Route(f"{PREFIX}/lora-families", guard(lora_families)),
+        Route(f"{PREFIX}/library/categories", guard(library_categories)),
+        Route(f"{PREFIX}/library", guard(library_items)),
+        Route(f"{PREFIX}/components/recipe-file", guard(recipe_file_install), methods=["POST"]),
         Route(f"{PREFIX}/upscalers", guard(upscalers)),
         Route(f"{PREFIX}/upscalers/install", guard(upscaler_install), methods=["POST"]),
         Route(f"{PREFIX}/favorites", guard(favorites_list)),

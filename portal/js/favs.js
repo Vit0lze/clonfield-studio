@@ -3,6 +3,10 @@ import { api } from "./api.js";
 import { h, icon, toast } from "./ui.js";
 
 export const favs = { items: [] };
+const listeners = new Set();
+/** Subscribe to favourite changes (views re-sort themselves). Returns the unsubscribe function. */
+export const onFavs = fn => { listeners.add(fn); return () => listeners.delete(fn); };
+const notify = () => listeners.forEach(fn => { try { fn(); } catch { /* a view that is gone */ } });
 export async function loadFavs() { favs.items = await api.get("/favorites").catch(() => []); }
 export const keyOf = (kind, id) => `${kind}|${id}`;
 export const isFav = (kind, id) => favs.items.some(i => i.kind === kind && i.id === id);
@@ -26,6 +30,7 @@ export async function toggleFav(kind, id, meta = {}) {
   try {
     const result = await api.post("/favorites/toggle", { kind, id, meta });
     if (result.favorite !== !was) { await loadFavs(); paintAll(kind, id, isFav(kind, id)); }
+    notify();
   } catch (error) {
     favs.items = was ? [...favs.items, { kind, id, meta, time: Date.now() / 1000 }] : favs.items.filter(i => !(i.kind === kind && i.id === id));
     paintAll(kind, id, was);

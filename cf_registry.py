@@ -14,7 +14,7 @@ import cf_civitai as civitai
 import cf_model_lab as lab
 import cf_workflows as workflows
 
-ROLES = {"Difusão": "Modelo de difusão", "Checkpoint": "Checkpoint", "Encoder": "Encoder de texto", "VAE": "VAE", "Upscaler": "Upscaler"}
+ROLES = {"Difusão": "Modelo de difusão", "Checkpoint": "Checkpoint", "Encoder": "Encoder de texto", "VAE": "VAE", "Upscaler": "Ampliador"}
 FALLBACK_SAMPLERS = ["euler", "euler_ancestral", "heun", "dpmpp_2m", "dpmpp_2m_sde", "res_multistep", "uni_pc"]
 FALLBACK_SCHEDULERS = ["simple", "normal", "karras", "exponential", "sgm_uniform", "beta"]
 
@@ -42,8 +42,7 @@ def file_options(preset, role, civitai_dir):
     default = preset.files.get(role)
     if default:
         name = Path(default[1]).name
-        options.append(dict(value="", label=name, star=True, installed=installed_file(default), source="huggingface",
-                            hint=("instalado" if installed_file(default) else "baixa ao usar") + f" · {default[0]}"))
+        options.append(dict(value="", label=name, star=True, installed=installed_file(default), source="huggingface", hint=default[0]))
     for key, data, path in civitai.inventory(civitai_dir, preset, role):
         options.append(dict(value=key, label=data.get("name") or path.name, star=False, installed=True, source="civitai",
                             hint=f"instalado · {data.get('base', '')}"))
@@ -55,7 +54,7 @@ def algorithm_options(node, field, default):
     values = values or (FALLBACK_SAMPLERS if field == "sampler_name" else FALLBACK_SCHEDULERS)
     ordered = [default] + [v for v in values if v != default]
     return [dict(value="" if v == default else v, label=v, star=(v == default), installed=True, source="worker" if live else "padrão",
-                 hint="padrão da receita" if v == default else ("disponível no worker" if live else "worker não consultado"))
+                 hint="padrão da receita" if v == default else ("disponível no worker" if live else "lista padrão"))
             for v in ordered]
 
 

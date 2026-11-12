@@ -4,17 +4,18 @@ import { connectView } from "./views/connect.js";
 import { homeView } from "./views/home.js";
 import { appsView } from "./views/apps.js";
 import { appView } from "./views/app.js";
-import { modelsView, modelDetail } from "./views/models.js";
-import { lorasView } from "./views/loras.js";
+import { modelDetail } from "./views/models.js";
+import { libraryView } from "./views/library.js";
 import { historyView } from "./views/history.js";
 import { jobsView } from "./views/jobs.js";
 import { systemView } from "./views/system.js";
 import { chatView } from "./views/chat.js";
 import { loadFavs } from "./favs.js";
+import { installPalette } from "./palette.js";
 
 const root = document.getElementById("root");
-const NAV = [["", "Início", "home"], ["chat", "Chat", "comment"], ["apps", "Apps", "apps"], ["models", "Modelos", "cube"], ["history", "Histórico", "clock"], ["system", "Sistema", "cpu"]];
-const TITLES = { "": "Início", chat: "Chat", apps: "Apps", models: "Modelos", loras: "LoRAs", history: "Histórico", jobs: "Fila", system: "Sistema" };
+const NAV = [["", "Início", "home"], ["chat", "Chat", "comment"], ["apps", "Apps", "apps"], ["library", "Biblioteca", "cube"], ["history", "Histórico", "clock"], ["system", "Sistema", "cpu"]];
+const TITLES = { "": "Início", chat: "Chat", apps: "Apps", library: "Biblioteca", models: "Modelos", history: "Histórico", jobs: "Fila", system: "Sistema" };
 let page = null, shell = null, token = 0, poll = null, offline = null;
 
 const navigate = hash => { location.hash = hash.replace(/^#/, ""); };
@@ -26,7 +27,7 @@ function mountShell() {
   const title = h("div", { class: "title" });
   const rail = h("nav", { class: "rail", "aria-label": "Principal" }, h("a", { class: "brand", href: "#/", "aria-label": "ClonField Studio" }, icon("logo", "")),
     NAV.map(([path, label, ic]) => h("a", { class: "nav", href: `#/${path}`, "data-path": path }, icon(ic), label)), h("div", { class: "grow" }));
-  const banner = h("div", { class: "banner", role: "alert", hidden: true }, icon("alert", "sm"), h("span", null, "Conexão com o Colab perdida. Seus jobs continuam rodando lá."),
+  const banner = h("div", { class: "banner", role: "alert", hidden: true }, icon("alert", "sm"), h("span", null, "Sem conexão com o Studio. Se o Colab continuar rodando, seus jobs seguem lá; confira a célula e tente de novo."),
     h("button", { class: "btn sm", type: "button", onclick: () => { banner.hidden = true; route(); } }, "Tentar de novo"));
   const column = h("div", { style: { minWidth: 0 } }, banner, h("header", { class: "top" }, title, tray, tier), outlet);
   clear(root).append(h("div", { class: "shell" }, rail, column));
@@ -59,7 +60,7 @@ async function route() {
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   const [head = "", arg] = parts;
   shell.rail.querySelectorAll("a.nav").forEach(a => a.removeAttribute("aria-current"));
-  const section = head === "loras" ? "models" : head === "jobs" ? "" : head;
+  const section = head === "loras" || head === "models" ? "library" : head === "jobs" ? "" : head;
   shell.rail.querySelector(`a.nav[data-path="${section}"]`)?.setAttribute("aria-current", "page");
   shell.title.textContent = TITLES[head] || (head === "apps" && arg ? "App" : "");
   page?.destroy?.();
@@ -69,8 +70,9 @@ async function route() {
     let next;
     if (head === "") next = await homeView(navigate);
     else if (head === "apps") next = arg ? await appView(arg, navigate) : await appsView();
-    else if (head === "models") next = arg ? await modelDetail(arg, navigate) : await modelsView(navigate);
-    else if (head === "loras") next = await lorasView(navigate);
+    else if (head === "models" && arg) next = await modelDetail(arg, navigate);
+    else if (head === "library" || head === "models") next = await libraryView(navigate, arg);
+    else if (head === "loras") next = await libraryView(navigate, "lora");
     else if (head === "history") next = await historyView(navigate);
     else if (head === "jobs") next = await jobsView(navigate);
     else if (head === "system") next = await systemView();
@@ -87,6 +89,7 @@ async function route() {
   }
 }
 
+installPalette(navigate);
 function start() {
   clearInterval(poll);
   if (!session.ready) {

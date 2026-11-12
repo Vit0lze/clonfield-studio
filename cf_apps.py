@@ -208,7 +208,7 @@ def image_fields(tier, refs_required=0, prompt_default="", prompt_label="Descrev
         dict(id="refs", section="Pedido", type="files", label=refs_label, accept="image", max=16, min=refs_required,
              help="A ordem importa: a primeira imagem é a principal."),
         dict(id="set", section="Modelo", type="set", label="Conjunto", default="Moderado", options=registry_mod.describe_sets(tier, MODEL_INFO, IMAGE_MODELS, refs_required > 0),
-             help="Cada conjunto escolhe o pipeline inteiro: modelo, encoder, VAE, passos e tamanho de geração."),
+             help="Um pacote pronto: escolhe o modelo, quantos passos e o tamanho da geração. Rápido gasta menos tempo, Qualidade busca mais fidelidade. Em Manual você escolhe tudo."),
         dict(id="model", section="Modelo", type="model", label="Modelo", default=default_model, options=models),
         dict(id="gen_factor", type="hidden", default=1.0),
         dict(id="slots", type="hidden", default={}),
@@ -218,7 +218,7 @@ def image_fields(tier, refs_required=0, prompt_default="", prompt_label="Descrev
                       for n, a, b in ASPECTS]),
         dict(id="quality", section="Formato", type="chips", label="Resolução final", default="standard", options=quality_options(tier)),
         dict(id="variations", section="Formato", type="seg", label="Variações", default=1,
-             options=[opt(n, str(n), "") for n in range(1, 5)], help="Cada variação roda em sequência com uma seed nova."),
+             options=[opt(n, str(n), "") for n in range(1, 5)], help="Quantas imagens gerar do mesmo pedido. Cada uma usa uma semente (seed) nova e roda uma depois da outra."),
         dict(id="loras", section="Estilo", type="loras", label="LoRAs", default=[], max=4, help="Ajuste a força de cada estilo."),
         dict(id="upscale_method", type="select", label="Como ampliar até a resolução final", default=UPSCALE_METHODS[0], advanced=True,
              options=[dict(opt(v, upscale.short(v)), fav_kind="upscaler") if v in upscale.MODELS else opt(v, v) for v in UPSCALE_METHODS], help="Só vale para Muito alta e Ultra. Em blocos, para caber na placa."),
@@ -227,9 +227,9 @@ def image_fields(tier, refs_required=0, prompt_default="", prompt_label="Descrev
         dict(id="refine", type="switch", label="Refino técnico automático", default=False, advanced=True,
              help="Confere vazio, nitidez, exposição e tamanho; corrige com filtro ou nova seed (até 2 rodadas). Não julga estética nem identidade."),
         dict(id="steps", type="slider", label="Passos", default=0, min=0, max=100, step=1, manual=True,
-             help="0 usa o recomendado do modelo."),
-        dict(id="cfg", type="slider", label="CFG", default=0, min=0, max=12, step=0.1, decimals=1, manual=True,
-             help="0 usa o recomendado do modelo."),
+             help="Quantas etapas de refinamento o modelo faz. Mais passos costumam dar mais detalhe e levam mais tempo. 0 usa o recomendado do modelo."),
+        dict(id="cfg", type="slider", label="CFG (fidelidade ao prompt)", default=0, min=0, max=12, step=0.1, decimals=1, manual=True,
+             help="Quanto o modelo obedece ao texto. Valores altos seguem o prompt ao pé da letra, mas podem deixar a imagem artificial. 0 usa o recomendado do modelo."),
         dict(id="shift", type="slider", label="Shift (Z-Image)", default=3.0, min=0.5, max=10, step=0.1, decimals=1, manual=True,
              models=["z-image", "z-image-turbo"], help="Deslocamento do agendador. Só os modelos Z-Image usam."),
         dict(id="negative", type="textarea", label="Evitar", default="", manual=True, rows=2, help="Só tem efeito com CFG maior que 1."),
@@ -492,12 +492,21 @@ def run_wan(ctx, p, tier):
     return collect_job(ctx, job)
 
 
+def compute_device():
+    """The device torch can really use in THIS process (the card's VRAM says nothing about the studio's own torch build)."""
+    try:
+        import torch
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except ImportError:
+        return "cpu"
+
+
 def run_upscale(ctx, p, tier):
     source = p["image"][0]
     with Image.open(source) as image:
         result = upscale.process(ImageOps.exif_transpose(image).convert("RGBA" if image.mode in ("RGBA", "LA") else "RGB"),
                                  p["mode"], float(p.get("scale", 2)), int(p.get("tile", 128)), 16,
-                                 "cuda" if tier.vram_gb else "cpu", int(p.get("sharpen", 0)), ENV["base"], ctx.progress)
+                                 compute_device(), int(p.get("sharpen", 0)), ENV["base"], ctx.progress)
     destination = finish.output_path(ctx.out_dir, "upscale", ".png")
     result.save(destination)
     return [destination]
@@ -684,6 +693,21 @@ def install_upscaler(ctx, name):
     except (ValueError, download.DownloadError, OSError) as exc:
         raise JobError(str(exc)) from None
     ctx.progress(1.0, desc="Upscaler instalado")
+    return []
+
+
+def install_recipe_file(ctx, repo, filename):
+    """Download one recipe weight (a VAE or an encoder on its own) from its pinned Hugging Face revision."""
+    known = {(r, f) for preset in lab.PRESETS.values() for r, f, *_ in preset.files.values()}
+    if (repo, filename) not in known:
+        raise JobError("Esse arquivo não faz parte das receitas do Studio.")
+    target = lab.models_root() / Path(filename).parts[-2] / Path(filename).name
+    try:
+        ctx.progress(0.05, desc=f"Baixando {target.name}")
+        download.fetch_hf(repo, filename, target, revision=lab.REVISIONS.get(repo, "main"), token=os.environ.get("HF_TOKEN") or None, progress=ctx.progress)
+    except (ValueError, download.DownloadError, OSError) as exc:
+        raise JobError(str(exc)) from None
+    ctx.progress(1.0, desc="Instalado")
     return []
 
 

@@ -75,7 +75,7 @@ export async function appView(id, navigate) {
       return field(f.label, input, f.help);
     }
     if (f.type === "chips" || f.type === "select") {
-      const options = favFirst(f.options, "upscaler", o => o.value).map(o => o.fav_kind ? { ...o, fav: () => starButton(o.fav_kind, o.value, { title: o.label }) } : o);
+      const options = favFirst(f.options, "upscaler", o => `embutido:${o.value}`).map(o => o.fav_kind ? { ...o, fav: () => starButton(o.fav_kind, `embutido:${o.value}`, { title: o.label }) } : o);
       const pick = dropdown(options, values[f.id], v => { values[f.id] = v; if (TUNING.has(f.id)) markManual(); rerun(); }, { label: f.label });
       binders[f.id] = v => { values[f.id] = v; pick.set(v); };
       return field(f.label, pick, f.help);
@@ -135,7 +135,7 @@ export async function appView(id, navigate) {
     if (!r) return;
     const bigger = r.gen_factor < 1 ? "gera menor e amplia" : "gera no tamanho do perfil";
     summary.append(...[h("p", { class: "sum-line" }, h("b", null, r.title), ` · ${r.steps} passos · ${bigger}`),
-      r.warning ? h("p", { class: "sum-warn" }, icon("alert", "sm"), r.warning) : null,
+      null,
       h("details", { class: "sum-more" }, h("summary", null, "O que este conjunto usa"),
         h("ul", null, h("li", null, h("span", null, "Por quê"), r.why),
           ...Object.entries(r.components).map(([role, name]) => h("li", null, h("span", null, role), h("code", null, name))),
@@ -189,9 +189,9 @@ export async function appView(id, navigate) {
   }
 
   function modelControl(f) {
-    const options = favFirst(models.filter(m => !f.options || f.options.some(o => o.value === m.key)), "model", m => m.key).map(m => ({
+    const options = favFirst(models.filter(m => !f.options || f.options.some(o => o.value === m.key)), "model", m => `receita:${m.key}`).map(m => ({
       value: m.key, label: m.title, hint: m.tagline, installed: m.installed, badge: m.installed ? "instalado" : m.download_bytes ? `baixar ${(m.download_bytes / 1e9).toFixed(1).replace(".", ",")} GB` : "baixa ao usar",
-      thumb: () => artFor("model", m.key), fav: () => starButton("model", m.key, { title: m.title }) }));
+      thumb: () => artFor("model", m.key), fav: () => starButton("model", `receita:${m.key}`, { title: m.title }) }));
     const pick = dropdown(options, values.model, v => { values.model = v; markManual(); afterModel(); rerun(); }, { label: f.label });
     binders[f.id] = v => { values[f.id] = v; pick.set(v); };
     return field(f.label, pick, null, h("a", { href: "#/models", class: "tiny-link" }, "Biblioteca"));
@@ -315,6 +315,15 @@ export async function appView(id, navigate) {
   }
 
   // ---------- stage ----------
+  // Plain-language errors; the raw message stays one click away under «Detalhe técnico».
+  function friendly(message, status) {
+    if (status === "travado") return ["Job interrompido", "O worker parou de responder. Reinicie a célula do Colab e tente de novo."];
+    if (/cuda|gpu/i.test(message) && /not compiled|no gpu|not available|cuda is not/i.test(message)) return ["Este ambiente não tem GPU para esse método", "Escolha outro método (o Lanczos roda em qualquer lugar) ou rode no Colab com GPU."];
+    if (/out of memory|oom/i.test(message)) return ["A placa ficou sem memória", "Tente um conjunto Rápido, uma resolução menor ou menos variações."];
+    if (/worker|comfyui|connection|conex|refused|não responde/i.test(message)) return ["O ComfyUI não está respondendo", "Confira a célula do Colab (ela precisa continuar rodando) e tente de novo."];
+    if (/sha-?256|não confere/i.test(message)) return ["O arquivo baixado não confere", "O download foi recusado por segurança. Tente de novo; se repetir, a fonte mudou o arquivo."];
+    return ["Não foi dessa vez", message || "Sem detalhes."];
+  }
   function idle() {
     clear(stage).append(h("div", { class: "idle" }, illustration("idle"), h("h3", null, app.title),
       h("p", { class: "muted" }, app.note || (setField ? "Descreva abaixo e toque em Gerar. O resultado aparece aqui, e você pode enviá-lo para outro app." : "Ajuste à esquerda e gere. O resultado aparece aqui, e você pode enviá-lo para outro app.")),
@@ -345,8 +354,11 @@ export async function appView(id, navigate) {
     stage._update = null;
     if (job.status !== "concluído") {
       const calm = job.status === "cancelado";
-      clear(stage).append(h("div", { class: `fail${calm ? " soft" : ""}` }, illustration(calm ? "empty" : "error"), h("h3", null, calm ? "Cancelado" : job.status === "travado" ? "Job interrompido" : "Não foi dessa vez"),
-        h("p", null, job.message || "Sem detalhes."), h("button", { class: "btn", type: "button", onclick: idle }, "Voltar")));
+      const [title, body] = calm ? ["Cancelado", "Você cancelou este job."] : friendly(job.message || "", job.status);
+      clear(stage).append(h("div", { class: `fail${calm ? " soft" : ""}` }, illustration(calm ? "empty" : "error"), h("h3", null, title), h("p", null, body),
+        job.message && body !== job.message ? h("details", { class: "tech" }, h("summary", null, "Detalhe técnico"), h("pre", null, job.message)) : null,
+        h("div", { class: "row center" }, calm ? null : h("button", { class: "btn primary", type: "button", onclick: () => run() }, icon("bolt", "sm"), "Tentar de novo"),
+          h("button", { class: "btn", type: "button", onclick: idle }, "Voltar"))));
       return;
     }
     const results = job.results || [];
@@ -612,7 +624,9 @@ export async function appView(id, navigate) {
     const outside = e => { if (open.current && !e.target.closest(".dock-chip-wrap, .dd-pop, .sr-overlay")) closeAll(); };
     document.addEventListener("pointerdown", outside, true);
     cleanups.push(() => document.removeEventListener("pointerdown", outside, true));
-    root.addEventListener("keydown", e => { if (e.key === "Escape") closeAll(); });
+    const onEsc = e => { if (e.key === "Escape" && open.current) { closeAll(); e.stopPropagation(); } };
+    document.addEventListener("keydown", onEsc);
+    cleanups.push(() => document.removeEventListener("keydown", onEsc));
 
     const pedido = sectionNodes["Pedido"] || [];
     const promptField = pedido[0], refsField = pedido[1];

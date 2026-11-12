@@ -47,7 +47,7 @@ def civitai_search(role, family, civitai_dir, query, cursor):
         installed = any(name.startswith(f'{card["version"]}-{file["file"]}-') for name in have)
         items.append(dict(source="civitai", id=f'{card["model"]}/{card["version"]}/{file["file"]}', title=card["title"], author=card["creator"],
                           size_mb=file["size_mb"], downloads=card["stats"]["downloads"], status="instalado" if installed else "compatível",
-                          compatible=f"base {card['base']} = receita", url=card["page"],
+                          compatible=f"base {card['base']} = receita", url=card["page"], adult=bool(card.get("adult")),
                           install=None if installed else dict(model=card["model"], version=card["version"], file=file["file"])))
     return items, nxt
 
@@ -55,7 +55,9 @@ def civitai_search(role, family, civitai_dir, query, cursor):
 def hf_search(role, family, query):
     preset = lab.PRESETS[family]
     words = " ".join(x for x in (query.strip(), ROLE_HINT.get(role, "")) if x)
-    if not query.strip():
+    if role == "Upscaler":  # upscalers do not depend on the diffusion family
+        words = f"{query.strip()} upscale esrgan".strip()
+    elif not query.strip():
         words = " ".join((preset.api_bases[0] if preset.api_bases else family, ROLE_HINT.get(role, ""))).strip()
     def ask(text):
         response = requests.get(HF_API, params={"search": text, "sort": "downloads", "direction": "-1", "limit": 20}, timeout=15)
@@ -63,7 +65,7 @@ def hf_search(role, family, query):
         return response.json()
 
     found = ask(words)
-    if not found and not query.strip():  # the family name was too specific: fall back to its first word + the role
+    if not found and not query.strip() and role != "Upscaler":  # the family name was too specific: fall back to its first word + the role
         token = "".join(ch for ch in (preset.api_bases[0] if preset.api_bases else family).split()[0] if ch.isalpha())
         found = ask(f"{token} {ROLE_HINT.get(role, '')}".strip())
     defaults = {spec[0] for spec in preset.files.values()}

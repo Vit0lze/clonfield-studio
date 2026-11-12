@@ -23,7 +23,7 @@ def test_star_is_the_recipe_default_and_comes_first(tmp_path, monkeypatch):
     assert slots["Upscaler"]["options"] == [] and slots["Upscaler"]["search"]["role"] == "Upscaler"  # still searchable when empty
     first = slots["Difusão"]["options"][0]
     assert first["star"] and first["value"] == "" and first["label"].startswith("qwen_image_2.1_int8")
-    assert not first["installed"] and "baixa ao usar" in first["hint"]
+    assert not first["installed"] and first["hint"] == "Comfy-Org/Qwen-Image-2.1"  # state lives in `installed`, not repeated in the hint
     target = tmp_path / "diffusion_models"
     target.mkdir()
     (target / "qwen_image_2.1_int8_convrot.safetensors").write_bytes(b"x" * 10)

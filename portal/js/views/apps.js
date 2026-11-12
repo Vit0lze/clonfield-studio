@@ -1,6 +1,6 @@
 import { store } from "../api.js";
 import { h, icon, seg, artFor, appGlyph } from "../ui.js";
-import { favFirst, isFav, ofKind, starButton } from "../favs.js";
+import { favFirst, isFav, onFavs, starButton } from "../favs.js";
 
 export function appTile(app, i = 0, wide = false) {
   const tile = appTileLink(app, i, wide);
@@ -31,5 +31,6 @@ export async function appsView() {
   root.append(h("div", { class: "section-head" }, h("div", null, h("h2", null, "Apps"), h("p", null, `${apps.length} ferramentas para imagem, vídeo e acabamento.`))),
     h("div", { class: "libhead" }, seg(groups.map(g => ({ value: g, label: g })), group, v => { group = v; paint(); }), search), grid);
   paint();
-  return { el: root };
+  const off = onFavs(paint);
+  return { el: root, destroy: off };
 }

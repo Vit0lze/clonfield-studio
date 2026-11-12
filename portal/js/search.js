@@ -64,5 +64,5 @@ export function resultRow(item, { family, role, label, onUse, onChange }) {
   return h("div", { class: "sr-row", role: "listitem" },
     h("div", { class: "sr-main" }, h("b", null, item.title), h("span", { class: "muted" }, [item.author, item.size_mb ? `${item.size_mb} MB` : "", item.downloads ? `${item.downloads.toLocaleString("pt-BR")} downloads` : ""].filter(Boolean).join(" · ")),
       h("span", { class: "sr-compat" }, `Compatibilidade: ${item.compatible}`)),
-    chip, h("div", { class: "sr-actions" }, starButton("component", `${role}|${item.source}|${item.id}`, { title: item.title, role, family, source: item.source, url: item.url || "" }), actions));
+    chip, h("div", { class: "sr-actions" }, starButton(({ Difusão: "model", Checkpoint: "model", VAE: "vae", Encoder: "encoder", Upscaler: "upscaler", LoRA: "lora" })[role] || "model", `${item.source}:${item.id}`, { title: item.title, role, family, source: item.source, url: item.url || "" }), actions));
 }
