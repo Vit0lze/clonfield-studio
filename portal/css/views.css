@@ -613,3 +613,22 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
 @media (prefers-reduced-motion: reduce) { .dock-pop { animation: none; } }
 .dock-chip-wrap { position: static; }
 .dock-pop { left: 12px; }
+
+/* ---- favourites: the yellow star (the red ★ is default compatibility, a different thing) */
+.fav-star { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 0; background: rgba(10, 6, 7, .55); color: rgba(255, 255, 255, .7); cursor: pointer; flex: none; backdrop-filter: blur(6px); transition: color .15s, transform .12s, background .15s; }
+.fav-star:hover { color: #ffd166; background: rgba(10, 6, 7, .8); }
+.fav-star:active { transform: scale(.88); }
+.fav-star[aria-pressed="true"] { color: #ffc43d; }
+.fav-star[aria-pressed="true"] svg { fill: currentColor; }
+.fav-star:focus-visible { outline: 2px solid #ffc43d; outline-offset: 2px; }
+.tile-wrap { position: relative; }
+.tile-wrap > .fav-star { position: absolute; top: 12px; right: 12px; z-index: 3; }
+.dd-opt .fav-star { background: none; width: 28px; height: 28px; margin-left: 6px; }
+.cvcard .fav-star { position: absolute; top: 10px; right: 10px; z-index: 3; }
+.sr-row .fav-star { background: none; }
+.explore-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+.explore-bar .dd { min-width: 220px; }
+.explore-bar input { max-width: 260px; }
+.explore-results { max-height: none; overflow: visible; }
+.mcover { position: relative; }
+.mcover .fav-star { position: absolute; top: 14px; right: 14px; }

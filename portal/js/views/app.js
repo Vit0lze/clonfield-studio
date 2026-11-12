@@ -1,6 +1,7 @@
 import { api, store, isFinal, events } from "../api.js";
 import { lightEditor } from "../lights.js";
 import { openSearch } from "../search.js";
+import { favFirst, starButton } from "../favs.js";
 import { h, icon, clear, seg, dropdown, actionMenu, appGlyph, rememberCover, slider, switchRow, field, toast, illustration, posterEl, artFor, fmtClock, fmtBytes } from "../ui.js";
 
 const SEND_TO = { image: ["upscale", "look", "frame", "animate", "edit", "relight", "compare"], video: ["clip", "still", "board", "seedvr2"] };
@@ -74,7 +75,8 @@ export async function appView(id, navigate) {
       return field(f.label, input, f.help);
     }
     if (f.type === "chips" || f.type === "select") {
-      const pick = dropdown(f.options, values[f.id], v => { values[f.id] = v; if (TUNING.has(f.id)) markManual(); rerun(); }, { label: f.label });
+      const options = favFirst(f.options, "upscaler", o => o.value).map(o => o.fav_kind ? { ...o, fav: () => starButton(o.fav_kind, o.value, { title: o.label }) } : o);
+      const pick = dropdown(options, values[f.id], v => { values[f.id] = v; if (TUNING.has(f.id)) markManual(); rerun(); }, { label: f.label });
       binders[f.id] = v => { values[f.id] = v; pick.set(v); };
       return field(f.label, pick, f.help);
     }
@@ -187,8 +189,9 @@ export async function appView(id, navigate) {
   }
 
   function modelControl(f) {
-    const options = models.filter(m => !f.options || f.options.some(o => o.value === m.key)).map(m => ({
-      value: m.key, label: m.title, hint: m.tagline, installed: m.installed, badge: m.installed ? "instalado" : "baixa ao usar", thumb: () => artFor("model", m.key) }));
+    const options = favFirst(models.filter(m => !f.options || f.options.some(o => o.value === m.key)), "model", m => m.key).map(m => ({
+      value: m.key, label: m.title, hint: m.tagline, installed: m.installed, badge: m.installed ? "instalado" : m.download_bytes ? `baixar ${(m.download_bytes / 1e9).toFixed(1).replace(".", ",")} GB` : "baixa ao usar",
+      thumb: () => artFor("model", m.key), fav: () => starButton("model", m.key, { title: m.title }) }));
     const pick = dropdown(options, values.model, v => { values.model = v; markManual(); afterModel(); rerun(); }, { label: f.label });
     binders[f.id] = v => { values[f.id] = v; pick.set(v); };
     return field(f.label, pick, null, h("a", { href: "#/models", class: "tiny-link" }, "Biblioteca"));
@@ -647,7 +650,7 @@ export async function appView(id, navigate) {
 
     root.append(h("div", { class: "appview dock-layout" },
       h("div", { class: "dock-top" }, h("a", { class: "crumb", href: "#/apps" }, icon("chevron-left", "sm"), "Apps"),
-        h("div", { class: "dock-title" }, appGlyph(app.id, "sm"), h("h2", null, app.title))),
+        h("div", { class: "dock-title" }, appGlyph(app.id, "sm"), h("h2", null, app.title), starButton("app", app.id, { title: app.title }))),
       stage, recents, dock));
     root.classList.add("dock-view");
   } else {
@@ -655,7 +658,7 @@ export async function appView(id, navigate) {
       h("a", { class: "crumb", href: "#/apps" }, icon("chevron-left", "sm"), "Apps"),
       h("div", { class: "appview" },
         h("section", { class: "panel controls" },
-          h("div", { class: "head" }, h("div", { class: "title" }, appGlyph(app.id), h("h2", null, app.title)), h("p", { class: "muted" }, app.tagline)),
+          h("div", { class: "head" }, h("div", { class: "title" }, appGlyph(app.id), h("h2", null, app.title), starButton("app", app.id, { title: app.title })), h("p", { class: "muted" }, app.tagline)),
           h("div", { class: "scroll" }, blocks, extra.length ? h("details", { class: "more" },
             h("summary", null, h("span", null, "Ajustes avançados"), icon("chevron-down", "sm")), h("div", { class: "body" }, extraNodes)) : null),
           h("div", { class: "foot" }, advice, missingLine, runButton)),

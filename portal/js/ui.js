@@ -53,6 +53,7 @@ const ICONS = {
   play: '<path d="M8 5.5v13l11-6.5z"/>',
   stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="2"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  star: '<path d="M12 3.8l2.5 5.2 5.7.8-4.1 4 1 5.7-5.1-2.7-5.1 2.7 1-5.7-4.1-4 5.7-.8z"/>',
   minus: '<path d="M5 12h14"/>',
   "chevron-right": '<path d="M9 6l6 6-6 6"/>',
   "chevron-left": '<path d="M15 6l-6 6 6 6"/>',
@@ -260,7 +261,7 @@ export function dropdown(options, value, onChange, { label = "", footer = null }
   let pop = null, active = -1;
 
   const row = o => [o.ratio ? ratioGlyph(o.ratio) : null, o.thumb ? h("span", { class: "dd-thumb" }, o.thumb()) : null, h("span", { class: "dd-text" }, h("b", null, o.star ? star() : null, o.label), o.hint ? h("small", null, o.hint) : null),
-    o.badge ? h("span", { class: `dd-badge ${o.installed === false ? "off" : ""}` }, o.badge) : null];
+    o.badge ? h("span", { class: `dd-badge ${o.installed === false ? "off" : ""}` }, o.badge) : null, o.fav ? o.fav() : null];
   const paintFace = () => { clear(face); face.append(...row(current()).filter(Boolean)); };
 
   function close(focus = true) {

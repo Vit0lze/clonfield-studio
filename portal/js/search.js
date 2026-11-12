@@ -2,6 +2,7 @@
 // Discovery is not installation and installation is not execution: every row says which one it is.
 import { api, isFinal } from "./api.js";
 import { h, icon, clear, toast } from "./ui.js";
+import { starButton } from "./favs.js";
 
 const SOURCES = [["local", "No worker"], ["civitai", "CivitAI"], ["huggingface", "Hugging Face"]];
 
@@ -23,31 +24,7 @@ export function openSearch({ role, label, family, familyTitle, onUse }) {
   document.addEventListener("keydown", onKey);
   input.focus();
 
-  async function install(item, button) {
-    button.disabled = true; button.textContent = "Baixando…";
-    try {
-      const job = await api.post("/components/install", { family, role, ...item.install });
-      api.follow(job.id, snap => {
-        button.textContent = isFinal(snap.status) ? (snap.status === "concluído" ? "Instalado" : "Falhou") : (snap.desc || "Baixando…").slice(0, 28);
-        if (isFinal(snap.status)) {
-          if (snap.status === "concluído") { toast(`${label} instalado. Já aparece na lista do slot.`); item.status = "instalado"; item.install = null; item.value = undefined; load(); }
-          else { toast(snap.message || "A instalação falhou.", "err"); button.disabled = false; button.textContent = "Instalar"; }
-        }
-      });
-    } catch (error) { toast(error.message, "err"); button.disabled = false; button.textContent = "Instalar"; }
-  }
-
-  function row(item) {
-    const chip = h("span", { class: `sr-chip ${item.status === "instalado" ? "ok" : item.status === "compatível" ? "good" : ""}` }, item.status);
-    const actions = [];
-    if (item.url) actions.push(h("a", { class: "btn ghost sm", href: item.url, target: "_blank", rel: "noopener noreferrer" }, "Página"));
-    if (item.install) actions.push(h("button", { class: "btn sm", type: "button", onclick: e => install(item, e.currentTarget) }, "Instalar"));
-    if (item.status === "instalado" && item.value !== undefined) actions.push(h("button", { class: "btn primary sm", type: "button", onclick: () => { onUse(item); close(); } }, "Usar aqui"));
-    return h("div", { class: "sr-row", role: "listitem" },
-      h("div", { class: "sr-main" }, h("b", null, item.title), h("span", { class: "muted" }, [item.author, item.size_mb ? `${item.size_mb} MB` : "", item.downloads ? `${item.downloads.toLocaleString("pt-BR")} downloads` : ""].filter(Boolean).join(" · ")),
-        h("span", { class: "sr-compat" }, `Compatibilidade: ${item.compatible}`)),
-      chip, h("div", { class: "sr-actions" }, actions));
-  }
+  const row = item => resultRow(item, { family, role, label, onUse: picked => { onUse(picked); close(); }, onChange: () => load() });
 
   async function load() {
     const mine = ++serial;
@@ -62,4 +39,30 @@ export function openSearch({ role, label, family, familyTitle, onUse }) {
     } catch (error) { if (mine === serial) { clear(list); list.append(h("p", { class: "advice pad" }, error.message || "A fonte não respondeu.")); } }
   }
   load();
+}
+
+/** One search result: title, honest status, compatibility, ⭐ favourite, and the actions that really exist for it. */
+export function resultRow(item, { family, role, label, onUse, onChange }) {
+  async function install(button) {
+    button.disabled = true; button.textContent = "Baixando…";
+    try {
+      const job = await api.post("/components/install", { family, role, ...item.install });
+      api.follow(job.id, snap => {
+        button.textContent = isFinal(snap.status) ? (snap.status === "concluído" ? "Instalado" : "Falhou") : (snap.desc || "Baixando…").slice(0, 28);
+        if (isFinal(snap.status)) {
+          if (snap.status === "concluído") { toast(`${label} instalado. Já aparece na lista do slot.`); onChange?.(); }
+          else { toast(snap.message || "A instalação falhou.", "err"); button.disabled = false; button.textContent = "Instalar"; }
+        }
+      });
+    } catch (error) { toast(error.message, "err"); button.disabled = false; button.textContent = "Instalar"; }
+  }
+  const chip = h("span", { class: `sr-chip ${item.status === "instalado" ? "ok" : item.status === "compatível" ? "good" : ""}` }, item.status);
+  const actions = [];
+  if (item.url) actions.push(h("a", { class: "btn ghost sm", href: item.url, target: "_blank", rel: "noopener noreferrer" }, "Página"));
+  if (item.install) actions.push(h("button", { class: "btn sm", type: "button", onclick: e => install(e.currentTarget) }, "Instalar"));
+  if (item.status === "instalado" && item.value !== undefined && onUse) actions.push(h("button", { class: "btn primary sm", type: "button", onclick: () => onUse(item) }, "Usar aqui"));
+  return h("div", { class: "sr-row", role: "listitem" },
+    h("div", { class: "sr-main" }, h("b", null, item.title), h("span", { class: "muted" }, [item.author, item.size_mb ? `${item.size_mb} MB` : "", item.downloads ? `${item.downloads.toLocaleString("pt-BR")} downloads` : ""].filter(Boolean).join(" · ")),
+      h("span", { class: "sr-compat" }, `Compatibilidade: ${item.compatible}`)),
+    chip, h("div", { class: "sr-actions" }, starButton("component", `${role}|${item.source}|${item.id}`, { title: item.title, role, family, source: item.source, url: item.url || "" }), actions));
 }

@@ -77,16 +77,19 @@ MODEL_INFO = {
 IMAGE_MODELS = [key for key in MODEL_INFO if key in lab.PRESETS]
 
 
-def model_card(key, tier=None):
+def model_card(key, tier=None, sizes=None):
     preset, info = lab.PRESETS[key], MODEL_INFO[key]
     root = lab.models_root()
     files = []
     for role, (repo, filename, *_rest) in preset.files.items():
         target = root / Path(filename).parts[-2] / Path(filename).name
         files.append({"role": role, "name": Path(filename).name, "repo": repo,
-                      "installed": target.is_file() and target.stat().st_size > 0})
+                      "installed": target.is_file() and target.stat().st_size > 0,
+                      "size": (sizes or {}).get(f"{repo}/{filename}")})
     card = {"key": key, "title": info["name"], "subtitle": preset.title, "refs": preset.refs,
             "steps": preset.steps, "cfg": preset.cfg, "files": files, "installed": all(f["installed"] for f in files),
+            "download_bytes": sum(f["size"] or 0 for f in files if not f["installed"]) or None,
+            "size_known": all(f["size"] for f in files),
             "family": key, **info}
     if tier is not None:
         card["fits"] = tier.vram_gb >= info["min_vram"]
@@ -218,7 +221,7 @@ def image_fields(tier, refs_required=0, prompt_default="", prompt_label="Descrev
              options=[opt(n, str(n), "") for n in range(1, 5)], help="Cada variação roda em sequência com uma seed nova."),
         dict(id="loras", section="Estilo", type="loras", label="LoRAs", default=[], max=4, help="Ajuste a força de cada estilo."),
         dict(id="upscale_method", type="select", label="Como ampliar até a resolução final", default=UPSCALE_METHODS[0], advanced=True,
-             options=[opt(v, v) for v in UPSCALE_METHODS], help="Só vale para Muito alta e Ultra. Em blocos, para caber na placa."),
+             options=[dict(opt(v, upscale.short(v)), fav_kind="upscaler") if v in upscale.MODELS else opt(v, v) for v in UPSCALE_METHODS], help="Só vale para Muito alta e Ultra. Em blocos, para caber na placa."),
         dict(id="upscale", type="select", label="Ampliar depois", default="Nenhum", advanced=True,
              options=[opt(v, v) for v in ("Nenhum", "Lanczos 2×", "Real-ESRGAN 2×")]),
         dict(id="refine", type="switch", label="Refino técnico automático", default=False, advanced=True,
@@ -637,7 +640,8 @@ def install_model(ctx, key):
     return []
 
 
-LORA_FAMILIES = {"qwen21": ["qwen21"], "krea2": ["krea2", "krea2-turbo"], "krea2-turbo": ["krea2", "krea2-turbo"],
+LORA_FAMILIES = {"sdxl": ["sdxl"], "sd15": ["sd15"],
+                 "qwen21": ["qwen21"], "krea2": ["krea2", "krea2-turbo"], "krea2-turbo": ["krea2", "krea2-turbo"],
                  "flux2": ["flux2"], "flux3": ["flux3"], "z-image": ["z-image", "z-image-turbo"],
                  "z-image-turbo": ["z-image", "z-image-turbo"]}
 
@@ -668,6 +672,18 @@ def install_civitai_component(ctx, family, role, model, version, file):
     except (ValueError, KeyError, StopIteration) as exc:
         raise JobError(str(exc) or "Não foi possível instalar este componente.") from None
     ctx.progress(1.0, desc=f"{role} instalado")
+    return []
+
+
+def install_upscaler(ctx, name):
+    if name not in upscale.MODELS:
+        raise JobError("Upscaler desconhecido.")
+    ctx.progress(0.05, desc=f"Baixando {upscale.short(name)}")
+    try:
+        upscale.load(name, ENV["base"], ctx.progress)
+    except (ValueError, download.DownloadError, OSError) as exc:
+        raise JobError(str(exc)) from None
+    ctx.progress(1.0, desc="Upscaler instalado")
     return []
 
 
@@ -762,7 +778,7 @@ def build_registry():
         App("upscale", "Ampliar imagem", "Melhorar", "Lanczos ou Real-ESRGAN, sem esperar o ComfyUI.", "upscale", run_upscale,
             lambda t: [dict(id="image", type="files", label="Imagem", accept="image", max=1, min=1),
                        dict(id="mode", type="chips", label="Método", default="Lanczos (rápido, sem IA)",
-                            options=[opt("Lanczos (rápido, sem IA)", "Lanczos", "instantâneo")] + [opt(k, upscale.short(k), f"{v['use']} · {v['license']}") for k, v in upscale.MODELS.items()]),
+                            options=[opt("Lanczos (rápido, sem IA)", "Lanczos", "instantâneo")] + [dict(opt(k, upscale.short(k), f"{v['use']} · {v['license']}"), fav_kind="upscaler") for k, v in upscale.MODELS.items()]),
                        dict(id="scale", type="slider", label="Escala", default=2, min=1, max=4, step=0.5),
                        dict(id="tile", type="slider", label="Bloco", default=128 if t.vram_gb < 16 else 256, min=64, max=512, step=32, advanced=True),
                        dict(id="sharpen", type="slider", label="Nitidez", default=0, min=0, max=200, step=10, advanced=True)],

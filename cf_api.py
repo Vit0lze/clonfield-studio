@@ -25,10 +25,13 @@ from starlette.concurrency import run_in_threadpool
 import cf_apps
 import cf_registry as registry_mod
 import cf_search
+import cf_sizes
+import cf_upscale
 import cf_router
 import cf_assets
 import cf_chat
 import cf_env
+import cf_favorites
 import cf_llm
 import cf_civitai
 import cf_jobs
@@ -229,6 +232,17 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
                     m["plan"]["prompt"] = out["prompt"]  # only fills the box if the user has not rewritten it
         cf_chat.update(base, session_id, apply)
 
+    async def favorites_list(request):
+        return JSONResponse(cf_favorites.load(base), headers={"Cache-Control": "no-store"})
+
+    async def favorites_toggle(request):
+        body = await request.json()
+        try:
+            now = cf_favorites.toggle(base, str(body.get("kind", "")), body.get("id"), body.get("meta"))
+        except ValueError as exc:
+            return JSONResponse({"detail": str(exc)}, 400)
+        return JSONResponse({"favorite": now})
+
     async def llm_info(request):
         return JSONResponse(dict(available=cf_llm.available(), model=cf_llm.models()[0], keys=cf_env.status()))
 
@@ -327,13 +341,42 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         return JSONResponse(public_job(job), 202)
 
     async def models(request):
-        return JSONResponse([cf_apps.model_card(key, tier) for key in cf_apps.IMAGE_MODELS])
+        sizes = await run_in_threadpool(cf_sizes.sizes_for, base)
+        return JSONResponse([cf_apps.model_card(key, tier, sizes) for key in cf_apps.IMAGE_MODELS])
+
+    async def upscalers(request):
+        return JSONResponse(cf_upscale.status(base))
+
+    async def upscaler_install(request):
+        name = str((await request.json()).get("name", ""))
+        if name not in cf_upscale.MODELS:
+            return JSONResponse({"detail": "Upscaler desconhecido."}, 400)
+        job = manager.submit("install-upscaler", f"Instalar {cf_upscale.short(name)}", {"name": name}, "cpu", lambda ctx: cf_apps.install_upscaler(ctx, name))
+        return JSONResponse(public_job(job), 202)
+
+    async def lora_families(request):
+        """Every recipe family that can take LoRAs, with whether its model is installed and how many LoRAs are ready."""
+        have = cf_loras.local(base)
+        out = []
+        for key, preset in cf_apps.lab.PRESETS.items():
+            if key not in cf_apps.LORA_FAMILIES:
+                continue
+            info = cf_apps.MODEL_INFO.get(key, {})
+            files = [cf_apps.lab.models_root() / Path(f[1]).parts[-2] / Path(f[1]).name for f in preset.files.values()]
+            installed = bool(files) and all(p.is_file() for p in files)
+            if not preset.files:  # checkpoint families: "installed" when some Civitai checkpoint is in the inventory
+                installed = bool(cf_civitai.inventory(cf_apps.ENV["civitai"], preset, "Checkpoint"))
+            ready = [i for i in have if key in (i["families"] or [])]
+            out.append(dict(key=key, title=info.get("name") or preset.title, tagline=info.get("tagline", "Checkpoint do Civitai"),
+                            installed=installed, loras_installed=len(ready)))
+        return JSONResponse(out, headers={"Cache-Control": "no-store"})
 
     async def model_detail(request):
         key = request.path_params["key"]
         if key not in cf_apps.IMAGE_MODELS:
             return JSONResponse({"detail": "Modelo desconhecido."}, 404)
-        return JSONResponse(cf_apps.model_card(key, tier))
+        sizes = await run_in_threadpool(cf_sizes.sizes_for, base, [key])
+        return JSONResponse(cf_apps.model_card(key, tier, sizes))
 
     def cover_url(model, version, covers):
         key = cf_civitai.register_cover(model, version, covers)
@@ -579,6 +622,11 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/apps", guard(apps)),
         Route(f"{PREFIX}/slots", guard(slots)),
         Route(f"{PREFIX}/llm", guard(llm_info)),
+        Route(f"{PREFIX}/lora-families", guard(lora_families)),
+        Route(f"{PREFIX}/upscalers", guard(upscalers)),
+        Route(f"{PREFIX}/upscalers/install", guard(upscaler_install), methods=["POST"]),
+        Route(f"{PREFIX}/favorites", guard(favorites_list)),
+        Route(f"{PREFIX}/favorites/toggle", guard(favorites_toggle), methods=["POST"]),
         Route(f"{PREFIX}/sessions", guard(sessions_list), methods=["GET"]),
         Route(f"{PREFIX}/sessions", guard(sessions_create), methods=["POST"]),
         Route(f"{PREFIX}/sessions/{{id}}", guard(sessions_get), methods=["GET"]),

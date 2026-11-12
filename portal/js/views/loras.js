@@ -1,13 +1,7 @@
 import { api, store, isFinal } from "../api.js";
 import { h, icon, clear, seg, dropdown, posterEl, toast, illustration } from "../ui.js";
+import { favFirst, isFav, ofKind, starButton } from "../favs.js";
 
-const FAMILIES = [
-  { value: "qwen21", label: "Qwen Image 2.1", hint: "Edição fiel, texto legível" },
-  { value: "krea2", label: "Krea 2", hint: "Estética autoral" },
-  { value: "flux2", label: "FLUX.2 Klein 4B", hint: "Rápido e leve" },
-  { value: "flux3", label: "FLUX.3 Klein", hint: "Nova geração" },
-  { value: "z-image", label: "Z-Image", hint: "Realismo limpo" },
-];
 const SORTS = [{ value: "downloads", label: "Mais baixados" }, { value: "rated", label: "Mais curtidos" }, { value: "newest", label: "Mais novos" }];
 const compact = n => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}K` : String(n);
 const pref = (key, fallback) => { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } };
@@ -16,7 +10,16 @@ const setPref = (key, value) => { try { localStorage.setItem(key, value); } catc
 export async function lorasView(navigate) {
   const root = h("div", { class: "view" });
   const followers = [];
-  let tab = "civitai", family = pref("cf-lora-family", "qwen21"), sort = "downloads", query = "", cursor = null, loading = false;
+  const families = await api.get("/lora-families").catch(() => []);
+  const bestFamily = () => {
+    const saved = pref("cf-lora-family", "");
+    if (families.some(f => f.key === saved)) return saved;
+    return (favFirst(families.filter(f => f.installed), "model", f => f.key)[0] || favFirst(families, "model", f => f.key)[0] || { key: "qwen21" }).key;
+  };
+  let tab = "civitai", family = bestFamily(), sort = "downloads", query = "", cursor = null, loading = false;
+  const familyOptions = () => favFirst(families, "model", f => f.key).map(f => ({ value: f.key, label: f.title,
+    hint: `${f.tagline}${f.loras_installed ? ` · ${f.loras_installed} LoRA${f.loras_installed > 1 ? "s" : ""} instalada${f.loras_installed > 1 ? "s" : ""}` : ""}`,
+    badge: f.installed ? "modelo instalado" : null, installed: f.installed, fav: () => starButton("model", f.key, { title: f.title }) }));
   let hideAdult = pref("cf-hide-adult", "0") === "1";
   let cards = [], installed = await api.get("/loras").catch(() => []);
   const grid = h("div", { class: "cvgrid" });
@@ -51,8 +54,10 @@ export async function lorasView(navigate) {
     };
     state.repaint = paintAction;
     paintAction();
+    const favId = item.model ? `civitai:${item.model}` : `local:${item.name}`;
     return h("article", { class: `cvcard${item.adult ? " adult" : ""}`, style: { "--i": Math.min(i, 12) } },
       cover(item),
+      starButton("lora", favId, { title: item.title || item.name || "", family: fam || family, model: item.model || "", version: item.version || "", file: item.files?.[0]?.file || "", name: item.name || "", url: item.page || "" }),
       h("div", { class: "cvtop" }, h("span", { class: "cvbadge" }, "LoRA"), item.badge ? h("span", { class: "cvbadge base" }, item.badge) : null,
         item.page ? h("a", { class: "cvlink", href: item.page, target: "_blank", rel: "noopener noreferrer", "aria-label": "Abrir no Civitai" }, icon("external", "sm")) : null),
       h("div", { class: "cvbody" },
@@ -126,7 +131,26 @@ export async function lorasView(navigate) {
     if (!mine.length) grid.append(h("div", { class: "empty" }, illustration("empty"), h("h3", null, "Nenhuma LoRA instalada para este modelo"), h("p", null, "Baixe pela aba Civitai ou coloque arquivos .safetensors na pasta loras.")));
   }
 
-  const refresh = () => (tab === "civitai" ? load(true) : paintInstalled());
+  function paintFavorites() {
+    clear(grid); more.hidden = true;
+    const mine = ofKind("lora").filter(f => (f.meta.title || "").toLowerCase().includes(query));
+    mine.forEach(f => {
+      const m = f.meta, local = installed.find(l => (m.name && l.name === m.name) || (m.version && l.name.endsWith(`__cv${m.version}.safetensors`)));
+      const act = local ? h("button", { class: "btn sm primary", type: "button", onclick: () => useLora(local.name, m.family || family) }, icon("bolt", "sm"), "Usar")
+        : m.model ? h("button", { class: "btn sm", type: "button", onclick: async e => {
+          e.currentTarget.disabled = true;
+          try {
+            const job = await api.post("/civitai/install", { family: m.family || family, model: Number(m.model), version: Number(m.version), file: Number(m.file) });
+            followers.push(api.follow(job.id, async snap => { e.currentTarget.textContent = isFinal(snap.status) ? (snap.status === "concluído" ? "Instalada" : "Falhou") : (snap.desc || "Baixando…").slice(0, 24); if (snap.status === "concluído") installed = await api.get("/loras").catch(() => installed); }));
+          } catch (error) { e.currentTarget.disabled = false; toast(error.message, "err"); }
+        } }, icon("download", "sm"), "Baixar") : null;
+      grid.append(h("article", { class: "cvcard fav-row" }, posterEl(m.title || "LoRA"), starButton("lora", f.id, m),
+        h("div", { class: "cvbody" }, h("h3", { title: m.title }, m.title || f.id), h("div", { class: "cvstats mono" }, h("span", null, families.find(x => x.key === m.family)?.title || m.family || "")),
+          h("div", { class: "cvact" }, act, m.url ? h("a", { class: "btn ghost sm", href: m.url, target: "_blank", rel: "noopener noreferrer" }, "Página") : null))));
+    });
+    if (!mine.length) grid.append(h("div", { class: "empty" }, illustration("empty"), h("h3", null, "Nenhuma LoRA favorita"), h("p", null, "Toque na estrela de uma LoRA, no Civitai ou nas instaladas, para guardá-la aqui.")));
+  }
+  const refresh = () => (tab === "civitai" ? load(true) : tab === "favorites" ? paintFavorites() : paintInstalled());
   const search = h("input", { class: "input", type: "search", placeholder: "Buscar no Civitai…", "aria-label": "Buscar LoRA", onkeydown: e => { if (e.key === "Enter") { query = search.value.trim(); refresh(); } } });
   const adultToggle = h("label", { class: "switch inline" }, h("span", null, "Ocultar adulto"),
     h("input", { type: "checkbox", checked: hideAdult, onchange: e => { hideAdult = e.target.checked; setPref("cf-hide-adult", hideAdult ? "1" : "0"); if (tab === "civitai") { clear(grid); cards.filter(c => !(hideAdult && c.adult)).forEach((c, i) => addCivitai(c, i)); } } }));
@@ -134,8 +158,8 @@ export async function lorasView(navigate) {
   root.append(
     h("div", { class: "section-head" }, h("div", null, h("h2", null, "LoRAs"), h("p", null, "Estilos e personagens do Civitai, prontos para o seu modelo. Ajuste a força direto no app."))),
     h("div", { class: "libhead lora-head" },
-      seg([{ value: "civitai", label: "Civitai" }, { value: "installed", label: "Instaladas" }], tab, v => { tab = v; search.placeholder = v === "civitai" ? "Buscar no Civitai…" : "Buscar nas instaladas…"; refresh(); }),
-      dropdown(FAMILIES, family, v => { family = v; setPref("cf-lora-family", v); refresh(); }, { label: "Modelo" }),
+      seg([{ value: "civitai", label: "Civitai" }, { value: "installed", label: "Instaladas" }, { value: "favorites", label: "Favoritas" }], tab, v => { tab = v; search.placeholder = v === "civitai" ? "Buscar no Civitai…" : v === "favorites" ? "Buscar nas favoritas…" : "Buscar nas instaladas…"; refresh(); }),
+      dropdown(familyOptions(), family, v => { family = v; setPref("cf-lora-family", v); refresh(); }, { label: "Compatível com o modelo" }),
       dropdown(SORTS, sort, v => { sort = v; if (tab === "civitai") load(true); }, { label: "Ordenar" }),
       search, adultToggle),
     status, grid, h("div", { class: "row center" }, more));

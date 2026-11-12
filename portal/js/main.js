@@ -10,6 +10,7 @@ import { historyView } from "./views/history.js";
 import { jobsView } from "./views/jobs.js";
 import { systemView } from "./views/system.js";
 import { chatView } from "./views/chat.js";
+import { loadFavs } from "./favs.js";
 
 const root = document.getElementById("root");
 const NAV = [["", "Início", "home"], ["chat", "Chat", "comment"], ["apps", "Apps", "apps"], ["models", "Modelos", "cube"], ["history", "Histórico", "clock"], ["system", "Sistema", "cpu"]];
@@ -68,7 +69,7 @@ async function route() {
     let next;
     if (head === "") next = await homeView(navigate);
     else if (head === "apps") next = arg ? await appView(arg, navigate) : await appsView();
-    else if (head === "models") next = arg ? await modelDetail(arg, navigate) : await modelsView();
+    else if (head === "models") next = arg ? await modelDetail(arg, navigate) : await modelsView(navigate);
     else if (head === "loras") next = await lorasView(navigate);
     else if (head === "history") next = await historyView(navigate);
     else if (head === "jobs") next = await jobsView(navigate);
@@ -95,7 +96,7 @@ function start() {
   }
   mountShell();
   startPolling();
-  route();
+  loadFavs().finally(route);
 }
 window.addEventListener("hashchange", route);
 document.addEventListener("visibilitychange", () => !document.hidden && session.ready && store.refreshJobs().catch(() => {}));
