@@ -9,10 +9,11 @@ import { lorasView } from "./views/loras.js";
 import { historyView } from "./views/history.js";
 import { jobsView } from "./views/jobs.js";
 import { systemView } from "./views/system.js";
+import { chatView } from "./views/chat.js";
 
 const root = document.getElementById("root");
-const NAV = [["", "Início", "home"], ["apps", "Apps", "apps"], ["models", "Modelos", "cube"], ["history", "Histórico", "clock"], ["system", "Sistema", "cpu"]];
-const TITLES = { "": "Início", apps: "Apps", models: "Modelos", loras: "LoRAs", history: "Histórico", jobs: "Fila", system: "Sistema" };
+const NAV = [["", "Início", "home"], ["chat", "Chat", "comment"], ["apps", "Apps", "apps"], ["models", "Modelos", "cube"], ["history", "Histórico", "clock"], ["system", "Sistema", "cpu"]];
+const TITLES = { "": "Início", chat: "Chat", apps: "Apps", models: "Modelos", loras: "LoRAs", history: "Histórico", jobs: "Fila", system: "Sistema" };
 let page = null, shell = null, token = 0, poll = null, offline = null;
 
 const navigate = hash => { location.hash = hash.replace(/^#/, ""); };
@@ -72,6 +73,7 @@ async function route() {
     else if (head === "history") next = await historyView(navigate);
     else if (head === "jobs") next = await jobsView(navigate);
     else if (head === "system") next = await systemView();
+    else if (head === "chat") next = await chatView(navigate, arg);
     else next = await homeView(navigate);
     if (mine !== token) return next.destroy?.();
     page = next;

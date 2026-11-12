@@ -142,7 +142,7 @@ PRODUCES = {"clip": "video", "sequence": "video", "text2video": "video", "animat
             "board": "image", "compare": "image", "seethrough": "image"}
 MAX_STEPS = 5
 FINISHED_AT = 0.35  # Noul is weakly calibrated (0.43 right after a fulfilled one-step request), so stop early
-MIN_NEXT = 0.5
+MIN_NEXT = 0.65
 
 
 def jev_step(request, media, done, registry):

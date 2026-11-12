@@ -26,6 +26,7 @@ import cf_registry as registry_mod
 import cf_search
 import cf_router
 import cf_assets
+import cf_chat
 import cf_civitai
 import cf_jobs
 import cf_loras
@@ -158,6 +159,138 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         if key not in cf_apps.IMAGE_MODELS:
             return JSONResponse({"detail": "Modelo desconhecido."}, 404)
         return JSONResponse(await run_in_threadpool(registry_mod.slots, key, cf_apps.ENV["civitai"]))
+
+    # ------------------------------------------------------------ chat sessions
+    async def sessions_list(request):
+        return JSONResponse(cf_chat.listing(base), headers={"Cache-Control": "no-store"})
+
+    async def sessions_create(request):
+        body = await request.json() if request.headers.get("content-length") not in (None, "0") else {}
+        return JSONResponse(cf_chat.create(base, str((body or {}).get("title", ""))), 201)
+
+    def session_or_404(ident):
+        try:
+            return cf_chat.load(base, ident)
+        except KeyError:
+            return None
+
+    def with_urls(session):
+        for item in session["media"]:
+            folder = uploads / item["id"]
+            found = next(iter(folder.iterdir()), None) if folder.is_dir() else None
+            item["url"] = sign(found.relative_to(base).as_posix()) if found else None
+            item["gone"] = found is None
+        return session
+
+    async def sessions_get(request):
+        session = session_or_404(request.path_params["id"])
+        if session is None:
+            return JSONResponse({"detail": "Conversa não encontrada."}, 404)
+        return JSONResponse(with_urls(session), headers={"Cache-Control": "no-store"})
+
+    async def sessions_delete(request):
+        try:
+            cf_chat.delete(base, request.path_params["id"])
+        except KeyError:
+            return JSONResponse({"detail": "Conversa não encontrada."}, 404)
+        return JSONResponse({"ok": True})
+
+    async def sessions_rename(request):
+        session = session_or_404(request.path_params["id"])
+        if session is None:
+            return JSONResponse({"detail": "Conversa não encontrada."}, 404)
+        title = str((await request.json()).get("title", "")).strip()[:80]
+        if not title:
+            return JSONResponse({"detail": "Dê um nome à conversa."}, 400)
+        session["title"] = title
+        cf_chat.save(base, session)
+        return JSONResponse({"ok": True})
+
+    async def sessions_message(request):
+        session = session_or_404(request.path_params["id"])
+        if session is None:
+            return JSONResponse({"detail": "Conversa não encontrada."}, 404)
+        body = await request.json()
+        text = str(body.get("text", "")).strip()[:2000]
+        attached = [m for m in (body.get("media") or []) if isinstance(m, dict) and cf_chat.valid(m.get("id")) and m.get("kind") in ("image", "video", "audio", "file")]
+        if not text and not attached:
+            return JSONResponse({"detail": "Escreva algo ou anexe uma mídia."}, 400)
+        for m in attached:
+            if not (uploads / m["id"]).is_dir():
+                return JSONResponse({"detail": "Um arquivo anexado expirou. Envie de novo."}, 400)
+        cf_chat.add_media(session, [{"id": m["id"], "name": str(m.get("name", "arquivo"))[:120], "kind": m["kind"]} for m in attached], "upload")
+        cf_chat.add_message(session, "user", text=text, media=[m["id"] for m in attached])
+        cf_chat.retitle(session, text)
+        if text:
+            registry = cf_apps.registry()
+            try:
+                plan = await run_in_threadpool(cf_router.plan, text, cf_chat.kinds(session), registry, tier)
+                note = ""
+            except (RuntimeError, requests.RequestException, KeyError, TypeError, ValueError) as exc:
+                routed = await run_in_threadpool(cf_router.route, text, cf_chat.kinds(session), registry, tier, None, cf_router.local_provider)
+                best = next((c for c in routed["candidates"] if c["router"]["available"]), None)
+                plan = dict(provider="local", steps=[dict(app=best["app"], title=best["title"], probability=best["probability"])] if best else [], complete=bool(best))
+                note = f"O Jev não respondeu ({str(exc)[:80]}); usei a heurística local, que só sugere um passo."
+            steps = []
+            for step in plan["steps"]:
+                if not step.get("app"):
+                    continue
+                app = registry[step["app"]]
+                try:
+                    cf_chat.build_params(app, app.fields(tier), text, session)
+                    missing = []
+                except cf_chat.Missing as gap:
+                    missing = gap.labels
+                steps.append(dict(app=step["app"], title=step["title"], probability=step.get("probability"), missing=missing))
+            cf_chat.add_message(session, "assistant", plan=dict(provider=plan.get("provider", "jev"), steps=steps, text=text, note=note))
+        cf_chat.save(base, session)
+        return JSONResponse(with_urls(session))
+
+    async def sessions_run(request):
+        session = session_or_404(request.path_params["id"])
+        if session is None:
+            return JSONResponse({"detail": "Conversa não encontrada."}, 404)
+        body = await request.json()
+        registry = cf_apps.registry()
+        app = registry.get(str(body.get("app", "")))
+        if app is None:
+            return JSONResponse({"detail": "App desconhecido."}, 404)
+        if app.min_vram and tier.vram_gb < app.min_vram:
+            return JSONResponse({"detail": app.describe(tier)["blocked_reason"]}, 409)
+        text = str(body.get("text", "")).strip()[:2000]
+        try:
+            params = cf_chat.build_params(app, app.fields(tier), text, session)
+            resolved = resolve_files(app, params)
+        except cf_chat.Missing as gap:
+            return JSONResponse({"detail": str(gap), "missing": gap.labels}, 409)
+        lane = "gpu" if app.lane == "gpu" else "cpu"
+        session_id = session["id"]
+
+        def runner(ctx):
+            outputs = app.runner(ctx, resolved, tier)
+            fresh = []
+            for path in outputs or []:
+                source = Path(path)
+                if not source.is_file():
+                    continue
+                ident = uuid.uuid4().hex
+                target = uploads / ident
+                target.mkdir()
+                copy = target / re.sub(r"[^\w.\- ]", "_", source.name)[:120]
+                shutil.copyfile(source, copy)
+                fresh.append({"id": ident, "name": copy.name, "kind": cf_jobs.KINDS.get(copy.suffix.lower(), "file")})
+            try:
+                current = cf_chat.load(base, session_id)
+                cf_chat.add_media(current, fresh, "result", app=app.id, job=ctx.job.id)
+                cf_chat.save(base, current)
+            except KeyError:
+                pass  # the conversation was deleted while the job ran; the job result still stands
+            return outputs
+
+        job = manager.submit(app.id, app.title + (" · " + text[:40] if text else ""), params, lane, runner)
+        cf_chat.add_message(session, "job", job=public_job(job)["id"], app=app.id, title=app.title)
+        cf_chat.save(base, session)
+        return JSONResponse(public_job(job), 202)
 
     async def models(request):
         return JSONResponse([cf_apps.model_card(key, tier) for key in cf_apps.IMAGE_MODELS])
@@ -411,6 +544,13 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/system", guard(system)),
         Route(f"{PREFIX}/apps", guard(apps)),
         Route(f"{PREFIX}/slots", guard(slots)),
+        Route(f"{PREFIX}/sessions", guard(sessions_list), methods=["GET"]),
+        Route(f"{PREFIX}/sessions", guard(sessions_create), methods=["POST"]),
+        Route(f"{PREFIX}/sessions/{{id}}", guard(sessions_get), methods=["GET"]),
+        Route(f"{PREFIX}/sessions/{{id}}/delete", guard(sessions_delete), methods=["POST"]),
+        Route(f"{PREFIX}/sessions/{{id}}/rename", guard(sessions_rename), methods=["POST"]),
+        Route(f"{PREFIX}/sessions/{{id}}/message", guard(sessions_message), methods=["POST"]),
+        Route(f"{PREFIX}/sessions/{{id}}/run", guard(sessions_run), methods=["POST"]),
         Route(f"{PREFIX}/search", guard(search_components)),
         Route(f"{PREFIX}/components/install", guard(install_component), methods=["POST"]),
         Route(f"{PREFIX}/benchmarks", guard(benchmarks)),
