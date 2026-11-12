@@ -21,7 +21,19 @@ export async function chatView(navigate, sessionId) {
   const followers = new Map(), snaps = new Map(), updaters = new Map(), drafts = new Map();
   const unmount = () => { followers.forEach(f => f.stop()); clearInterval(poller); };
 
+  const pref = (key, value) => { try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch { /* storage unavailable */ } return null; };
+  let collapsed = pref("cf-chat-side") === "1";
   const list = h("nav", { class: "chat-list", "aria-label": "Conversas" });
+  const sideToggle = h("button", { class: "side-toggle", type: "button", onclick: () => setCollapsed(!collapsed) });
+  const side = h("aside", { class: "chat-side" });
+  const shell = h("div", { class: "chat" });
+  function setCollapsed(value) {
+    collapsed = value; pref("cf-chat-side", value ? "1" : "0");
+    shell.classList.toggle("side-collapsed", collapsed);
+    sideToggle.setAttribute("aria-expanded", String(!collapsed));
+    sideToggle.setAttribute("aria-label", collapsed ? "Mostrar conversas" : "Recolher conversas");
+    sideToggle.title = collapsed ? "Mostrar conversas" : "Recolher conversas";
+  }
   const head = h("header", { class: "chat-head" });
   const drawer = h("div", { class: "media-drawer", hidden: true });
   const thread = h("div", { class: "chat-thread", role: "log", "aria-live": "polite" });
@@ -35,7 +47,7 @@ export async function chatView(navigate, sessionId) {
   // ------------------------------------------------------------------ sessions
   function paintList() {
     clear(list);
-    list.append(h("button", { class: "new-chat", type: "button", onclick: newSession }, icon("plus", "sm"), h("span", null, "Nova conversa")));
+    list.append(h("button", { class: "new-chat", type: "button", title: "Nova conversa", "aria-label": "Nova conversa", onclick: newSession }, icon("plus", "sm"), h("span", null, "Nova conversa")));
     for (const s of sessions) {
       const confirming = armedDelete === s.id;
       list.append(h("div", { class: `chat-item${session?.id === s.id ? " on" : ""}` },
@@ -253,8 +265,10 @@ export async function chatView(navigate, sessionId) {
     h("div", { class: "composer-bar" },
       h("button", { class: "attach", type: "button", "aria-label": "Anexar imagem, vídeo ou áudio", title: "Anexar", onclick: () => picker.click() }, icon("plus")),
       picker, input, sendButton));
-  root.append(h("div", { class: "chat" }, h("aside", { class: "chat-side" }, list),
-    h("section", { class: "chat-main" }, head, drawer, thread, composer)));
+  side.append(h("div", { class: "side-head" }, h("span", { class: "side-title" }, icon("comment", "sm"), "Conversas"), sideToggle), list);
+  shell.append(side, h("section", { class: "chat-main" }, head, drawer, thread, composer));
+  root.append(shell);
+  setCollapsed(collapsed);
 
   if (sessionId) {
     try { session = await api.get(`/sessions/${sessionId}`); }
