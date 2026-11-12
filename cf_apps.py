@@ -18,6 +18,8 @@ import cf_loras
 import cf_model_lab as lab
 import cf_openjutsu as openjutsu
 import cf_refine as refine
+import cf_registry as registry_mod
+import dataclasses
 import cf_region as region
 import cf_seedvr2 as seedvr2
 import cf_seethrough as seethrough
@@ -93,8 +95,12 @@ def model_card(key, tier=None):
     return card
 
 
+FINAL_SIDES = {"veryhigh": 2048, "ultra": 4096}  # final file long side; generated natively only up to the tier limit
+
+
 def long_side(quality, tier):
-    return {"draft": 512, "standard": tier.default_side, "high": tier.max_side}[quality]
+    """Long side of the *generated* image. Final sizes above the tier limit are reached by upscaling (resolution_plan)."""
+    return {"draft": 512, "standard": tier.default_side}.get(quality, tier.max_side)
 
 
 def reference_ratio(files):
@@ -122,6 +128,63 @@ def dimensions(aspect, quality, tier, files=None):
     return snap(w), snap(h)
 
 
+def resolution_plan(aspect, quality, tier, files=None, gen_factor=1.0):
+    """Native generation size, final delivered size and the upscale between them. Quality names the FINAL file."""
+    native = dimensions(aspect, quality, tier, files)
+    if gen_factor < 1 and quality in ("standard", "high"):  # "Rápido" generates smaller; final size is kept by upscaling
+        native = tuple(int(max(256, round(v * gen_factor / 32) * 32)) for v in native)
+        final_long = max(dimensions(aspect, quality, tier, files))
+        if max(native) < final_long:
+            factor = final_long / max(native)
+            final = dimensions(aspect, quality, tier, files)
+            return dict(native=native, final=final, scale=round(factor, 4),
+                        text=f"Geração {native[0]}×{native[1]} → ampliação {factor:g}× → saída {final[0]}×{final[1]}")
+    final_long = FINAL_SIDES.get(quality)
+    native_long = max(native)
+    if not final_long or final_long <= native_long:
+        return dict(native=native, final=native, scale=1.0,
+                    text=f"Geração {native[0]}×{native[1]} · sem ampliação")
+    factor = final_long / native_long
+    final = tuple(int(round(v * factor / 2) * 2) for v in native)
+    return dict(native=native, final=final, scale=round(factor, 4),
+                text=f"Geração {native[0]}×{native[1]} → ampliação {factor:g}× → saída {final[0]}×{final[1]}")
+
+
+UPSCALE_METHODS = ["Auto (recomendado)", "Real-ESRGAN fotografia", "Real-ESRGAN anime", "Clássico (Lanczos)"]
+
+
+def reach_final_size(ctx, outputs, plan, method):
+    """Tiled upscale from the native result to the exact final size. Never calls a 4096 px file 'native 4K'."""
+    if plan["scale"] <= 1:
+        return outputs
+    try:
+        import torch
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    except ImportError:
+        device = "cpu"
+    chosen = method or UPSCALE_METHODS[0]
+    note = ""
+    if chosen.startswith("Auto"):
+        chosen = "Real-ESRGAN fotografia" if (device == "cuda" or plan["scale"] <= 2) else "Clássico (Lanczos)"
+        if chosen.startswith("Clássico"):
+            note = " (sem GPU: ampliação clássica em vez de Real-ESRGAN)"
+    mode = {"Real-ESRGAN fotografia": "RealESRGAN_x4plus (fotografia)", "Real-ESRGAN anime": "RealESRGAN anime 6B (desenho)",
+            "Clássico (Lanczos)": "Lanczos (rápido, sem IA)"}[chosen]
+    finals = []
+    for index, path in enumerate(outputs):
+        ctx.check()
+        ctx.progress(0.9, desc=f"Ampliando {index + 1}/{len(outputs)} · {plan['text']}")
+        with Image.open(path) as image:
+            result = upscale.process(image.convert("RGB"), mode, plan["scale"], 128, 16, device, 0, ENV["base"], ctx.progress)
+        if result.size != tuple(plan["final"]):
+            result = result.resize(tuple(plan["final"]), Image.Resampling.LANCZOS)
+        final = path.with_name(path.stem + f"_{plan['final'][0]}x{plan['final'][1]}.png")
+        result.save(final)
+        finals.append(final)
+    ctx.job.update(message=f"{plan['text']} · {chosen}{note}")
+    return finals
+
+
 def opt(value, label, hint="", disabled=False, reason=""):
     return {"value": value, "label": label, "hint": hint, "disabled": disabled, "reason": reason}
 
@@ -130,7 +193,9 @@ def quality_options(tier):
     return [opt("draft", "Rascunho", "512 px · rápido"),
             opt("standard", "Padrão", f"{tier.default_side} px"),
             opt("high", "Alta", f"{tier.max_side} px", tier.max_side == tier.default_side,
-                "Sua placa já roda no limite no modo Padrão.")]
+                "Sua placa já roda no limite no modo Padrão."),
+            opt("veryhigh", "Muito alta", "2048 px · gera até " + str(tier.max_side) + " e amplia"),
+            opt("ultra", "Ultra", "4096 px · gera até " + str(tier.max_side) + " e amplia em blocos")]
 
 
 def image_fields(tier, refs_required=0, prompt_default="", prompt_label="Descreva a imagem", refs_label="Referências"):
@@ -141,12 +206,19 @@ def image_fields(tier, refs_required=0, prompt_default="", prompt_label="Descrev
         dict(id="refs", type="files", label=refs_label, accept="image", max=16, min=refs_required,
              help="A ordem importa: a primeira imagem é a principal."),
         dict(id="model", type="model", label="Modelo", default=default_model, options=models),
+        dict(id="set", type="set", label="Conjunto", default="Moderado", options=registry_mod.describe_sets(tier),
+             help="Cada conjunto monta o pipeline inteiro: passos, tamanho de geração e componentes. Manual libera tudo."),
+        dict(id="gen_factor", type="hidden", default=1.0),
+        dict(id="slots", type="hidden", default={}),
+        dict(id="sampler", type="hidden", default=""), dict(id="scheduler", type="hidden", default=""),
         dict(id="aspect", type="chips", label="Enquadramento", default="auto",
              options=[dict(opt(n, ASPECT_INFO[n][0], ASPECT_INFO[n][1]), ratio=[a, b], group=ASPECT_INFO[n][2])
                       for n, a, b in ASPECTS]),
-        dict(id="quality", type="chips", label="Qualidade", default="standard", options=quality_options(tier)),
+        dict(id="quality", type="chips", label="Resolução final", default="standard", options=quality_options(tier)),
         dict(id="variations", type="slider", label="Variações", default=1, min=1, max=tier.max_variations, step=1),
         dict(id="loras", type="loras", label="LoRAs", default=[], max=4, help="Ajuste a força de cada estilo."),
+        dict(id="upscale_method", type="select", label="Como ampliar até a resolução final", default=UPSCALE_METHODS[0], advanced=True,
+             options=[opt(v, v) for v in UPSCALE_METHODS], help="Só vale para Muito alta e Ultra. Em blocos, para caber na placa."),
         dict(id="upscale", type="select", label="Ampliar depois", default="Nenhum", advanced=True,
              options=[opt(v, v) for v in ("Nenhum", "Lanczos 2×", "Real-ESRGAN 2×")]),
         dict(id="refine", type="switch", label="Refino técnico automático", default=False, advanced=True,
@@ -184,7 +256,13 @@ def run_graph_images(ctx, preset, p, files, width, height, count, progress_total
     seed = int(p.get("seed", -1))
     seed = random.randrange(2**32) if seed < 0 else seed
     loras = [item for item in (p.get("loras") or []) if item.get("name") and item.get("on", True)]
-    names, sources = lab.names_and_sources(preset, {}, False)
+    preset = dataclasses.replace(preset, sampler=p.get("sampler") or preset.sampler, scheduler=p.get("scheduler") or preset.scheduler)
+    picked = {role: key for role, key in (p.get("slots") or {}).items() if key}
+    try:
+        chosen = lab.selections(ENV["civitai"], preset, picked, []) if picked else {}
+    except ValueError as exc:
+        raise JobError(str(exc)) from None
+    names, sources = lab.names_and_sources(preset, chosen, False)
     weights = []
     if loras:
         names["LoRA"] = []
@@ -227,10 +305,12 @@ def post_upscale(ctx, outputs, choice):
 def run_image(ctx, p, tier):
     preset = lab.PRESETS[p["model"]]
     files = p.get("refs") or []
-    width, height = dimensions(p.get("aspect", "auto"), p.get("quality", "standard"), tier, files)
+    plan = resolution_plan(p.get("aspect", "auto"), p.get("quality", "standard"), tier, files, float(p.get("gen_factor") or 1.0))
+    width, height = plan["native"]
     outputs = run_graph_images(ctx, preset, p, files, width, height, int(p.get("variations", 1)))
     if p.get("refine"):
         outputs = refine_outputs(ctx, preset, p, files, width, height, outputs)
+    outputs = reach_final_size(ctx, outputs, plan, p.get("upscale_method"))
     return post_upscale(ctx, outputs, p.get("upscale", "Nenhum"))
 
 

@@ -22,6 +22,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
 import cf_apps
+import cf_registry as registry_mod
 import cf_router
 import cf_civitai
 import cf_jobs
@@ -149,6 +150,12 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         except (RuntimeError, requests.RequestException, KeyError, TypeError) as exc:
             return JSONResponse({"detail": f"Planejamento indisponível (Jev): {str(exc)[:160]}"}, 503)
         return JSONResponse(result)
+
+    async def slots(request):
+        key = request.query_params.get("model", "")
+        if key not in cf_apps.IMAGE_MODELS:
+            return JSONResponse({"detail": "Modelo desconhecido."}, 404)
+        return JSONResponse(await run_in_threadpool(registry_mod.slots, key, cf_apps.ENV["civitai"]))
 
     async def models(request):
         return JSONResponse([cf_apps.model_card(key, tier) for key in cf_apps.IMAGE_MODELS])
@@ -377,6 +384,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
     routes = [
         Route(f"{PREFIX}/system", guard(system)),
         Route(f"{PREFIX}/apps", guard(apps)),
+        Route(f"{PREFIX}/slots", guard(slots)),
         Route(f"{PREFIX}/benchmarks", guard(benchmarks)),
         Route(f"{PREFIX}/route", guard(route_request), methods=["POST"]),
         Route(f"{PREFIX}/plan", guard(plan_request), methods=["POST"]),
