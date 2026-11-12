@@ -690,3 +690,25 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
 .tech { margin-top: 12px; text-align: left; max-width: 520px; font-size: 12px; color: var(--dim); }
 .tech pre { white-space: pre-wrap; word-break: break-word; font: 400 11.5px var(--mono); margin: 6px 0 0; padding: 10px; border-radius: 10px; background: rgba(255, 255, 255, .04); }
 .fail .row { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
+
+/* ---- LoRA browser inside the Estilo popover: summary, filter chips, searchable list with compatibility tags */
+.lora-switch { padding: 0; }
+.lora-warn { color: var(--red-hi); font-weight: 500; }
+.lora-browser { display: grid; gap: 10px; }
+.lora-summary { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.lora-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.lora-chips .chip { padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255, 255, 255, .04); color: var(--muted); font: 500 12px var(--sans, inherit); cursor: pointer; }
+.lora-chips .chip.on { border-color: rgba(226, 52, 63, .6); background: var(--red-wash); color: var(--text); }
+.lora-pick { display: grid; gap: 6px; max-height: 260px; overflow-y: auto; padding-right: 2px; }
+.lora-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px; border-radius: 12px; border: 1px solid var(--line); background: var(--s1); }
+.lora-row.blocked { opacity: .6; }
+.lora-row .po { width: 38px; height: 38px; border-radius: 8px; overflow: hidden; }
+.lora-row .po img, .lora-row .po svg { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lr-title { font-weight: 560; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lr-meta { display: flex; gap: 8px; align-items: center; font-size: 11px; flex-wrap: wrap; min-width: 0; }
+.ltag { padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600; border: 1px solid var(--line); }
+.ltag.ok { color: #7fe3a1; border-color: rgba(127, 227, 161, .4); }
+.ltag.warn { color: #f0c36b; border-color: rgba(240, 195, 107, .4); }
+.ltag.bad { color: var(--red-hi); border-color: rgba(255, 90, 101, .45); }
+.ltag.dim { color: var(--dim); }
+.lora-empty { display: grid; gap: 8px; justify-items: start; padding: 12px; border-radius: 12px; border: 1px dashed var(--line); color: var(--muted); font-size: 12.5px; line-height: 1.45; }

@@ -110,7 +110,7 @@ export const api = {
               if (!line) continue;
               const snapshot = JSON.parse(line.slice(6));
               onUpdate(snapshot);
-              if (isFinal(snapshot.status)) { stopped = true; clearTimeout(timer); return; }
+              if (isFinal(snapshot.status)) { stopped = true; clearTimeout(timer); window.dispatchEvent(new CustomEvent("cf-job-final", { detail: snapshot })); return; }
             }
           }
         } catch (error) {

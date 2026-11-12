@@ -116,7 +116,7 @@ def upscaler_items(ctx):
 
 # ------------------------------------------------------------------ installed things
 def lora_items(ctx, installed_only):
-    items, have = [], cf_loras.local(ctx["base"])
+    items, have = [], [i for i in cf_loras.scan(ctx["base"]) if i["source"] != "catálogo"]  # base/loras AND loose files in ComfyUI/models/loras
     pool = ([] if installed_only is None else cf_loras.catalog(ctx["base"])) + have
     for entry in pool:
         ok = entry["installed"]

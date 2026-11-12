@@ -383,7 +383,6 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
 
     async def lora_families(request):
         """Every recipe family that can take LoRAs, with whether its model is installed and how many LoRAs are ready."""
-        have = cf_loras.local(base)
         out = []
         for key, preset in cf_apps.lab.PRESETS.items():
             if key not in cf_apps.LORA_FAMILIES or key not in cf_apps.MODEL_INFO:
@@ -393,9 +392,9 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             installed = bool(files) and all(p.is_file() for p in files)
             if not preset.files:  # checkpoint families: "installed" when some Civitai checkpoint is in the inventory
                 installed = bool(cf_civitai.inventory(cf_apps.ENV["civitai"], preset, "Checkpoint"))
-            ready = [i for i in have if key in (i["families"] or [])]
+            ready = int(cf_loras.available(base, cf_loras.comfy_loras().parent, key)["counts"]["installed_for_family"])
             out.append(dict(key=key, title=info.get("name") or preset.title, tagline=info.get("tagline", "Checkpoint do Civitai"),
-                            installed=installed, loras_installed=len(ready)))
+                            installed=installed, loras_installed=ready))
         return JSONResponse(out, headers={"Cache-Control": "no-store"})
 
     async def model_detail(request):
@@ -410,15 +409,15 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         return sign(f"cover/{key}").replace("/files/", "/", 1)
 
     async def loras(request):
-        family = request.query_params.get("family")
-        items = cf_loras.catalog(base) + cf_loras.local(base)
-        if family:
-            items = [i for i in items if not i["families"] or family in i["families"]]
-        for item in items:
+        family = request.query_params.get("family", "")
+        if family not in cf_apps.LORA_FAMILIES:
+            return JSONResponse({"detail": "Escolha um modelo da lista."}, 400)
+        result = await run_in_threadpool(cf_loras.available, base, cf_loras.comfy_loras().parent, family)
+        for item in result["items"]:
             if item.get("covers") and item.get("model"):
                 item["cover"] = cover_url(item["model"], item["version"], item["covers"])
             item.pop("covers", None)
-        return JSONResponse(items)
+        return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
     async def civitai_loras(request):
         family = request.query_params.get("family", "qwen21")

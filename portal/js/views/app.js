@@ -2,7 +2,7 @@ import { api, store, isFinal, events } from "../api.js";
 import { anchorPopover } from "../popover.js";
 import { lightEditor } from "../lights.js";
 import { openSearch } from "../search.js";
-import { favFirst, starButton } from "../favs.js";
+import { favFirst, starButton, isFav } from "../favs.js";
 import { h, icon, clear, seg, dropdown, actionMenu, appGlyph, rememberCover, slider, switchRow, field, toast, illustration, posterEl, artFor, fmtClock, fmtBytes } from "../ui.js";
 
 const SEND_TO = { image: ["upscale", "look", "frame", "animate", "edit", "relight", "compare"], video: ["clip", "still", "board", "seedvr2"] };
@@ -144,7 +144,7 @@ export async function appView(id, navigate) {
   }
   function applySet() {
     const r = recipeOf(values.set);
-    if (!r) { paintSummary(); loadSlots(); return; }  // Manual: nothing is applied, the user edits each slot
+    if (!r) { paintSummary(); onModelChange(); loadSlots(); return; }  // Manual: nothing is applied, but model-bound panels (LoRAs, advice) still follow the model
     values.model = r.model;
     binders.model?.(r.model);
     for (const key of ["steps", "cfg", "gen_factor", "sampler", "scheduler"]) {
@@ -211,7 +211,8 @@ export async function appView(id, navigate) {
   function loraPanel(f) {
     const box = h("div", { class: "stack" });
     let dragFrom = null;
-    let library = [];
+    let library = [], counts = {}, familyLabel = "", loaded = false;
+    const ui = { query: "", filter: "compat" };  // filter: compat | installed | fav | all
     const paint = () => {
       clear(box);
       values.loras.forEach((item, index) => {
@@ -230,9 +231,13 @@ export async function appView(id, navigate) {
                 box.querySelectorAll(".grip")[to]?.focus();
               } }, icon("grip", "sm")),
             h("div", { class: "po" }, entry?.cover ? h("img", { src: api.url(entry.cover), alt: "", loading: "lazy" }) : posterEl(item.name)),
-            h("div", { class: "name", title: item.name }, entry?.label || item.name, entry && !entry.installed ? h("span", { class: "dim" }, " · baixa ao gerar") : null),
+            h("div", { class: "name", title: item.name }, entry?.label || item.name, entry && !entry.installed ? h("span", { class: "dim" }, " · baixa ao gerar") : null,
+              entry && entry.compat === "incompatível" ? h("span", { class: "lora-warn", title: entry.compat_reason }, " · incompatível com o modelo atual") : null,
+              entry && entry.compat === "desconhecida" ? h("span", { class: "dim", title: entry.compat_reason }, " · compatibilidade desconhecida") : null),
             h("div", { class: "row" },
-              h("input", { type: "checkbox", "aria-label": "Ativar LoRA", checked: item.on !== false, class: "sr", id: `lora-${index}` }),
+              h("label", { class: "switch lora-switch", title: item.on === false ? "Desativada: não entra na geração" : "Ativa: entra na geração" },
+                h("input", { type: "checkbox", role: "switch", "aria-label": `Ativar LoRA ${entry?.label || item.name}`, checked: item.on !== false,
+                  onchange: e => { item.on = e.target.checked; card.classList.toggle("off", !item.on); refresh.forEach(fn => fn()); } })),
               h("button", { class: "btn ghost sm icon-only", type: "button", "aria-label": "Remover LoRA", onclick: () => { values.loras.splice(index, 1); paint(); } }, icon("x", "sm")))),
           h("div", { class: "field" }, h("label", null, h("span", null, "Força"), h("span", { class: "dim" }, "duplo clique zera")),
             slider({ min: -2, max: 2, step: 0.05, default: 1 }, item.strength ?? 1, v => { item.strength = v; if (item.clipLinked !== false) item.clip = v; })),
@@ -248,18 +253,72 @@ export async function appView(id, navigate) {
         });
         box.append(card);
       });
-      const available = library.filter(l => !values.loras.some(v => v.name === l.name));
-      const picker = h("select", { class: "input", "aria-label": "Escolher LoRA" }, h("option", { value: "" }, available.length ? "Adicionar LoRA…" : "Nenhuma LoRA compatível"),
-        available.map(l => h("option", { value: l.name }, `${l.label}${l.installed ? "" : " (baixar)"}`)));
-      picker.addEventListener("change", () => {
-        if (!picker.value || values.loras.length >= (f.max || 4)) return picker.value && toast(`Use até ${f.max || 4} LoRAs.`, "err");
-        values.loras.push({ name: picker.value, strength: 1, clip: 1, on: true });
-        paint();
-      });
-      box.append(h("div", { class: "addlora" }, picker));
+      box.append(pickerPanel());
     };
-    const load = () => api.get(`/loras?family=${encodeURIComponent(values.model || "")}`).then(items => { library = items; paint(); }).catch(() => paint());
+    const COMPAT_TAG = { confirmada: ["ok", "compatível"], provável: ["warn", "provável"], desconhecida: ["dim", "sem informação"], "incompatível": ["bad", "incompatível"] };
+    const pickerPanel = () => {
+      const chosen = new Set(values.loras.map(v => v.name));
+      const mine = counts.installed_for_family || 0;
+      const summary = !loaded ? "Carregando a biblioteca…"
+        : `${mine} instalada${mine === 1 ? "" : "s"} para ${familyLabel} · ${counts.installed_other || 0} para outros modelos · ${counts.unknown || 0} sem informação`;
+      const match = l => (ui.filter === "all" || (ui.filter === "installed" ? l.installed : ui.filter === "fav" ? isFav("lora", l.fav_id)
+        : l.installed && l.compat !== "incompatível") ) && (!ui.query || `${l.label} ${l.name} ${l.creator || ""}`.toLowerCase().includes(ui.query.toLowerCase()));
+      const rows = library.filter(l => !chosen.has(l.name) && match(l));
+      const search = h("input", { class: "input", type: "search", placeholder: "Buscar LoRA…", "aria-label": "Buscar LoRA", value: ui.query,
+        oninput: e => { ui.query = e.target.value; repaintList(); } });
+      const chips = h("div", { class: "lora-chips", role: "group", "aria-label": "Filtro" }, [["compat", "Compatíveis"], ["installed", "Instaladas"], ["fav", "Favoritas"], ["all", "Todas"]].map(([key, text]) =>
+        h("button", { type: "button", class: `chip${ui.filter === key ? " on" : ""}`, "aria-pressed": String(ui.filter === key), "data-filter": key,
+          onclick: () => { ui.filter = key; paint(); } }, text)));
+      const list = h("div", { class: "lora-pick", role: "list" });
+      const repaintList = () => {
+        const shown = library.filter(l => !chosen.has(l.name) && match(l));
+        clear(list);
+        if (!shown.length) {
+          const hidden = library.filter(l => l.installed && l.compat === "incompatível" && !chosen.has(l.name)).length;
+          list.append(h("div", { class: "lora-empty", role: "status" },
+            ui.filter === "compat" && hidden ? `Nenhuma LoRA instalada serve para ${familyLabel}, mas há ${hidden} instalada${hidden === 1 ? "" : "s"} para outros modelos.`
+              : ui.filter === "fav" ? "Nenhuma LoRA favoritada ainda. Use a estrela em qualquer lista." : "Nenhuma LoRA encontrada com este filtro.",
+            ui.filter === "compat" && hidden ? h("button", { type: "button", class: "btn sm", onclick: () => { ui.filter = "installed"; paint(); } }, "Ver todas as instaladas") : null,
+            h("a", { href: "#/loras", class: "tiny-link" }, "Procurar LoRAs para este modelo")));
+          return;
+        }
+        shown.forEach(l => {
+          const [tone, text] = COMPAT_TAG[l.compat] || COMPAT_TAG.desconhecida;
+          const blocked = l.compat === "incompatível";
+          list.append(h("div", { class: `lora-row${blocked ? " blocked" : ""}`, role: "listitem", "data-name": l.name, "data-compat": l.compat },
+            h("div", { class: "po" }, l.cover ? h("img", { src: api.url(l.cover), alt: "", loading: "lazy" }) : posterEl(l.name)),
+            h("div", { class: "lr-main" }, h("div", { class: "lr-title", title: l.name }, l.label),
+              h("div", { class: "lr-meta" }, h("span", { class: `ltag ${tone}`, title: l.compat_reason }, text), h("span", { class: "dim" }, l.installed ? "instalada" : "baixa ao gerar"),
+                blocked ? h("span", { class: "dim" }, l.compat_reason) : null)),
+            starButton("lora", l.fav_id, { title: l.label, name: l.name }),
+            h("button", { type: "button", class: "btn sm", disabled: blocked, "aria-label": `Adicionar ${l.label}`, title: blocked ? l.compat_reason : "Adicionar ao pedido",
+              onclick: () => {
+                if (values.loras.length >= (f.max || 4)) return toast(`Use até ${f.max || 4} LoRAs.`, "err");
+                values.loras.push({ name: l.name, strength: 1, clip: 1, on: true });  // never auto-activated by the Conjunto or by installing
+                paint(); refresh.forEach(fn => fn());
+              } }, icon("plus", "sm"), "Adicionar")));
+        });
+      };
+      repaintList();
+      return h("div", { class: "addlora lora-browser" }, h("div", { class: "lora-summary", "aria-live": "polite" }, summary), search, chips, list);
+    };
+    // One source of truth: GET /loras returns every file the worker can see, classified for the model in use.
+    let loadSeq = 0;
+    const load = () => {
+      const mine = ++loadSeq;
+      return api.get(`/loras?family=${encodeURIComponent(values.model || "")}`).then(data => {
+        if (mine !== loadSeq) return;  // a newer request (model changed) supersedes this one
+        library = data.items; counts = data.counts; familyLabel = data.family_label; loaded = true;
+        // A LoRA already in the request that does not fit the new model is switched off and flagged, never silently sent.
+        values.loras.forEach(item => { const entry = library.find(l => l.name === item.name); if (entry?.compat === "incompatível" && item.on !== false) { item.on = false; item.autoOff = true; } });
+        paint(); refresh.forEach(fn => fn());
+      }).catch(() => { loaded = true; paint(); });
+    };
     modelListeners.push(load);
+    // Something finished installing (Library, search, model page): the list updates without reloading the page.
+    const onInventory = e => { if (/^install/.test(e.detail?.app || "")) load(); };
+    window.addEventListener("cf-job-final", onInventory);
+    cleanups.push(() => window.removeEventListener("cf-job-final", onInventory));
     return field(f.label, box, f.help, h("a", { href: "#/loras" }, "Biblioteca"));
   }
 
@@ -622,7 +681,7 @@ export async function appView(id, navigate) {
     const chips = [
       pop("Modelo", "cube", [...(sectionNodes["Modelo"] || [])], () => `${values.set === "Manual" ? "Manual" : values.set} · ${modelTitle(values.model)}`, true),
       pop("Formato", "frame", [...(sectionNodes["Formato"] || [])], () => `${optLabel("aspect", values.aspect).replace(/ ·.*$/, "")} · ${optLabel("quality", values.quality)} · ${values.variations}×`),
-      sectionNodes["Estilo"] ? pop("Estilo", "sparkle", [...sectionNodes["Estilo"]], () => (values.loras?.length ? `${values.loras.length} LoRA${values.loras.length > 1 ? "s" : ""}` : "nenhum")) : null,
+      sectionNodes["Estilo"] ? pop("Estilo", "sparkle", [...sectionNodes["Estilo"]], () => { const on = (values.loras || []).filter(l => l.on !== false).length; return on ? `${on} LoRA${on > 1 ? "s" : ""} ativa${on > 1 ? "s" : ""}` : "nenhuma ativa"; }) : null,
       extraNodes.length ? pop("Mais", "sliders", extraNodes, () => "") : null,
     ].filter(Boolean);
     refresh.push(() => chipDefs.forEach(fn => fn()));
