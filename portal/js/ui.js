@@ -248,7 +248,9 @@ export function actionMenu({ label, iconName = "external", items, cls = "btn sm"
 }
 
 // Dropdown for every "pick one" field: glyph, label, hint, optional groups, keyboard and screen-reader support.
-export function dropdown(options, value, onChange, { label = "" } = {}) {
+const star = () => h("span", { class: "star", role: "img", "aria-label": "Compatibilidade padrão", title: "Compatibilidade padrão: o conjunto que a receita já valida" }, "★");
+
+export function dropdown(options, value, onChange, { label = "", footer = null } = {}) {
   const chevron = icon("chevron-down", "sm");
   const current = () => options.find(o => o.value === value) || options[0];
   const face = h("span", { class: "dd-face" });
@@ -256,7 +258,8 @@ export function dropdown(options, value, onChange, { label = "" } = {}) {
   const root = h("div", { class: "dd" }, button);
   let pop = null, active = -1;
 
-  const row = o => [o.ratio ? ratioGlyph(o.ratio) : null, h("span", { class: "dd-text" }, h("b", null, o.label), o.hint ? h("small", null, o.hint) : null)];
+  const row = o => [o.ratio ? ratioGlyph(o.ratio) : null, h("span", { class: "dd-text" }, h("b", null, o.star ? star() : null, o.label), o.hint ? h("small", null, o.hint) : null),
+    o.badge ? h("span", { class: `dd-badge ${o.installed === false ? "off" : ""}` }, o.badge) : null];
   const paintFace = () => { clear(face); face.append(...row(current()).filter(Boolean)); };
 
   function close(focus = true) {
@@ -290,6 +293,8 @@ export function dropdown(options, value, onChange, { label = "" } = {}) {
       pop.append(h("button", { type: "button", class: `dd-opt${o.value === value ? " sel" : ""}`, role: "option", "aria-selected": String(o.value === value), disabled: o.disabled, title: o.reason || "",
         onclick: () => choose(o), onpointermove: () => mark(i) }, ...row(o), o.value === value ? icon("check", "sm") : null));
     });
+    if (footer) pop.append(h("button", { type: "button", class: "dd-opt dd-footer", role: "menuitem", onclick: () => { close(false); footer.onclick(); } },
+      icon("search", "sm"), h("span", { class: "dd-text" }, h("b", null, footer.label), footer.hint ? h("small", null, footer.hint) : null)));
     document.body.append(pop);
     const rect = button.getBoundingClientRect();
     const room = window.innerHeight - rect.bottom - 12, above = rect.top - 12;
@@ -322,6 +327,7 @@ export function dropdown(options, value, onChange, { label = "" } = {}) {
     else if (e.key === "Tab") close(false);
   });
   paintFace();
+  root.set = v => { value = v; paintFace(); };
   return root;
 }
 
@@ -336,7 +342,9 @@ export function slider(f, value, onChange) {
   input.addEventListener("input", () => { paint(); onChange(Number(input.value)); });
   input.addEventListener("dblclick", () => { input.value = f.default ?? f.min; paint(); onChange(Number(input.value)); });
   paint();
-  return h("div", { class: "range" }, input, out);
+  const box = h("div", { class: "range" }, input, out);
+  box.set = v => { input.value = v; paint(); };
+  return box;
 }
 
 export function switchRow(label, value, onChange) {

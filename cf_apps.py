@@ -258,11 +258,19 @@ def run_graph_images(ctx, preset, p, files, width, height, count, progress_total
     loras = [item for item in (p.get("loras") or []) if item.get("name") and item.get("on", True)]
     preset = dataclasses.replace(preset, sampler=p.get("sampler") or preset.sampler, scheduler=p.get("scheduler") or preset.scheduler)
     picked = {role: key for role, key in (p.get("slots") or {}).items() if key}
+    plain = {role: key[5:] for role, key in picked.items() if key.startswith("file:")}  # a file already in the worker's folder
+    picked = {role: key for role, key in picked.items() if not key.startswith("file:")}
     try:
         chosen = lab.selections(ENV["civitai"], preset, picked, []) if picked else {}
     except ValueError as exc:
         raise JobError(str(exc)) from None
     names, sources = lab.names_and_sources(preset, chosen, False)
+    for role, name in plain.items():
+        folder = cf_civitai.ROLE_TYPES.get(role)
+        if role not in preset.roles or not folder or Path(name).name != name or not (lab.models_root() / folder / name).is_file():
+            raise JobError(f"O arquivo escolhido para {role} não está na pasta do worker.")
+        names[role] = [name]
+        sources[:] = [src for src in sources if src[0] != folder or src[1] != Path(preset.files.get(role, ("", ""))[1]).name]
     weights = []
     if loras:
         names["LoRA"] = []

@@ -25,7 +25,8 @@ def local(role, family, civitai_dir, query):
         for path in sorted(folder.iterdir()):
             if path.is_file() and path.suffix in (".safetensors", ".gguf", ".pth") and wanted in path.name.lower():
                 items.append(dict(source="local", id=path.name, title=path.name, author="", size_mb=round(path.stat().st_size / 1024**2),
-                                  status="instalado", compatible="desconhecida", url=None, install=None))
+                                  status="instalado", compatible="não verificada (arquivo avulso)", url=None, install=None,
+                                  value=f"file:{path.name}"))
     for key, data, path in civitai.inventory(civitai_dir, preset, role):
         title = data.get("title") or data.get("name") or path.name
         if wanted in title.lower() or wanted in path.name.lower():

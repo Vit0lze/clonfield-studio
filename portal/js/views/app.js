@@ -1,5 +1,6 @@
 import { api, store, isFinal } from "../api.js";
 import { lightEditor } from "../lights.js";
+import { openSearch } from "../search.js";
 import { h, icon, clear, seg, dropdown, actionMenu, appGlyph, rememberCover, slider, switchRow, field, toast, illustration, posterEl, artFor, fmtClock, fmtBytes } from "../ui.js";
 
 const SEND_TO = { image: ["upscale", "look", "frame", "animate", "edit", "relight", "compare"], video: ["clip", "still", "board", "seedvr2"] };
@@ -15,6 +16,10 @@ export async function appView(id, navigate) {
   const values = {};
   for (const f of app.fields) values[f.id] = structuredClone(prefill[f.id] ?? f.default ?? (f.type === "files" || f.type === "loras" || f.type === "lights" ? [] : ""));
   const cleanups = [];
+  const binders = {};                         // field id -> programmatic update, used when a Conjunto is applied
+  const TUNING = new Set(["steps", "cfg"]);   // touching these by hand means the user left the chosen Conjunto
+  let setPick = null, setNote = null;
+  const markManual = () => { if (values.set && values.set !== "Manual") { values.set = "Manual"; setPick?.set("Manual"); paintSetNote(); } };
   let follower = null, tick = null, current = null;
   // Reframes live per job: kept in memory while the page is open and in localStorage so they survive a reload.
   const reframes = new Map(), hydrated = new Set(), coverSaved = new Set();
@@ -64,17 +69,22 @@ export async function appView(id, navigate) {
     }
     if (f.type === "number") {
       const input = h("input", { class: "input mono", type: "number", value: values[f.id], oninput: () => { values[f.id] = Number(input.value); } });
+      binders[f.id] = v => { values[f.id] = v; input.value = v; };
       return field(f.label, input, f.help);
     }
     if (f.type === "chips" || f.type === "select") {
-      const pick = dropdown(f.options, values[f.id], v => { values[f.id] = v; rerun(); }, { label: f.label });
+      const pick = dropdown(f.options, values[f.id], v => { values[f.id] = v; if (TUNING.has(f.id)) markManual(); rerun(); }, { label: f.label });
+      binders[f.id] = v => { values[f.id] = v; pick.set(v); };
       return field(f.label, pick, f.help);
     }
     if (f.type === "slider") {
       const out = h("span", { class: "mono dim" });
-      return field(f.label, slider({ ...f, zero_label: f.min === 0 && f.default === 0 ? "auto" : null }, values[f.id], v => { values[f.id] = v; }), f.help);
+      const range = slider({ ...f, zero_label: f.min === 0 && f.default === 0 ? "auto" : null }, values[f.id], v => { values[f.id] = v; if (TUNING.has(f.id)) markManual(); });
+      binders[f.id] = v => { values[f.id] = v; range.set(v); };
+      return field(f.label, range, f.help);
     }
     if (f.type === "switch") return switchRow(f.label, values[f.id], v => { values[f.id] = v; });
+    if (f.type === "set") return setControl(f);
     if (f.type === "model") return modelPicker(f);
     if (f.type === "loras") return loraPanel(f);
     if (f.type === "files") return dropzone(f);
@@ -88,6 +98,65 @@ export async function appView(id, navigate) {
   }
 
   function currentModel() { return models.find(m => m.key === values.model); }
+
+  // ---- Conjunto (whole-pipeline preset) and the component slots it fills
+  let setField = null;
+  function paintSetNote() {
+    if (!setNote || !setField) return;
+    clear(setNote);
+    const option = setField.options.find(o => o.value === values.set);
+    const recipe = option?.by_model?.[values.model];
+    if (!recipe) { setNote.append(h("span", null, option?.hint || "")); return; }
+    setNote.append(h("span", null, option.hint),
+      h("span", { class: "mono" }, `${recipe.values.steps} passos · CFG ${recipe.values.cfg} · geração ${recipe.values.gen_factor < 1 ? "menor, ampliada depois" : "no tamanho do perfil"}`),
+      h("span", { class: "mono" }, Object.entries(recipe.components).map(([role, name]) => `${role}: ${name}`).join(" · ")),
+      h("span", { class: "dim" }, recipe.note));
+  }
+  function applySet() {
+    const option = setField?.options.find(o => o.value === values.set);
+    const recipe = option?.by_model?.[values.model];
+    if (!recipe) { values.slots = {}; paintSetNote(); loadSlots(); return; }  // Manual: nothing applied, slots follow the model
+    for (const key of ["steps", "cfg", "gen_factor", "sampler", "scheduler"]) {
+      values[key] = recipe.values[key];
+      binders[key]?.(recipe.values[key]);
+    }
+    values.slots = {};
+    paintSetNote();
+    loadSlots();
+  }
+  function setControl(f) {
+    setField = f;
+    setPick = dropdown(f.options, values[f.id], v => { values[f.id] = v; applySet(); rerun(); }, { label: f.label });
+    setNote = h("div", { class: "set-note" });
+    paintSetNote();
+    return field(f.label, h("div", { class: "stack" }, setPick, setNote), f.help);
+  }
+
+  const slotBox = h("div", { class: "stack slots" });
+  let slotSerial = 0;
+  async function loadSlots() {
+    if (!app.fields.some(f => f.id === "slots")) return;
+    const mine = ++slotSerial;
+    let slots = [];
+    try { slots = await api.get(`/slots?model=${encodeURIComponent(values.model)}`); } catch { /* the slots panel just stays empty */ }
+    if (mine !== slotSerial) return;
+    clear(slotBox);
+    const m = currentModel();
+    for (const slot of slots) {
+      const isAlgo = slot.kind === "algorithm";
+      const key = isAlgo ? slot.id : slot.id;
+      const current = isAlgo ? (values[slot.id] || "") : (values.slots?.[slot.id] || "");
+      const options = slot.options.map(o => ({ value: o.value, label: o.label, star: o.star, installed: o.installed, hint: o.hint,
+        badge: o.source === "worker" || o.source === "padrão" ? null : (o.installed ? "instalado" : "baixa ao usar") }));
+      if (!options.length) options.push({ value: "", label: "Escolher no catálogo", hint: "Este modelo não traz arquivo padrão", installed: false });
+      const pick = dropdown(options, current, v => { if (isAlgo) values[slot.id] = v; else (values.slots ||= {})[slot.id] = v; markManual(); rerun(); },
+        { label: slot.label, footer: slot.search ? { label: "Pesquisar…", hint: "No worker, CivitAI e Hugging Face", onclick: () => openSearch({
+          role: slot.search.role, label: slot.label, family: slot.search.family, familyTitle: m?.title || slot.search.family,
+          onUse: item => { (values.slots ||= {})[slot.id] = item.value; markManual(); loadSlots(); rerun(); } }) } : null });
+      slotBox.append(field(slot.label, pick, slot.search ? null : "Algoritmo do worker: só mostra o que o ComfyUI aceita."));
+    }
+  }
+
 
   function modelPicker(f) {
     const box = h("div", { class: "mpick", role: "group" });
@@ -104,7 +173,7 @@ export async function appView(id, navigate) {
     paint();
     return field(f.label, box, null, h("a", { href: "#/models" }, "Ver biblioteca"));
   }
-  const modelListeners = [];
+  const modelListeners = [() => applySet()];
   const onModelChange = () => {
     const m = currentModel();
     advice.hidden = !(m && m.advice);
@@ -457,7 +526,7 @@ export async function appView(id, navigate) {
   // ---------- assemble ----------
   const main = app.fields.filter(f => !f.advanced), extra = app.fields.filter(f => f.advanced);
   const scroll = h("div", { class: "scroll" }, main.map(control), extra.length ? h("details", { class: "more" },
-    h("summary", null, h("span", null, "Ajustes avançados"), icon("chevron-down", "sm")), h("div", { class: "body" }, extra.map(control))) : null);
+    h("summary", null, h("span", null, "Ajustes avançados"), icon("chevron-down", "sm")), h("div", { class: "body" }, app.fields.some(f => f.id === "slots") ? [h("h4", { class: "slots-title" }, "Componentes do conjunto"), slotBox] : null, extra.map(control))) : null);
   root.append(
     h("a", { class: "crumb", href: "#/apps" }, icon("chevron-left", "sm"), "Apps"),
     h("div", { class: "appview" },

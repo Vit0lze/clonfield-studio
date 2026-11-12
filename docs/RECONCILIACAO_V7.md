@@ -1,6 +1,6 @@
 # Reconciliação plano V7.1 × código real
 
-Escrita após leitura de `PLANO_MESTRE_V7_1` até a seção 6 e do índice do restante (o arquivo histórico de 06/11,
+Atualizada na rodada 5 (núcleo). Escrita após leitura de `PLANO_MESTRE_V7_1` até a seção 6 e do índice do restante (o arquivo histórico de 06/11,
 linhas ~1039-1331, **ainda não foi lido por inteiro**). Estados: `pronto-testado-T4`, `pronto-testado-CPU`,
 `pronto-sem-teste-real`, `parcial`, `não iniciado`. Nada abaixo é «aprovado para produção».
 
@@ -8,11 +8,11 @@ linhas ~1039-1331, **ainda não foi lido por inteiro**). Estados: `pronto-testad
 
 | # | Item do plano | Fonte | Estado no código | Evidência | Lacuna |
 |---|---|---|---|---|---|
-| 1 | ★ vermelha de compatibilidade padrão por app+tarefa, ordem ★ → instalados → catálogo → «Pesquisar» | V5.1 | **não iniciado** | — | modelo de dados `default_compatibility_for`, UI da estrela |
-| 2 | Dropdown contextual em TODO slot (modelo, VAE, encoder, LoRA, ControlNet, upscaler…) com «Pesquisar» filtrado e «Usar aqui» | 2.1 | **parcial**: dropdown de escolha simples e de modelo; LoRA tem biblioteca Civitai | testado local | slots VAE/encoder/CLIP/sampler/scheduler não expostos; sem «Pesquisar» filtrado por slot; sem retorno preservando estado |
-| 3 | Presets **Rápido/Moderado/Qualidade/Manual** = conjunto inteiro (difusão+encoder+VAE+LoRA+sampler+offload+workflow) | V4/V5.2 | **não iniciado** (a UI só tem «Rascunho/Padrão/Alta», que é resolução, não conjunto) | — | `ComponentRegistry`, receitas completas, validação de compatibilidade |
-| 4 | Biblioteca universal HF + CivitAI + local, estados encontrado→validado, matriz de compatibilidade | 4 | **parcial**: Civitai LoRAs (civitai.red) com capas e instalação SHA-256; modelos de imagem com cards | testado real (civitai.red) | **Hugging Face sem busca**; local sem inventário; sem aba de vídeo/3D/áudio; sem matriz |
-| 5 | Escala de qualidade **Muito Alta 2048 / Ultra 4096** com upscale em estágios e tiles, mostrando «Geração → Ampliação → Saída» | 3 | **não iniciado** (`make_graph` ainda limita a 2048) | — | separar tamanho final × latente; Real-ESRGAN/SeedVR2 em tiles |
+| 1 | ★ vermelha de compatibilidade padrão por app+tarefa, ordem ★ → instalados → catálogo → «Pesquisar» | V5.1 | **parcial (rodada 5)**: `cf_registry` deriva a ★ da receita; ordem ★ → instalados; estrela vermelha com `aria-label` | testes + navegador local | ★ ainda só em Criar/Editar/Luz/Retrato (apps de imagem); não derivado de `validated_on_gpu`; sem ★ nos apps de vídeo/outros |
+| 2 | Dropdown contextual em TODO slot com «Pesquisar» filtrado e «Usar aqui» | 2.1 | **parcial (rodada 5)**: slots Difusão/Checkpoint, Encoder, VAE, Upscaler, sampler e scheduler (lista do worker real); modal Pesquisar com 3 fontes e instalação Civitai por papel | navegador local + APIs HF/Civitai reais; 11 testes novos | **instalação de um VAE/encoder e uma geração com o slot trocado não foram testadas na T4**; ControlNet/embedding/CLIP Vision sem slot; LoRA segue no painel próprio; HF só descobre (não baixa) |
+| 3 | Presets **Rápido/Moderado/Qualidade/Manual** = conjunto inteiro | V4/V5.2 | **parcial (rodada 5)**: campo «Conjunto» aplica passos, CFG, tamanho de geração, sampler/scheduler e lista os componentes ★; mexer à mão vira Manual | testes + navegador | **receitas iniciais derivadas do preset, SEM benchmark A/B** (o plano exige medir por tarefa/GPU); offload por conjunto não existe (flags só por perfil de GPU); LoRAs/ControlNet/VAD/workflow não entram no conjunto; só apps de imagem |
+| 4 | Biblioteca universal HF + CivitAI + local, estados encontrado→validado, matriz de compatibilidade | 4 | **parcial (rodada 5)**: busca unificada `/search` (local, Civitai por papel+base, HF) com `status` honesto (instalado / compatível / descoberto); LoRAs Civitai com capas | testado real contra civitai.red e huggingface.co | sem aba Biblioteca geral (só dentro dos slots); sem matriz validada por GPU; sem vídeo/3D/áudio; HF não instala |
+| 5 | Escala de qualidade **Muito Alta 2048 / Ultra 4096** com upscale em estágios e tiles, mostrando «Geração → Ampliação → Saída» | 3 | **parcial (rodada 5)**: campo «Resolução final», `resolution_plan`, ampliação em blocos (Real-ESRGAN via spandrel, Lanczos de reserva), job registra «Geração → ampliação → saída» | 3 testes com arquivos reais (caminho Lanczos) | **Real-ESRGAN em GPU e artefatos de bloco não testados**; 1:1 e 9:16 não comparados; sem painel «Como obter esta resolução?» completo; SeedVR2/Qwen generativo como método não ligados |
 | 6 | «Ampliar depois» abre painel completo de pós-processamento | 9 | **não iniciado** (só um select) | — | |
 | 7 | Variações 1-4 de fato editáveis | 2.2/11.2 | **parcial** (slider limitado pelo perfil Leve = até 1) | — | revisar limite no perfil T4 |
 | 8 | Capa do modelo não sobrescrita pela última geração | 11.1 | **feito** (capa de modelo vs. amostras) | testado local | — |
