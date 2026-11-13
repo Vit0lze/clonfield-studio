@@ -6,6 +6,7 @@
 - **Lote 2:** `cf_capabilities.py` (registro), `cf_dag.py` (DAG tipado, cache por hash, retomar), `cf_agent.py` (agente com tool calling), páginas `#/capabilities`, API `/capabilities` e `/dag/*`. `docs/BACKLOG_CAPACIDADES_APPS.md` mapeia as 93 fontes (66 ainda NÃO INICIADO).
 - **LLM 100% local:** `cf_llama.py` (Qwen3.5-9B abliterated Q6_K via llama-server, binários e pesos fixados com SHA-256), `cf_llm.py`. Gemma/Google removido. JEV só com `CLONFIELD_JEV=1`. **Não rodou o 9B** (sem GPU): só o protocolo com um Qwen3.5 de 0.8B/2B em CPU.
 - **Vídeo Wan 2.2 (Lote 3):** `cf_wan.py` com A14B Q6_K (T2V/I2V, dois samplers) e 5B Q6_K/Q8_0/FP16, controles de segundos, FPS, tamanho livre, 1–4 variações; `prepare_gguf.py` instala o ComfyUI-GGUF fixado. Grafos conferidos contra o código-fonte real do ComfyUI v0.44.0. **Nenhum vídeo foi gerado** (BLOQUEADO_GPU).
+- **Apps novos (CPU testados, geração BLOQUEADO_GPU quando for o caso):** Expandir imagem / Restaurar foto / Trocar roupa (receitas dos LoRAs Qwen 2.1), caixas→máscara em Editar região, Trocar rosto (FaceFusion real em CPU, consentimento obrigatório), Áudio (Stable Audio 3, grafo conferido no código do ComfyUI), Fábrica com cenas pelo gerador local (`private` hook). Estudado e adiado: MOSS BBox (motor de 27 GB sem versão quantizada) e TRELLIS.2/Pixal3D (template de ~60 nós).
 - «Ocultar adulto» ligado por padrão (Biblioteca, busca de componentes, seletor de LoRA).
 
 ### Como retomar
