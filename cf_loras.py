@@ -173,7 +173,7 @@ def scan(base, comfy_root=None):
             items.append({"id": ("local::" if not catalog_entry else "") + p.name, "name": p.name, "label": meta.get("title") or label(p.name),
                           "source": "catálogo" if catalog_entry else "civitai" if meta else "local", "families": fam, "installed": True,
                           "repo": None, "creator": meta.get("creator"), "model": meta.get("model"), "version": meta.get("version"),
-                          "covers": meta.get("covers") or [], "page": meta.get("page"), "size": p.stat().st_size, "location": where, "_path": p})
+                          "covers": meta.get("covers") or [], "page": meta.get("page"), "adult": bool(meta.get("adult")), "size": p.stat().st_size, "location": where, "_path": p})
     return items
 
 
@@ -212,7 +212,7 @@ def linked_name(file_name, version):
     return f'{re.sub(r"[^a-zA-Z0-9._-]", "_", Path(file_name).stem)[:90]}__cv{version}.safetensors'
 
 
-def link_civitai(base, entry, source, families, covers, page):
+def link_civitai(base, entry, source, families, covers, page, adult=False):
     """Make a Civitai download usable as a normal LoRA: file in base/loras plus a sidecar with its card data."""
     directory = Path(base) / "loras"
     directory.mkdir(parents=True, exist_ok=True)
@@ -225,7 +225,7 @@ def link_civitai(base, entry, source, families, covers, page):
     target.with_suffix(".json").write_text(json.dumps({
         "title": entry["title"], "creator": entry.get("creator"), "model": entry["model"], "version": entry["version"],
         "families": families, "covers": covers, "page": page, "revision": entry.get("revision"),
-        "file": entry.get("file"), "file_name": entry.get("name"), "sha256": entry.get("sha256"), "quant": entry.get("quant"), "size_bytes": entry.get("size_bytes")}, ensure_ascii=False), encoding="utf-8")
+        "adult": bool(adult), "file": entry.get("file"), "file_name": entry.get("name"), "sha256": entry.get("sha256"), "quant": entry.get("quant"), "size_bytes": entry.get("size_bytes")}, ensure_ascii=False), encoding="utf-8")
     return target
 
 

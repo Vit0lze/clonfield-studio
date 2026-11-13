@@ -738,3 +738,6 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
 .uses-bar[hidden] { display: none; }
 .chip-link { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); text-decoration: none; }
 .chip-link:hover { color: var(--text); border-color: rgba(226, 52, 63, .6); background: var(--red-wash); }
+.sr-filters { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.sr-filters .input { flex: 1; min-width: 160px; }
+.adult-switch { white-space: nowrap; }

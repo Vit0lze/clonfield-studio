@@ -1,5 +1,8 @@
 # ClonField Studio — changelog honesto, depois da entrega dos planos V7/V7.1
 
+> **Nota (2026-11-13):** o Gemma e a API do Google AI Studio foram removidos do Studio. O chat e o agente usam só um modelo local (Qwen3.5-9B abliterado via llama.cpp, ver `cf_llama.py`). Onde este documento fala de Gemma, descreve testes e decisões da época, mantidos como registro.
+
+
 Janela: commits `36def60` (10/11, 23:02) até `6648b3d` (11/11, 23:55) na `main`, 22 commits, 156 arquivos, +15.510 / −304 linhas.
 Ponto de partida: `887e0c3` (33 commits, 19 apps, Studio em Colab, Gradio + API própria + SPA sem build).
 

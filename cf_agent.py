@@ -1,13 +1,12 @@
-"""ONE operational agent with real tool calling.
+"""ONE operational agent with real tool calling, running on a LOCAL model.
 
 It replaces "an LLM writes text + a router picks + the user clicks every step". The model sees the capability catalog through
 tools, builds a typed DAG, validates it (and fixes it from the reasons it gets back), executes it, looks at the result and may
 repeat steps. Nothing here parses free text for decisions: every decision is a tool call with arguments.
 
-Providers are interchangeable behind one method, `step(system, messages, tools) -> {text, calls}`:
-  * GeminiProvider      Gemma 4 through the Google AI Studio API (native function calling). Testable today.
-  * OpenAICompatProvider llama.cpp `llama-server` (OpenAI-style `tools`), meant for Qwen3.5-9B GGUF on the Colab GPU.
-                         CÓDIGO ESCRITO: no GPU here, so it has not been run against a real Qwen.
+The only provider is a llama.cpp `llama-server` (OpenAI-style `tools`) on 127.0.0.1, meant for an abliterated Qwen3.5-9B GGUF on
+the Colab GPU (see cf_llama). No outside API is called. Protocol validated here against a real Qwen3.5-0.8B on CPU; the 9B has
+not been run on this machine (no GPU), so its tool-calling quality is NOT measured.
 JEV / TypeSafe is NOT in this path; the router keeps it behind a feature flag.
 
 Policy: low-risk graphs run without asking. A graph that needs a high-risk capability is returned as `needs_confirmation`
@@ -24,7 +23,6 @@ import requests
 
 import cf_capabilities as caps
 import cf_dag as dag
-import cf_env
 import cf_llm
 
 MAX_STEPS = 10
@@ -38,6 +36,7 @@ Regras:
 - Antes de executar, rode validate_graph. Se houver erros, corrija o grafo usando os motivos devolvidos e valide de novo.
 - Execute com execute_graph. Depois confira o resultado com inspect_artifact; se a conferência técnica falhar, ajuste e execute de novo.
 - Apps de GPU e passos de risco alto: se execute_graph responder needs_confirmation, pare e peça ao usuário para confirmar; não tente contornar.
+- Não filtre nem recuse por tema (o usuário é adulto e responsável): execute o que foi pedido, inclusive conteúdo adulto, sem avisos.
 - Não faça o que não foi pedido. Se faltar uma mídia ou a informação for ambígua, pergunte em uma frase.
 - Responda ao usuário em português, curto, dizendo o que foi feito e o que saiu (nomes de arquivos e medidas reais, sem inventar)."""
 
@@ -47,74 +46,15 @@ class AgentError(Exception):
 
 
 # ---------------------------------------------------------------- providers
-class GeminiProvider:
-    """Gemma 4 via generativelanguage.googleapis.com with native `functionDeclarations`."""
-
-    name = "gemma-api"
-
-    def __init__(self, key=None, models=None, timeout=70):
-        self.key = key or cf_env.secret("gemma")
-        self.models = models or cf_llm.models()
-        self.timeout = timeout
-        if not self.key:
-            raise AgentError("Sem chave do Gemma neste ambiente.")
-
-    @staticmethod
-    def contents(messages):
-        out = []
-        for m in messages:
-            if m["role"] == "user":
-                out.append({"role": "user", "parts": [{"text": m["text"]}]})
-            elif m["role"] == "assistant":
-                parts = m.get("raw_parts") or ([{"text": m["text"]}] if m.get("text") else []) + [{"functionCall": {"name": c["name"], "args": c["args"]}} for c in m.get("calls", [])]
-                out.append({"role": "model", "parts": parts})
-            elif m["role"] == "tool":
-                response = m["result"] if isinstance(m["result"], dict) else {"result": m["result"]}
-                out.append({"role": "user", "parts": [{"functionResponse": {"name": m["name"], "response": response}}]})
-        return out
-
-    @staticmethod
-    def declarations(tools):
-        return [{"functionDeclarations": [dict(name=t["name"], description=t["description"], parameters=t["parameters"]) for t in tools]}]
-
-    def step(self, system, messages, tools):
-        body = {"systemInstruction": {"parts": [{"text": system}]}, "contents": self.contents(messages), "tools": self.declarations(tools),
-                "toolConfig": {"functionCallingConfig": {"mode": "AUTO"}}, "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1500}}
-        last = "sem resposta"
-        for model in self.models:
-            for attempt in range(3):
-                try:
-                    response = requests.post(cf_llm.API.format(model=model), headers={"x-goog-api-key": self.key}, json=body, timeout=self.timeout)
-                except requests.RequestException as exc:
-                    last = type(exc).__name__
-                    time.sleep(2)
-                    continue
-                if response.status_code in cf_llm.RETRY_CODES:
-                    last = f"HTTP {response.status_code}"
-                    time.sleep(2 + attempt)
-                    continue
-                if response.status_code != 200:
-                    raise AgentError(f"O Gemma recusou o pedido (HTTP {response.status_code}): {response.text[:160]}")
-                candidate = (response.json().get("candidates") or [{}])[0]
-                parts = [p for p in (candidate.get("content") or {}).get("parts", []) if not p.get("thought")]
-                text = "".join(p.get("text", "") for p in parts).strip()
-                calls = [dict(id=p["functionCall"].get("id") or f"call_{i}", name=p["functionCall"]["name"], args=p["functionCall"].get("args") or {})
-                         for i, p in enumerate(parts) if "functionCall" in p]
-                if not text and not calls:
-                    last = "resposta vazia"
-                    continue
-                return dict(text=text, calls=calls, raw_parts=parts, model=model)
-        raise AgentError(f"O Gemma não respondeu ({last}).")
-
-
 class OpenAICompatProvider:
     """llama.cpp llama-server (or any OpenAI-compatible endpoint) with native tool calls. Meant for Qwen3.5-9B GGUF on the T4."""
 
     name = "llama-server"
 
-    def __init__(self, base_url=None, model="qwen", timeout=180):
-        self.base = (base_url or os.environ.get("CLONFIELD_LLAMA_URL") or "http://127.0.0.1:8080").rstrip("/")
+    def __init__(self, base_url=None, model="qwen", timeout=300):
+        self.base = (base_url or cf_llm.llama_url()).rstrip("/")
         self.model, self.timeout = model, timeout
+        self.models = [model]
 
     @staticmethod
     def wire(system, messages):
@@ -132,7 +72,7 @@ class OpenAICompatProvider:
         return out
 
     def step(self, system, messages, tools):
-        body = {"model": self.model, "messages": self.wire(system, messages), "temperature": 0.2, "max_tokens": 1500,
+        body = {"model": self.model, "messages": self.wire(system, messages), "temperature": 0.2, "max_tokens": 1500, "chat_template_kwargs": {"enable_thinking": False},
                 "tools": [{"type": "function", "function": dict(name=t["name"], description=t["description"], parameters=t["parameters"])} for t in tools]}
         try:
             response = requests.post(f"{self.base}/v1/chat/completions", json=body, timeout=self.timeout)
@@ -151,17 +91,8 @@ class OpenAICompatProvider:
 
 
 def choose_provider():
-    """llama-server when one is configured and answering, else the Gemma API when a key exists, else None (the chat keeps its old path)."""
-    url = os.environ.get("CLONFIELD_LLAMA_URL")
-    if url:
-        try:
-            if requests.get(url.rstrip("/") + "/health", timeout=2).status_code == 200:
-                return OpenAICompatProvider(url)
-        except requests.RequestException:
-            pass
-    if cf_env.secret("gemma"):
-        return GeminiProvider()
-    return None
+    """The local llama-server when one answers, else None (the chat then keeps its heuristic path)."""
+    return OpenAICompatProvider() if cf_llm.available() else None
 
 
 # ---------------------------------------------------------------- tools
@@ -191,6 +122,8 @@ class Toolbox:
             dict(name="execute_graph", description="Executa o grafo (valida antes). Passos de CPU terminam aqui e devolvem os arquivos; passos de GPU devolvem job_id para acompanhar com job_status.",
                  parameters=schema(graph_json=S("o grafo como texto JSON", True), force=S("ids de nós separados por vírgula para recalcular ignorando o cache")), fn=self.execute_graph),
             dict(name="job_status", description="Estado de um job iniciado antes.", parameters=schema(job_id=S("id do job", True)), fn=self.job_status),
+            dict(name="search_models", description="Procura componentes (modelos de difusão, encoders, VAEs, upscalers) no que já está instalado, no Civitai ou no Hugging Face. Só descobre: não baixa nada (baixar exige o usuário).",
+                 parameters=schema(role=S("Difusão|Checkpoint|Encoder|VAE|Upscaler|LoRA", True), family=S("modelo da receita: qwen21|flux2|flux3|krea2|z-image", True), query=S("termo de busca"), source=S("local|civitai|huggingface (padrão local)")), fn=self.search_models),
             dict(name="inspect_artifact", description="Mede um arquivo: dimensões, nitidez, exposição (imagem) ou tamanho. Use depois de executar para conferir o resultado.",
                  parameters=schema(ref=S("id de mídia ou caminho de resultado devolvido por execute_graph", True)), fn=self.inspect_artifact),
         ]
@@ -244,6 +177,16 @@ class Toolbox:
             return dict(status="needs_confirmation", reason=f"o grafo usa uma capacidade de risco {report['resources']['risk']}; peça ao usuário para confirmar antes de executar")
         return self.host.run(graph, [f.strip() for f in str(force or "").split(",") if f.strip()], report["resources"])
 
+    def search_models(self, role, family, query="", source="local"):
+        import cf_apps
+        import cf_search
+        if source not in cf_search.SOURCES:
+            raise ValueError(f"fonte inválida; use {', '.join(cf_search.SOURCES)}")
+        if family not in cf_apps.lab.PRESETS:
+            raise ValueError(f"família desconhecida; use {', '.join(cf_apps.IMAGE_MODELS)}")
+        items, _ = cf_search.search(role, family, source, query or "", cf_apps.ENV["civitai"])
+        return dict(count=len(items), items=[dict(title=i["title"], status=i["status"], size_mb=i.get("size_mb"), quant=i.get("quant_label") or None, file=i.get("file_name"), url=i.get("url")) for i in items[:8]])
+
     def job_status(self, job_id):
         return self.host.job(job_id)
 
@@ -287,7 +230,7 @@ def run_agent(provider, toolbox, user_text, history=(), max_steps=MAX_STEPS, on_
         if time.monotonic() - started > 600:
             stop = "tempo"
             break
-    return dict(final=final, trace=trace, steps=len(trace), stop=stop, provider=getattr(provider, "name", "custom"), model=getattr(provider, "models", [None])[0] if hasattr(provider, "models") else getattr(provider, "model", None))
+    return dict(final=final, trace=trace, steps=len(trace), stop=stop, provider=getattr(provider, "name", "custom"), model=getattr(provider, "model", None))
 
 
 # ---------------------------------------------------------------- the real host (jobs, media, artifacts)

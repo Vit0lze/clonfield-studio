@@ -3,6 +3,7 @@
 import { api, isFinal } from "./api.js";
 import { h, icon, clear, toast } from "./ui.js";
 import { starButton } from "./favs.js";
+import { hideAdult, setHideAdult } from "./adult.js";
 
 const SOURCES = [["local", "No worker"], ["civitai", "CivitAI"], ["huggingface", "Hugging Face"]];
 
@@ -19,7 +20,8 @@ export function openSearch({ role, label, family, familyTitle, onUse }) {
     h("div", { class: "sr-box" },
       h("div", { class: "sr-head" }, h("div", null, h("h3", null, `Pesquisar ${label}`), h("p", { class: "muted" }, `para ${familyTitle}`)),
         h("button", { class: "btn ghost", type: "button", "aria-label": "Fechar", onclick: close }, icon("x", "sm"))),
-      tabs, input, list));
+      tabs, h("div", { class: "sr-filters" }, input, h("label", { class: "switch inline adult-switch" }, h("span", null, "Ocultar adulto"),
+        h("input", { type: "checkbox", role: "switch", checked: hideAdult(), onchange: e => { setHideAdult(e.target.checked); load(); } }))), list));
   document.body.append(overlay);
   document.addEventListener("keydown", onKey);
   input.focus();
@@ -33,8 +35,12 @@ export function openSearch({ role, label, family, familyTitle, onUse }) {
       const result = await api.get(`/search?role=${encodeURIComponent(role)}&family=${encodeURIComponent(family)}&source=${source}&q=${encodeURIComponent(input.value)}`);
       if (mine !== serial) return;
       clear(list);
+      const shown = result.items.filter(i => !(hideAdult() && i.adult));
+      const hiddenCount = result.items.length - shown.length;
+      result.items = shown;
       if (!result.items.length) list.append(h("p", { class: "muted pad" }, source === "local" ? "Nada instalado neste slot com esse nome." : "Nada encontrado. Tente outro termo."));
       else list.append(...result.items.map(row));
+      if (hiddenCount) list.append(h("p", { class: "muted pad adult-note" }, `${hiddenCount} resultado${hiddenCount > 1 ? "s" : ""} adulto${hiddenCount > 1 ? "s" : ""} oculto${hiddenCount > 1 ? "s" : ""}. Desligue «Ocultar adulto» para ver.`));
       if (source === "huggingface" && result.items.length) list.append(h("p", { class: "muted pad" }, "Hugging Face: descoberto não é validado. Confirme arquitetura e loader antes de usar; o Studio não baixa nada daqui automaticamente."));
     } catch (error) { if (mine === serial) { clear(list); list.append(h("p", { class: "advice pad" }, error.message || "A fonte não respondeu.")); } }
   }

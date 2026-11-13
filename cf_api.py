@@ -222,7 +222,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         return JSONResponse({"ok": True})
 
     def write_reply(session_id, reply_id, plan_id, snap):
-        """Runs in a thread: Gemma takes ~20-40 s, so the plan is already on screen while it writes."""
+        """Runs in a thread: the local model can take a while, so the plan is already on screen while it writes."""
         try:
             out = cf_llm.converse(snap["text"], snap["kinds"], snap["titles"], snap["conversation"], snap["history"], snap["apps"])
             error = None
@@ -236,7 +236,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
                     if out:
                         m["text"], m["question"], m["model"] = out["reply"], out["question"], cf_llm.models()[0]
                     else:
-                        m["text"], m["error"] = f"Não consegui falar com o Gemma agora ({error}). O plano acima continua valendo.", True
+                        m["text"], m["error"] = f"Não consegui falar com o modelo local agora ({error}). O plano acima continua valendo.", True
                 elif plan_id and m["id"] == plan_id and out and out.get("prompt") and m["plan"].get("prompt") == m["plan"].get("text") and not any(x["role"] == "job" for x in session["messages"]):
                     m["plan"]["prompt"] = out["prompt"]  # only fills the box if the user has not rewritten it and nothing has run yet
         cf_chat.update(base, session_id, apply)
@@ -370,7 +370,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         return JSONResponse({"favorite": now})
 
     async def llm_info(request):
-        return JSONResponse(dict(available=cf_llm.available(), model=cf_llm.models()[0], keys=cf_env.status(), agent=cf_env.flag("agent"), jev=cf_env.flag("jev")))
+        return JSONResponse(dict(available=cf_llm.available(), model=cf_llm.models()[0], backend="llama-server (local)", url=cf_llm.llama_url(), keys=cf_env.status(), agent=cf_env.flag("agent"), jev=cf_env.flag("jev")))
 
     async def sessions_message(request):
         session = session_or_404(request.path_params["id"])
@@ -423,7 +423,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
                 plan_id = cf_chat.add_message(session, "assistant", plan=dict(provider=plan.get("provider", "jev"), steps=steps, text=text, prompt=text, note=note))["id"]
             reply = cf_chat.add_message(session, "assistant", text="", pending=cf_llm.available(), kind="text")
             if not cf_llm.available():
-                reply["text"] = ("" if steps else "Entendi, mas o assistente de conversa (Gemma) não está configurado neste ambiente, então só consigo sugerir passos quando o pedido for uma tarefa.")
+                reply["text"] = ("" if steps else "Entendi, mas o modelo local do chat não está rodando neste ambiente, então só consigo sugerir passos quando o pedido for uma tarefa.")
             else:
                 history = cf_chat.history_for_llm(session)[:-1]
                 snapshot = dict(text=text, kinds=cf_chat.kinds(session), titles=[s["title"] for s in steps], conversation=conversation or not steps,

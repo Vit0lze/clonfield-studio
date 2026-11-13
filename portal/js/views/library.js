@@ -2,6 +2,7 @@
 import { api } from "../api.js";
 import { h, icon, clear, seg, dropdown, illustration, reconcile, bareUrl } from "../ui.js";
 import { favFirst, onFavs, starButton } from "../favs.js";
+import { hideAdult, setHideAdult } from "../adult.js";
 import { catalogCard } from "../catalog.js";
 
 const pref = (key, fallback) => { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } };
@@ -15,7 +16,6 @@ export async function libraryView(navigate, wanted) {
   let kind = categories.some(c => c.id === wanted) ? wanted : pref("cf-lib-kind", "model");
   let view = pref("cf-lib-view", "recommended"), family = pref("cf-lib-family", "qwen21"), source = pref("cf-lib-source", "civitai");
   let query = "", cursor = null, loading = false, serial = 0, items = [];
-  let hideAdult = pref("cf-hide-adult", "0") === "1";
   const category = () => categories.find(c => c.id === kind);
 
   const grid = h("div", { class: "ccgrid" });
@@ -40,10 +40,9 @@ export async function libraryView(navigate, wanted) {
     let typing;
     bar.append(h("input", { class: "input", type: "search", placeholder: "Buscar…", "aria-label": "Buscar", value: query,
       oninput: e => { clearTimeout(typing); typing = setTimeout(() => { query = e.target.value.trim(); load(true); }, 400); } }));
-    if (view === "explore" && ["model", "lora", "vae", "encoder", "upscaler"].includes(kind)) {
-      bar.append(h("label", { class: "switch inline" }, h("span", null, "Ocultar adulto"),
-        h("input", { type: "checkbox", checked: hideAdult, onchange: e => { hideAdult = e.target.checked; setPref("cf-hide-adult", hideAdult ? "1" : "0"); paintGrid(); } })));
-    }
+    // Always in the bar (every view), on by default: the user can switch it off right here.
+    bar.append(h("label", { class: "switch inline adult-switch" }, h("span", null, "Ocultar adulto"),
+      h("input", { type: "checkbox", role: "switch", checked: hideAdult(), onchange: e => { setHideAdult(e.target.checked); paintGrid(); } })));
   }
 
   function paintHead() {
@@ -53,7 +52,7 @@ export async function libraryView(navigate, wanted) {
   }
 
   function paintGrid() {
-    const ordered = favFirst(items.filter(i => !(hideAdult && i.adult)), kind, i => i.favorite.id);
+    const ordered = favFirst(items.filter(i => !(hideAdult() && i.adult)), kind, i => i.favorite.id);
     // Keyed: a card is rebuilt only when what it shows changed, so covers do not remount on every repaint.
     reconcile(grid, ordered, {
       key: i => `${i.kind}|${i.favorite.id}`,

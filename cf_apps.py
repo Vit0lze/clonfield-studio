@@ -664,7 +664,7 @@ def install_civitai_lora(ctx, family, model, version, file, expect=None):
         ctx.progress(0.05, desc=f"Baixando {entry['title']} do Civitai")
         source = install(entry, ENV["civitai"], ctx.progress)
         card = cf_civitai.model_card(record, next(v for v in record["modelVersions"] if v["id"] == entry["version"]), [entry], preset)
-        cf_loras.link_civitai(ENV["base"], entry, source, LORA_FAMILIES.get(family, [family]), card["covers"], card["page"])
+        cf_loras.link_civitai(ENV["base"], entry, source, LORA_FAMILIES.get(family, [family]), card["covers"], card["page"], adult=card.get("adult", False))
     except (ValueError, KeyError, StopIteration) as exc:
         raise JobError(str(exc) or "Não foi possível instalar este LoRA.") from None
     ctx.progress(1.0, desc="LoRA instalado")

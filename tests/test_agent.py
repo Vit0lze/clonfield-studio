@@ -1,5 +1,6 @@
-"""The tool-calling agent. Loop mechanics are tested with a scripted model (clearly labelled); what the agent can really DO is
-tested with the real Gemma 4 API through native function calling, driving the real tools, DAG executor and job manager."""
+"""The tool-calling agent. Loop mechanics are tested with a scripted model (clearly labelled). The wire format and the end-to-end path
+are tested against a REAL local llama-server (CLONFIELD_LLAMA_URL), driving the real tools, DAG executor and job manager. On this
+CPU-only machine that server runs a Qwen3.5-0.8B stand-in: it proves the protocol, NOT the quality of the 9B abliterated model."""
 import json
 import os
 import shutil
@@ -12,11 +13,11 @@ import cf_agent as agent
 import cf_apps
 import cf_capabilities as caps
 import cf_dag as dag
-import cf_env
+import cf_llm
 import cf_jobs
 import cf_tiers
 
-LIVE = pytest.mark.skipif(not cf_env.secret("gemma"), reason="sem chave do Gemma neste ambiente")
+LIVE = pytest.mark.skipif(not cf_llm.available(), reason="nenhum llama-server local rodando (defina CLONFIELD_LLAMA_URL)")
 
 
 @pytest.fixture()
@@ -68,8 +69,6 @@ def graph(*nodes):
 
 def test_provider_wire_formats_carry_tool_calls_and_results():
     messages = [dict(role="user", text="oi"), dict(role="assistant", text="", calls=[dict(id="c1", name="list_media", args={})]), dict(role="tool", id="c1", name="list_media", result={"media": []})]
-    gem = agent.GeminiProvider.contents(messages)
-    assert gem[1]["parts"][0]["functionCall"]["name"] == "list_media" and gem[2]["parts"][0]["functionResponse"]["name"] == "list_media"
     wire = agent.OpenAICompatProvider.wire("sys", messages)
     assert wire[0]["role"] == "system" and wire[2]["tool_calls"][0]["function"]["name"] == "list_media" and wire[3]["tool_call_id"] == "c1"
 
@@ -112,6 +111,19 @@ def test_high_risk_graph_needs_confirmation_and_creates_no_job(world):
     assert small["status"] == "invalid" and any("VRAM" in e for e in small["errors"])
 
 
+def test_search_models_finds_real_civitai_variants_and_downloads_nothing(world):
+    import requests
+    try:
+        requests.head("https://civitai.com", timeout=5)
+    except requests.RequestException:
+        pytest.skip("sem rede")
+    found = world.tools().search_models("Difusão", "qwen21", "Uncensored Omni Quantized", "civitai")
+    assert found["count"] and all(i["title"] and i["status"] in ("compatível", "instalado") for i in found["items"])
+    assert any(i["quant"] for i in found["items"])
+    with pytest.raises(ValueError):
+        world.tools().search_models("Difusão", "qwen21", "x", "ftp")
+
+
 def test_inspect_artifact_measures_a_real_result(world):
     g = graph({"id": "a", "cap": "look", "inputs": {"image": {"media": "m-foto"}}, "params": {"look": "Preto e branco", "strength": 100}})
     out = world.tools().execute_graph(g)
@@ -120,56 +132,32 @@ def test_inspect_artifact_measures_a_real_result(world):
     assert info["width"] == 160 and {v["line"] for v in info["technical_gate"]} == {"not_blank", "sharp", "exposure"}
 
 
-# ------------------------------------------------------------------ real model, real tools, real jobs
-def ask(world, text, tries=2, **kw):
-    last = None
-    for _ in range(tries):
-        try:
-            return agent.run_agent(agent.GeminiProvider(), world.tools(), text, **kw)
-        except agent.AgentError as exc:  # the Google API answers 500 now and then
-            last = exc
-    pytest.skip(f"API do Gemma indisponível: {last}")
-
-
-def results(world):
-    return [Image.open(p) for p in world.attached]
+# ------------------------------------------------------------------ real local model, real tools, real jobs
+@LIVE
+def test_live_local_server_makes_a_native_tool_call():
+    """Wire format: the server returns a structured tool call (name + JSON args) that the provider parses. A 0.8B stand-in sometimes answers in text
+    instead of calling, so it gets 3 tries; what this proves is that the PROTOCOL works, not how reliably a small model chooses to use it."""
+    provider = agent.OpenAICompatProvider()
+    tools = [dict(name="list_capabilities", description="Lista capacidades do Studio", parameters={"type": "object", "properties": {"query": {"type": "string", "description": "palavras-chave"}}})]
+    replies = [provider.step("Você opera um estúdio de mídia. Chame ferramentas.", [dict(role="user", text="Quais capacidades servem para ampliar imagem? Use a ferramenta.")], tools) for _ in range(3)]
+    called = [r for r in replies if r["calls"]]
+    assert called, "nenhuma das 3 respostas trouxe chamada de ferramenta estruturada"
+    assert called[0]["calls"][0]["name"] == "list_capabilities" and isinstance(called[0]["calls"][0]["args"], dict)
 
 
 @LIVE
-def test_live_gemma_upscales_an_attached_image(world):
-    out = ask(world, "Amplie a minha foto em 2x.")
-    assert any(t["tool"] == "execute_graph" and t["ok"] for t in out["trace"]), [(t["tool"], t["ok"], t["result"][:120]) for t in out["trace"]]
-    sizes = [im.size for im in results(world)]
-    assert (320, 240) in sizes, sizes  # a real 2x of the real 160x120 file
-    assert out["final"]
+def test_live_agent_loop_executes_real_tools_from_the_real_server_and_terminates(world):
+    """Path: real server -> tool call -> real Toolbox/registry -> result back to the server -> loop ends. With a tiny stand-in the loop may stop at the
+    step limit instead of answering; the quality of the answer is the 9B's job on the T4 and is NOT asserted here."""
+    out = agent.run_agent(agent.OpenAICompatProvider(), world.tools(), "Quais capacidades do Studio servem para ampliar imagem? Só responda, não execute nada.", max_steps=4)
+    assert out["stop"] in ("resposta final", "limite de passos") and out["provider"] == "llama-server"
+    assert out["steps"] >= 1 and all(t["tool"] in world.tools().by_name for t in out["trace"])
+    assert any(t["ok"] for t in out["trace"]), out["trace"]  # at least one tool really ran and returned data
+    assert len(world.manager.jobs) == 0  # nothing was executed for a question
 
 
-@LIVE
-def test_live_gemma_chains_two_steps_including_a_repeated_one(world):
-    out = ask(world, "Deixe a foto em preto e branco e depois amplie duas vezes seguidas, 2x cada uma.", max_steps=12)
-    executed = [t for t in out["trace"] if t["tool"] == "execute_graph" and t["ok"]]
-    assert executed, [(t["tool"], t["ok"], t["result"][:160]) for t in out["trace"]]
-    assert any(im.size == (640, 480) for im in results(world)), [im.size for im in results(world)]
-
-
-@LIVE
-def test_live_gemma_refuses_an_incompatible_request_with_a_reason_and_runs_nothing(world):
-    before = len(world.manager.jobs)
-    out = ask(world, "Use a ampliação de imagem do Studio neste vídeo (clipe.mp4) para deixá-lo em 4K.")
-    assert len(world.manager.jobs) == before, [(t["tool"], t["result"][:100]) for t in out["trace"]]  # no job for an impossible graph
-    assert out["final"] and any(w in out["final"].lower() for w in ("vídeo", "video"))
-
-
-@LIVE
-def test_live_gemma_answers_a_question_with_tools_and_starts_no_job(world):
-    before = len(world.manager.jobs)
-    out = ask(world, "O que o Studio consegue fazer com vídeos? Só me explique, não execute nada.")
-    assert len(world.manager.jobs) == before
-    assert any(t["tool"] in ("list_capabilities", "inspect_capability") for t in out["trace"]) and out["final"]
-
-
-@LIVE
-def test_live_gemma_does_not_run_a_high_risk_capability_without_confirmation(world):
-    before = len(world.manager.jobs)
-    out = ask(world, "Troque o personagem do vídeo clipe.mp4 pela pessoa da foto.png usando o app de troca de personagem.", max_steps=8)
-    assert len(world.manager.jobs) == before, [(t["tool"], t["result"][:120]) for t in out["trace"]]
+def test_choose_provider_is_none_without_a_local_server(monkeypatch):
+    monkeypatch.setenv("CLONFIELD_LLAMA_URL", "http://127.0.0.1:9")  # nothing listens here
+    cf_llm._health.update(at=0.0, ok=False)
+    assert agent.choose_provider() is None
+    cf_llm._health.update(at=0.0, ok=False)

@@ -1,11 +1,11 @@
-"""Runs the 30 tasks against the REAL Gemma 4 API agent (real tools, real DAG jobs on CPU) and, for the routing subset, against the
-previous path (live Jev plan). Writes results.json and docs/AGENT_EVAL.md.
+"""Runs the 30 tasks against the agent on the LOCAL llama-server (CLONFIELD_LLAMA_URL; real tools, real DAG jobs on CPU) and, for the routing
+subset, against the previous path (live Jev plan). Writes results.json and docs/AGENT_EVAL.md.
 
   python tests/agent_eval/run_eval.py [--only id,id] [--workers 3]
 
-Honest scope: tasks are written by the agent's author; one run per task (temperature 0.2); the Gemma API is flaky, so an API
-failure is reported as `api_error` and is NOT counted as a model failure. The Qwen3.5-9B GGUF provider is not evaluated here
-(no GPU on this machine)."""
+Honest scope: tasks are written by the agent's author; one run per task (temperature 0.2); the local server can fail, so a server
+failure is reported as `api_error` and is NOT counted as a model failure. The model that answered is recorded in results.json:
+on this CPU machine it can only be a small stand-in, so the numbers say nothing about the 9B abliterated model on the T4."""
 import argparse
 import json
 import os
@@ -68,7 +68,7 @@ def run_one(task):
         out = None
         for attempt in range(3):
             try:
-                out = agent.run_agent(agent.GeminiProvider(), agent.Toolbox(world.registry, world.env, world.host), request, max_steps=12)
+                out = agent.run_agent(agent.OpenAICompatProvider(), agent.Toolbox(world.registry, world.env, world.host), request, max_steps=12)
                 break
             except agent.AgentError as exc:
                 record["api_error"] = str(exc)[:140]

@@ -1,5 +1,6 @@
 """Capabilities, DAG and agent through the real Starlette engine app: catalog endpoints, graph validation/run with real uploads,
-and the chat driven by the live Gemma agent (real tools, real jobs)."""
+and the chat driven by the agent on a REAL local llama-server (real tools, real jobs). On this CPU machine the server is a small
+Qwen3.5 stand-in: the test proves the path (message -> agent -> tool calls -> conversation), not the 9B's judgement."""
 import io
 import time
 
@@ -9,7 +10,7 @@ from starlette.testclient import TestClient
 
 import cf_api
 import cf_apps
-import cf_env
+import cf_llm
 
 BASE = "/clonfield/api"
 
@@ -86,24 +87,22 @@ def test_low_risk_graph_runs_without_asking_over_the_api(api):
     assert api.post(f"{BASE}/dag/run", json={"graph": registry_graph}).status_code == 202  # low risk runs without asking
 
 
-@pytest.mark.skipif(not cf_env.secret("gemma"), reason="sem chave do Gemma")
-def test_live_chat_agent_runs_the_request_end_to_end(api):
+@pytest.mark.skipif(not cf_llm.available(), reason="nenhum llama-server local rodando (defina CLONFIELD_LLAMA_URL)")
+def test_live_chat_agent_path_runs_tools_and_answers(api):
+    """The chat hands the message to the agent on the local server: the reply is pending, tool calls show up in its trace, and it ends with text."""
     session = api.post(f"{BASE}/sessions", json={"title": "agente"}).json()
     up = upload(api)
-    reply = api.post(f"{BASE}/sessions/{session['id']}/message", json={"text": "Amplie esta foto em 2x.", "media": [dict(id=up["id"], name=up["name"], kind="image")]}).json()
+    reply = api.post(f"{BASE}/sessions/{session['id']}/message", json={"text": "Quais capacidades servem para ampliar imagem? Só responda.", "media": [dict(id=up["id"], name=up["name"], kind="image")]}).json()
     assert reply["messages"][-1]["pending"] is True and "agent" in reply["messages"][-1]  # the agent path, not the Jev/heuristic plan
     final = None
-    for _ in range(300):
+    for _ in range(400):
         time.sleep(1)
         current = api.get(f"{BASE}/sessions/{session['id']}").json()
         last = current["messages"][-1]
         if last["role"] == "assistant" and not last.get("pending"):
             final = current
             break
-    if final is None or final["messages"][-1].get("error"):
-        pytest.skip(f"agente indisponível agora: {final['messages'][-1].get('text') if final else 'timeout'}")
-    trace = final["messages"][-1]["agent"]["trace"]
-    assert any(t["tool"] == "execute_graph" and t["ok"] for t in trace), trace
-    assert any(m["role"] == "job" for m in final["messages"])  # a job card in the conversation
-    results = [m for m in final["media"] if m["origin"] == "result" and m["kind"] == "image"]
-    assert results and Image.open(io.BytesIO(api.get(results[-1]["url"]).content)).size == (320, 240)
+    assert final is not None, "o agente não terminou"
+    message = final["messages"][-1]
+    assert not message.get("error"), message["text"]
+    assert message["agent"]["provider"] == "llama-server" and message["agent"]["trace"] and message["text"]

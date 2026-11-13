@@ -74,8 +74,8 @@ export async function chatView(navigate, sessionId) {
     const count = session.media.length;
     const title = h("h2", { class: "chat-title", tabindex: "0", title: "Clique para renomear", onclick: () => rename(title) }, session.title);
     head.append(title, h("div", { class: "chat-head-actions" },
-      llm.available ? h("span", { class: "tip", tabindex: "0", role: "img", title: `As respostas são escritas pelo Gemma 4 31B (Google AI Studio). O texto das mensagens e os tipos de mídia (não os arquivos) vão ao Google.`,
-        "aria-label": "Respostas escritas pelo Gemma, via Google AI Studio" }, "i") : null,
+      llm.available ? h("span", { class: "tip", tabindex: "0", role: "img", title: `Modelo local (${llm.model}), rodando no seu Colab. Nada do que você escreve ou anexa sai do seu ambiente.`,
+        "aria-label": "Respostas escritas por um modelo local" }, "i") : null,
       h("button", { class: "chip-btn", type: "button", "aria-expanded": String(drawerOpen), disabled: !count, onclick: () => { drawerOpen = !drawerOpen; paintHead(); paintDrawer(); } },
         icon("image", "sm"), `${count} ${count === 1 ? "mídia" : "mídias"}`)));
   }
@@ -207,7 +207,7 @@ export async function chatView(navigate, sessionId) {
       } else if (m.role === "assistant" && m.plan) {
         thread.append(h("div", { class: "msg bot" }, pathBlock(m, i)));
       } else if (m.role === "assistant" && m.kind === "text") {
-        if (m.pending) thread.append(h("div", { class: "msg bot typing", "aria-label": m.agent ? "O agente está trabalhando" : "O Gemma está escrevendo" },
+        if (m.pending) thread.append(h("div", { class: "msg bot typing", "aria-label": m.agent ? "O agente está trabalhando" : "O modelo local está escrevendo" },
           h("span", { class: "dots" }, h("i"), h("i"), h("i")), traceBlock(m, true)));
         else if (m.text) thread.append(h("div", { class: `msg bot${m.error ? " warn" : ""}` }, h("p", null, m.text), m.question ? h("p", { class: "ask" }, m.question) : null, traceBlock(m, false)));
       } else if (m.role === "job") {
@@ -218,7 +218,7 @@ export async function chatView(navigate, sessionId) {
   }
   const paintAll = () => { paintList(); paintHead(); paintDrawer(); paintThread(); watchPending(); };
 
-  // The path is instant; the Gemma text arrives 20-40 s later, so poll while a reply is pending.
+  // The path is instant; the local model's text arrives seconds later, so poll while a reply is pending.
   function watchPending() {
     const waiting = session?.messages.some(m => m.pending);
     if (!waiting) { clearInterval(poller); poller = null; return; }

@@ -127,7 +127,7 @@ def lora_items(ctx, installed_only):
         acts.append(C.action("use", "Usar no Criar", enabled=ok, reason="" if ok else "Instale primeiro.",
                              prefill=dict(app="create", values=dict(model=(fams or ["qwen21"])[0], loras=[dict(name=entry["name"], strength=1, clip=1, on=True)]))))
         items.append(C.item("lora", entry["name"], entry["label"], "civitai" if entry.get("model") else "huggingface" if entry.get("repo") else "worker",
-                            "instalado" if ok else "compatível", subtitle=entry.get("creator") or "", art=None, badges=[f.upper() for f in fams[:2]],
+                            "instalado" if ok else "compatível", subtitle=entry.get("creator") or "", art=None, badges=[f.upper() for f in fams[:2]], adult=entry.get("adult", False),
                             facts=[("Modelos compatíveis", ", ".join(fams) or "qualquer")], compat=dict(family=(fams or [None])[0], note="base conferida pelo catálogo", validated=False),
                             favorite=fav("lora", "civitai" if entry.get("model") else "huggingface" if entry.get("repo") else "worker", entry["name"], entry["label"], family=(fams or [""])[0], name=entry["name"]),
                             actions=acts, links=([dict(label="Página", url=entry["page"])] if entry.get("page") else []), value=entry["name"], cover=ctx["cover"](entry) if entry.get("covers") and entry.get("model") else None))

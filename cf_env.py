@@ -2,7 +2,7 @@
 browser; `status()` reports only whether each one is present.
 
 `.env` is searched in $CLONFIELD_ENV, the working directory, the repository folder and its parent (git-ignored in the repo).
-A name matches case-insensitively, so `jev=...` and `GEMINI_API_KEY=...` both work.
+A name matches case-insensitively, so `jev=...` and `TYPESAFE_API_TOKEN=...` both work.
 """
 
 import os
@@ -10,7 +10,6 @@ from pathlib import Path
 
 ALIASES = {
     "jev": ("TYPESAFE_API_TOKEN", "TYPESAFE_API_KEY", "JEV_API_KEY", "JEV"),
-    "gemma": ("GEMMA_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI", "GEMMA"),
 }
 _cache = {"files": None}
 
@@ -55,7 +54,7 @@ def reload():
 
 
 def secret(kind):
-    """The value for 'jev' or 'gemma', or None. Looks at the environment, then at the .env files."""
+    """The value for 'jev', or None (the chat LLM is local and needs no key). Looks at the environment, then at the .env files."""
     names = ALIASES[kind]
     for name in names:
         if os.environ.get(name):

@@ -12,15 +12,16 @@ def lora(path, meta=None):
     save_file({"lora_down.weight": np.zeros((2, 4), dtype=np.float32), "lora_up.weight": np.zeros((4, 2), dtype=np.float32)}, str(path), metadata=meta)
 
 
-def civitai(base, stem, version, title, families):
+def civitai(base, stem, version, title, families, adult=False):
     lora(base / "loras" / f"{stem}__cv{version}.safetensors")
-    (base / "loras" / f"{stem}__cv{version}.json").write_text(json.dumps({"title": title, "families": families, "model": version, "version": version, "creator": "e2e"}))
+    (base / "loras" / f"{stem}__cv{version}.json").write_text(json.dumps({"title": title, "families": families, "model": version, "version": version, "creator": "e2e", "adult": adult}))
 
 
 data = Path(sys.argv[1])
 base, comfy = data, data / "comfy-models"
 civitai(base, "pixel_style", 11, "Pixel style", ["qwen21"])
 civitai(base, "film_grain", 13, "Film grain", ["z-image", "z-image-turbo"])
+civitai(base, "night_adult", 15, "Night adult", ["z-image", "z-image-turbo"], adult=True)  # marked adult by its Civitai card
 lora(comfy / "loras" / "my_flux2_portrait.safetensors")
 lora(comfy / "loras" / "mystery.safetensors")
 print("seeded", data)
@@ -56,4 +57,4 @@ trace = [dict(step=1, tool="list_capabilities", args='{"query": "ampliar"}', ok=
     id=SESSION, title="Ampliar a foto", created=now - 60, updated=now, media=[],
     messages=[dict(id="u1", role="user", time=now - 50, text="amplie a foto em 2x", media=[]),
               dict(id="b1", role="assistant", kind="text", time=now - 10, pending=False, text="Ampliei a foto 2x: 160×120 virou 320×240.",
-                   agent=dict(trace=trace, provider="gemma-api", model="gemma-4-31b-it", steps=3, stop="resposta final"))])), encoding="utf-8")
+                   agent=dict(trace=trace, provider="llama-server", model="qwen3.5-local", steps=3, stop="resposta final"))])), encoding="utf-8")

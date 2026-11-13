@@ -125,14 +125,14 @@ def wait_reply(api, sid, timeout=150):
         if not any(m.get("pending") for m in session["messages"]):
             return session
         time.sleep(3)
-    raise AssertionError("Gemma reply never finished")
+    raise AssertionError("local model reply never finished")
 
 
-needs_keys = pytest.mark.skipif(not (_ORIG_AVAILABLE() and cf_chat.__name__), reason="no Gemma key in the environment")
+needs_llm = pytest.mark.skipif(not _ORIG_AVAILABLE(), reason="nenhum modelo local rodando (defina CLONFIELD_LLAMA_URL para um llama-server)")
 
 
-@needs_keys
-def test_live_gemma_answers_a_question_without_proposing_any_job(api, monkeypatch):
+@needs_llm
+def test_live_local_model_answers_a_question_without_proposing_any_job(api, monkeypatch):
     monkeypatch.setattr(cf_llm, "available", _ORIG_AVAILABLE)
     sid = api.post("/clonfield/api/sessions", json={}).json()["id"]
     first = api.post(f"/clonfield/api/sessions/{sid}/message", json={"text": "oi! o que significa o conjunto Qualidade?"}).json()
@@ -140,12 +140,12 @@ def test_live_gemma_answers_a_question_without_proposing_any_job(api, monkeypatc
     assert not any(m.get("plan") for m in first["messages"])  # Jev saw conversation, not a task: no plan card
     done = wait_reply(api, sid)
     reply = next(m for m in done["messages"] if m.get("kind") == "text")
-    assert reply["text"] and not reply.get("error") and reply["model"].startswith("gemma-4")
+    assert reply["text"] and not reply.get("error") and reply["model"] == cf_llm.models()[0]
     assert any(w in reply["text"].lower() for w in ("fidelidade", "qualidade", "modelo"))  # grounded in the manual we send
 
 
-@needs_keys
-def test_live_gemma_writes_the_reply_and_fills_the_prompt_box_for_a_task(api, monkeypatch):
+@needs_llm
+def test_live_local_model_writes_the_reply_and_fills_the_prompt_box_for_a_task(api, monkeypatch):
     monkeypatch.setattr(cf_llm, "available", _ORIG_AVAILABLE)
     sid = api.post("/clonfield/api/sessions", json={}).json()["id"]
     api.post(f"/clonfield/api/sessions/{sid}/message", json={"text": "só uma foto", "media": [upload(api)]})

@@ -1,5 +1,8 @@
 # Evidência — Lote 1 (P0 do mandato V8.3)
 
+> **Nota (2026-11-13):** o Gemma e a API do Google AI Studio foram removidos do Studio. O chat e o agente usam só um modelo local (Qwen3.5-9B abliterado via llama.cpp, ver `cf_llama.py`). Onde este documento fala de Gemma, descreve testes e decisões da época, mantidos como registro.
+
+
 Data: 2026-11-12. Máquina: CPU, 3 GB de RAM, sem GPU. **Nada neste lote foi testado na T4/Colab.** O que depende de GPU está marcado `BLOQUEADO_GPU`.
 Commits locais (nenhum enviado ao GitHub): `e5f2382`, `bb2ab98`, `158f61c`, `a4e5c83`, `92bfdc8` (sobre `fa4867a`).
 
