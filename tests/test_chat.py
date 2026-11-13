@@ -22,6 +22,8 @@ def api(tmp_path_factory):
     mp = pytest.MonkeyPatch()
     mp.setenv("CLONFIELD_FAKE_VRAM", "15")
     mp.setenv("CLONFIELD_COMFY_MODELS", str(tmp_path / "models"))
+    mp.setenv("CLONFIELD_AGENT", "0")  # these tests cover the Jev/heuristic path; the agent has its own tests (test_agent.py, test_agent_api.py)
+    mp.setenv("CLONFIELD_JEV", "1")
     mp.setattr(cf_llm, "available", lambda: False)  # unit tests stay offline for the LLM; the live ones switch it back on
     cf_apps.configure(tmp_path, tmp_path / "outputs")
     app = cf_api.build_app(tmp_path, tmp_path / "outputs", lambda t: t == "pw", "secret")

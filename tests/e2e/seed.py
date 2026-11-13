@@ -43,3 +43,17 @@ for index, colour in enumerate([(180, 40, 60), (40, 120, 180), (60, 160, 90)], 1
                 "lane": "gpu", "position": None, "params": {}, "version": 1}
     (out / "jobs" / f"{job_id}.json").write_text(json.dumps(snapshot), encoding="utf-8")
 print("seeded jobs")
+
+
+# A conversation the agent already answered (same persisted shape the engine writes), to check how the chat renders its tool calls.
+(data / "sessions").mkdir(parents=True, exist_ok=True)
+SESSION = "a" * 32
+now = time.time()
+trace = [dict(step=1, tool="list_capabilities", args='{"query": "ampliar"}', ok=True, ms=412, result="{}"),
+         dict(step=2, tool="validate_graph", args='{"graph_json": "{...}"}', ok=False, ms=35, result='{"ok": false}'),
+         dict(step=3, tool="execute_graph", args='{"graph_json": "{...}"}', ok=True, ms=1830, result="{}")]
+(data / "sessions" / f"{SESSION}.json").write_text(json.dumps(dict(
+    id=SESSION, title="Ampliar a foto", created=now - 60, updated=now, media=[],
+    messages=[dict(id="u1", role="user", time=now - 50, text="amplie a foto em 2x", media=[]),
+              dict(id="b1", role="assistant", kind="text", time=now - 10, pending=False, text="Ampliei a foto 2x: 160×120 virou 320×240.",
+                   agent=dict(trace=trace, provider="gemma-api", model="gemma-4-31b-it", steps=3, stop="resposta final"))])), encoding="utf-8")

@@ -69,3 +69,14 @@ def secret(kind):
 
 def status():
     return {kind: bool(secret(kind)) for kind in ALIASES}
+
+
+# Feature flags. The agent is the default decision-maker; JEV / TypeSafe is an optional router behind a flag (off by default).
+FLAG_DEFAULTS = {"agent": True, "jev": False}
+
+
+def flag(name):
+    value = os.environ.get(f"CLONFIELD_{name.upper()}")
+    if value is None:
+        return FLAG_DEFAULTS.get(name, False)
+    return value.strip().lower() in ("1", "true", "yes", "on", "sim")

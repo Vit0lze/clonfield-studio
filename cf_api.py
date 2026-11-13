@@ -29,7 +29,10 @@ import cf_sizes
 import cf_upscale
 import cf_router
 import cf_assets
+import cf_agent
+import cf_capabilities
 import cf_chat
+import cf_dag
 import cf_contracts
 import cf_env
 import cf_favorites
@@ -238,6 +241,123 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
                     m["plan"]["prompt"] = out["prompt"]  # only fills the box if the user has not rewritten it and nothing has run yet
         cf_chat.update(base, session_id, apply)
 
+    # ---- capabilities, DAG, agent
+    def capability_registry():
+        return cf_capabilities.Registry(cf_apps.registry(), tier)
+
+    def dag_env(resolver):
+        return cf_dag.Env(base, out_dir, tier, resolver)
+
+    def upload_media(ident):
+        """An uploaded file as a DAG artifact source. Only ids that are real upload folders resolve."""
+        if not isinstance(ident, str) or not re.fullmatch(r"[0-9a-f]{32}", ident):
+            return None
+        folder = uploads / ident
+        found = next(iter(folder.iterdir()), None) if folder.is_dir() else None
+        if found is None:
+            return None
+        return dict(type=cf_jobs.KINDS.get(found.suffix.lower(), "file"), path=str(found), name=found.name)
+
+    async def capabilities_list(request):
+        q = request.query_params
+        found = capability_registry().catalog(kind=q.get("kind") or None, query=q.get("q") or None, produces=q.get("produces") or None, accepts=q.get("accepts") or None)
+        if q.get("app"):  # the capabilities one app uses or lets you insert around its result
+            found = [c for c in found if any(x["app"] == q["app"] for x in c["consumers"] + c["insertable_in"])]
+        return JSONResponse(found, headers={"Cache-Control": "no-store"})
+
+    async def capability_get(request):
+        try:
+            return JSONResponse(capability_registry().describe(request.path_params["id"]))
+        except KeyError:
+            return JSONResponse({"detail": "Capacidade desconhecida."}, 404)
+
+    async def dag_validate(request):
+        body = await request.json()
+        report = cf_dag.validate(body.get("graph") or {}, capability_registry(), tier, upload_media)
+        return JSONResponse(dict(ok=report["ok"], errors=report["errors"], order=report["order"], resources=report["resources"]))
+
+    async def dag_run(request):
+        body = await request.json()
+        registry = capability_registry()
+        graph = body.get("graph") or {}
+        report = cf_dag.validate(graph, registry, tier, upload_media)
+        if not report["ok"]:
+            return JSONResponse({"detail": "O grafo tem incompatibilidades.", "errors": report["errors"]}, 409)
+        if report["resources"]["risk"] != "low" and not body.get("confirm"):
+            return JSONResponse({"detail": "Este grafo usa uma capacidade de risco alto. Confirme para executar.", "needs_confirmation": True}, 409)
+        env = dag_env(upload_media)
+        force = [str(f) for f in body.get("force") or []]
+        title = "Grafo · " + ", ".join(n["cap"] for n in graph["nodes"])[:60]
+
+        def runner(ctx):
+            return cf_dag.final_files(cf_dag.execute(graph, registry, env, ctx, force=force))
+
+        job = manager.submit("dag", title, {}, report["resources"]["lane"], runner)
+        return JSONResponse(public_job(job), 202)
+
+    async def dag_run_get(request):
+        try:
+            return JSONResponse(cf_dag.load_run(dag_env(upload_media), request.path_params["id"]))
+        except (OSError, ValueError):
+            return JSONResponse({"detail": "Execução não encontrada."}, 404)
+
+    def adopt_results(session_id, files, job):
+        """Copy files a graph produced into the conversation's uploads and attach them to it, like a single-app step does."""
+        fresh = []
+        for path in files:
+            source = Path(path)
+            if not source.is_file():
+                continue
+            ident = uuid.uuid4().hex
+            target = uploads / ident
+            target.mkdir()
+            copy = target / re.sub(r"[^\w.\- ]", "_", source.name)[:120]
+            shutil.copyfile(source, copy)
+            fresh.append({"id": ident, "name": copy.name, "kind": cf_jobs.KINDS.get(copy.suffix.lower(), "file")})
+        cf_chat.update(base, session_id, lambda current: cf_chat.add_media(current, fresh, "result", app="dag", job=job.id))
+
+    def run_agent_reply(session_id, reply_id, text, provider):
+        """Runs in a thread: the model calls tools (real DAG jobs) and the conversation shows each step as it happens."""
+        registry = capability_registry()
+
+        def media_now():
+            try:
+                return [dict(id=m["id"], name=m["name"], kind=m["kind"], origin=m["origin"]) for m in cf_chat.load(base, session_id)["media"]]
+            except KeyError:
+                return []
+
+        def resolver(ident):
+            return upload_media(ident) if any(m["id"] == ident for m in media_now()) else None
+
+        env = dag_env(resolver)
+        host = cf_agent.LocalHost(registry, env, manager, media_now, on_result=lambda files, job: adopt_results(session_id, files, job),
+                                  on_job=lambda job: cf_chat.update(base, session_id, lambda current: cf_chat.add_message(current, "job", job=job.id, app="dag", title=job.title)))
+        history = cf_agent.history_from_session(cf_chat.load(base, session_id))[:-1]
+
+        def on_step(entry):
+            def apply(session):
+                for m in session["messages"]:
+                    if m["id"] == reply_id:
+                        m.setdefault("agent", {"trace": []})["trace"].append(dict(entry, args=json.dumps(entry["args"], ensure_ascii=False)[:300]))
+            cf_chat.update(base, session_id, apply)
+
+        try:
+            out = cf_agent.run_agent(provider, cf_agent.Toolbox(registry, env, host), text, history, on_step=on_step)
+            error = None
+        except (cf_agent.AgentError, requests.RequestException) as exc:
+            out, error = None, str(exc)[:200]
+
+        def finish(session):
+            for m in session["messages"]:
+                if m["id"] == reply_id:
+                    m["pending"] = False
+                    if out:
+                        m["text"] = out["final"] or "Terminei os passos; confira os resultados acima."
+                        m["agent"] = dict(m.get("agent") or {}, provider=out["provider"], model=out["model"], stop=out["stop"], steps=out["steps"])
+                    else:
+                        m["text"], m["error"] = f"Não consegui concluir com o agente ({error}).", True
+        cf_chat.update(base, session_id, finish)
+
     async def favorites_list(request):
         return JSONResponse(cf_favorites.load(base), headers={"Cache-Control": "no-store"})
 
@@ -250,7 +370,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         return JSONResponse({"favorite": now})
 
     async def llm_info(request):
-        return JSONResponse(dict(available=cf_llm.available(), model=cf_llm.models()[0], keys=cf_env.status()))
+        return JSONResponse(dict(available=cf_llm.available(), model=cf_llm.models()[0], keys=cf_env.status(), agent=cf_env.flag("agent"), jev=cf_env.flag("jev")))
 
     async def sessions_message(request):
         session = session_or_404(request.path_params["id"])
@@ -267,10 +387,18 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         cf_chat.add_media(session, [{"id": m["id"], "name": str(m.get("name", "arquivo"))[:120], "kind": m["kind"]} for m in attached], "upload")
         cf_chat.add_message(session, "user", text=text, media=[m["id"] for m in attached])
         cf_chat.retitle(session, text)
+        provider = cf_agent.choose_provider() if (text and cf_env.flag("agent")) else None
+        if text and provider is not None:
+            reply = cf_chat.add_message(session, "assistant", text="", pending=True, kind="text", agent=dict(trace=[]))
+            cf_chat.save(base, session)
+            threading.Thread(target=run_agent_reply, args=(session["id"], reply["id"], text, provider), daemon=True).start()
+            return JSONResponse(with_urls(session))
         if text:
             registry = cf_apps.registry()
             conversation = False
             try:
+                if not cf_env.flag("jev"):
+                    raise RuntimeError("")  # JEV is an optional router behind CLONFIELD_JEV; without it the local heuristic suggests one step
                 plan = await run_in_threadpool(cf_router.plan, text, cf_chat.kinds(session), registry, tier)
                 note = ""
                 conversation = bool(plan.get("conversation"))
@@ -278,7 +406,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
                 routed = await run_in_threadpool(cf_router.route, text, cf_chat.kinds(session), registry, tier, None, cf_router.local_provider)
                 best = next((c for c in routed["candidates"] if c["router"]["available"]), None)
                 plan = dict(provider="local", steps=[dict(app=best["app"], title=best["title"], probability=best["probability"])] if best else [], complete=bool(best))
-                note = f"O Jev não respondeu ({str(exc)[:80]}); usei a heurística local, que só sugere um passo."
+                note = f"O Jev não respondeu ({str(exc)[:80]}); usei a heurística local, que só sugere um passo." if str(exc) else "Sem agente neste ambiente: a heurística local sugere um passo."
             steps = []
             for step in plan["steps"]:
                 if not step.get("app"):
@@ -670,6 +798,11 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/slots", guard(slots)),
         Route(f"{PREFIX}/llm", guard(llm_info)),
         Route(f"{PREFIX}/lora-families", guard(lora_families)),
+        Route(f"{PREFIX}/capabilities", guard(capabilities_list)),
+        Route(f"{PREFIX}/capabilities/{{id}}", guard(capability_get)),
+        Route(f"{PREFIX}/dag/validate", guard(dag_validate), methods=["POST"]),
+        Route(f"{PREFIX}/dag/run", guard(dag_run), methods=["POST"]),
+        Route(f"{PREFIX}/dag/runs/{{id}}", guard(dag_run_get)),
         Route(f"{PREFIX}/library/categories", guard(library_categories)),
         Route(f"{PREFIX}/library", guard(library_items)),
         Route(f"{PREFIX}/components/recipe-file", guard(recipe_file_install), methods=["POST"]),

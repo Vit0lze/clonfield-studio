@@ -180,11 +180,24 @@ export async function chatView(navigate, sessionId) {
     return card;
   }
 
+  // The agent's real tool calls, as they happen: what it asked for, whether it worked, how long it took.
+  const TOOL_LABEL = { list_capabilities: "Procurou capacidades", inspect_capability: "Leu uma capacidade", list_media: "Viu as mídias", validate_graph: "Validou o grafo",
+    estimate_resources: "Estimou recursos", execute_graph: "Executou o grafo", job_status: "Consultou o job", inspect_artifact: "Mediu o resultado" };
+  function traceBlock(m, open) {
+    const trace = m.agent?.trace || [];
+    if (!trace.length) return null;
+    const meta = [m.agent.provider, m.agent.model].filter(Boolean).join(" · ");
+    return h("details", { class: "agent-trace", open: open || undefined },
+      h("summary", null, `Passos do agente (${trace.length})`, meta ? h("span", { class: "dim" }, ` · ${meta}`) : null),
+      h("ol", null, trace.map(t => h("li", { class: t.ok ? "ok" : "bad", title: t.result },
+        h("b", null, TOOL_LABEL[t.tool] || t.tool), h("code", null, ` ${String(t.args || "").slice(0, 90)}`), h("small", { class: "dim" }, ` ${t.ok ? "ok" : "recusado"} · ${t.ms} ms`)))));
+  }
+
   function paintThread() {
     clear(thread);
     if (!session.messages.length) {
       thread.append(h("div", { class: "chat-empty" }, h("h3", null, "O que vamos criar?"),
-        h("p", null, "Descreva o resultado e anexe as mídias. Eu monto o caminho e você aprova cada passo."),
+        h("p", null, "Descreva o resultado e anexe as mídias. O agente monta e executa os passos; você vê cada ferramenta que ele usa."),
         h("ul", { class: "try" }, ["troca a roupa dessa foto, amplia 2x e recorta pra story", "um clipe de drone sobre uma floresta", "separa esse desenho anime em camadas"].map(t =>
           h("li", null, h("button", { type: "button", onclick: () => { input.value = t; grow(); input.focus(); } }, t))))));
     }
@@ -194,8 +207,9 @@ export async function chatView(navigate, sessionId) {
       } else if (m.role === "assistant" && m.plan) {
         thread.append(h("div", { class: "msg bot" }, pathBlock(m, i)));
       } else if (m.role === "assistant" && m.kind === "text") {
-        if (m.pending) thread.append(h("div", { class: "msg bot typing", "aria-label": "O Gemma está escrevendo" }, h("span", { class: "dots" }, h("i"), h("i"), h("i"))));
-        else if (m.text) thread.append(h("div", { class: `msg bot${m.error ? " warn" : ""}` }, h("p", null, m.text), m.question ? h("p", { class: "ask" }, m.question) : null));
+        if (m.pending) thread.append(h("div", { class: "msg bot typing", "aria-label": m.agent ? "O agente está trabalhando" : "O Gemma está escrevendo" },
+          h("span", { class: "dots" }, h("i"), h("i"), h("i")), traceBlock(m, true)));
+        else if (m.text) thread.append(h("div", { class: `msg bot${m.error ? " warn" : ""}` }, h("p", null, m.text), m.question ? h("p", { class: "ask" }, m.question) : null, traceBlock(m, false)));
       } else if (m.role === "job") {
         thread.append(h("div", { class: "msg bot" }, resultBlock(m)));
       }
@@ -211,10 +225,10 @@ export async function chatView(navigate, sessionId) {
     if (poller) return;
     let tries = 0;
     poller = setInterval(async () => {
-      if (++tries > 90) { clearInterval(poller); poller = null; return; }
+      if (++tries > 400) { clearInterval(poller); poller = null; return; }
       try {
         const fresh = await api.get(`/sessions/${session.id}`);
-        const key = s => JSON.stringify(s.messages.map(m => [m.id, m.pending, m.text]));
+        const key = s => JSON.stringify([s.messages.length, s.media.length, s.messages.map(m => [m.id, m.pending, m.text, m.agent?.trace?.length])]);
         if (key(fresh) !== key(session)) { session = fresh; paintAll(); }
       } catch { /* keep polling */ }
     }, 2500);

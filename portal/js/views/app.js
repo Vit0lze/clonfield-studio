@@ -18,6 +18,14 @@ export async function appView(id, navigate) {
   const values = {};
   for (const f of app.fields) values[f.id] = structuredClone(prefill[f.id] ?? f.default ?? (f.type === "files" || f.type === "loras" || f.type === "lights" ? [] : ""));
   const cleanups = [];
+  // Capabilities this app uses or lets you insert around its result (shared with other apps and with the agent).
+  const usesBar = h("div", { class: "uses-bar", hidden: true });
+  api.get(`/capabilities?app=${encodeURIComponent(app.id)}`).then(list => {
+    if (!list.length) return;
+    usesBar.hidden = false;
+    usesBar.append(h("span", { class: "dim" }, "Capacidades:"), ...list.map(c => h("a", { class: "chip-link", href: `#/capabilities/${c.id}`,
+      title: `${c.tagline} · ${c.consumers.length} app(s) usam` }, c.title)));
+  }).catch(() => {});
   const binders = {};                         // field id -> programmatic update, used when a Conjunto is applied
   const TUNING = new Set(["steps", "cfg"]);   // touching these by hand means the user left the chosen Conjunto
   let setPick = null, setNote = null;
@@ -731,7 +739,7 @@ export async function appView(id, navigate) {
 
     root.append(h("div", { class: "appview dock-layout" },
       h("div", { class: "dock-top" }, h("a", { class: "crumb", href: "#/apps" }, icon("chevron-left", "sm"), "Apps"),
-        h("div", { class: "dock-title" }, appGlyph(app.id, "sm"), h("h2", null, app.title), starButton("app", app.id, { title: app.title }))),
+        h("div", { class: "dock-title" }, appGlyph(app.id, "sm"), h("h2", null, app.title), starButton("app", app.id, { title: app.title })), usesBar),
       stage, recents, dock));
     root.classList.add("dock-view");
   } else {
@@ -739,7 +747,7 @@ export async function appView(id, navigate) {
       h("a", { class: "crumb", href: "#/apps" }, icon("chevron-left", "sm"), "Apps"),
       h("div", { class: "appview" },
         h("section", { class: "panel controls" },
-          h("div", { class: "head" }, h("div", { class: "title" }, appGlyph(app.id), h("h2", null, app.title), starButton("app", app.id, { title: app.title })), h("p", { class: "muted" }, app.tagline)),
+          h("div", { class: "head" }, h("div", { class: "title" }, appGlyph(app.id), h("h2", null, app.title), starButton("app", app.id, { title: app.title })), h("p", { class: "muted" }, app.tagline), usesBar),
           h("div", { class: "scroll" }, blocks, extra.length ? h("details", { class: "more" },
             h("summary", null, h("span", null, "Ajustes avançados"), icon("chevron-down", "sm")), h("div", { class: "body" }, extraNodes)) : null),
           h("div", { class: "foot" }, advice, missingLine, runButton)),
