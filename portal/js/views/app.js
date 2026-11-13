@@ -3,6 +3,7 @@ import { anchorPopover } from "../popover.js";
 import { lightEditor } from "../lights.js";
 import { openSearch } from "../search.js";
 import { favFirst, starButton, isFav } from "../favs.js";
+import { hideAdult } from "../adult.js";
 import { h, icon, clear, seg, dropdown, actionMenu, appGlyph, reconcile, bareUrl, slider, switchRow, field, toast, illustration, posterEl, artFor, fmtClock, fmtBytes } from "../ui.js";
 
 const SEND_TO = { image: ["upscale", "look", "frame", "animate", "edit", "relight", "compare"], video: ["clip", "still", "board", "seedvr2"] };
@@ -266,10 +267,13 @@ export async function appView(id, navigate) {
     const COMPAT_TAG = { confirmada: ["ok", "compatível"], provável: ["warn", "provável"], desconhecida: ["dim", "sem informação"], "incompatível": ["bad", "incompatível"] };
     const pickerPanel = () => {
       const chosen = new Set(values.loras.map(v => v.name));
-      const mine = counts.installed_for_family || 0;
+      const hiddenAdult = library.filter(l => l.adult && hideAdult());
+      const hiddenMine = hiddenAdult.filter(l => l.installed && (l.compat === "confirmada" || l.compat === "provável")).length;
+      const mine = (counts.installed_for_family || 0) - hiddenMine;
       const summary = !loaded ? "Carregando a biblioteca…"
-        : `${mine} instalada${mine === 1 ? "" : "s"} para ${familyLabel} · ${counts.installed_other || 0} para outros modelos · ${counts.unknown || 0} sem informação`;
-      const match = l => (ui.filter === "all" || (ui.filter === "installed" ? l.installed : ui.filter === "fav" ? isFav("lora", l.fav_id)
+        : `${mine} instalada${mine === 1 ? "" : "s"} para ${familyLabel} · ${counts.installed_other || 0} para outros modelos · ${counts.unknown || 0} sem informação`
+          + (hiddenAdult.length ? ` · ${hiddenAdult.length} adulta${hiddenAdult.length > 1 ? "s" : ""} oculta${hiddenAdult.length > 1 ? "s" : ""} (Biblioteca › Ocultar adulto)` : "");
+      const match = l => !(l.adult && hideAdult()) && (ui.filter === "all" || (ui.filter === "installed" ? l.installed : ui.filter === "fav" ? isFav("lora", l.fav_id)
         : l.installed && l.compat !== "incompatível") ) && (!ui.query || `${l.label} ${l.name} ${l.creator || ""}`.toLowerCase().includes(ui.query.toLowerCase()));
       const rows = library.filter(l => !chosen.has(l.name) && match(l));
       const search = h("input", { class: "input", type: "search", placeholder: "Buscar LoRA…", "aria-label": "Buscar LoRA", value: ui.query,

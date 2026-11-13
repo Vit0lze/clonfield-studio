@@ -481,15 +481,28 @@ def run_region(ctx, p, tier):
 def run_wan(ctx, p, tier):
     mode = p["mode"]
     image = (p.get("image") or [None])[0]
+    model_key = p.get("model") or wan.DEFAULT_MODEL
+    spec = wan.MODELS.get(model_key)
+    if spec is None:
+        raise JobError("Escolha um modelo de vídeo da lista.")
+    if spec["vram"] > tier.vram_gb + 0.5 and spec["kind"] == "a14b":
+        raise JobError(f"{spec['label']} guarda ~{spec['vram']:g} GB de pesos por vez; esta placa tem {tier.vram_gb:.0f} GB. Use um modelo 5B.")
+    fps = int(p.get("fps") or 0) or spec["fps"]  # 0 = the model's own rate
     seed = int(p.get("seed", -1))
-    try:
-        graph = wan.make_graph(mode, image, p["prompt"], p.get("negative", ""), p["size"], p["frames"],
-                               int(p.get("steps", 20)), seed)
-    except ValueError as exc:
-        raise JobError(str(exc)) from None
-    job = workflows.run(graph, ctx.out_dir, ctx.progress, prepare=partial(wan.prepare, image=image), title=mode,
-                        control=ctx.control, family="wan", stall=1500)
-    return collect_job(ctx, job)
+    count = max(1, min(4, int(p.get("variations", 1))))
+    outputs = []
+    for index in range(count):
+        ctx.check()
+        try:
+            graph = wan.make_graph(model_key, mode, image, p["prompt"], p.get("negative", ""), p.get("size", next(iter(wan.SIZES))), float(p.get("seconds", 3)), fps,
+                                   int(p.get("steps", 20)), float(p.get("cfg") or (5 if spec["kind"] == "5b" else 3.5)), -1 if seed < 0 else seed + index,
+                                   p.get("width"), p.get("height"), tier.vram_gb)
+        except ValueError as exc:
+            raise JobError(str(exc)) from None
+        job = workflows.run(graph, ctx.out_dir, ctx.progress, prepare=partial(wan.prepare, image=image, model_key=model_key, mode=mode),
+                            title=f"{mode} · {spec['label']}", control=ctx.control, family="wan", stall=2400)
+        outputs.extend(collect_job(ctx, job))
+    return outputs
 
 
 def compute_device():
@@ -761,7 +774,36 @@ def relight_fields(tier):
 
 
 def build_registry():
-    wan_frames = lambda t: [opt(k, k) for k in wan.FRAMES]
+    def wan_size_options():
+        named = {k: v for k, v in wan.SIZES.items() if v}
+        return sizes_options(named) + [opt("Personalizado", "Personalizado", "largura e altura livres (múltiplos de 16/32)")]
+
+    def wan_model_options(mode):
+        out = []
+        for key, spec in wan.MODELS.items():
+            total, _missing = wan.download_gb(key, mode)
+            out.append(opt(key, spec["label"], f"~{total:g} GB de pesos" + (f" · {spec['note']}" if spec["note"] else "")))
+        return out
+
+    def wan_fields(mode, with_image):
+        return lambda t: [
+            dict(id="mode", type="hidden", default=mode),
+            *([dict(id="image", type="files", label="Foto inicial", accept="image", max=1, min=1)] if with_image else []),
+            dict(id="prompt", type="textarea", label="Cena e movimento", default="", required=True, rows=3 if with_image else 4),
+            dict(id="model", type="chips", label="Modelo", default=wan.DEFAULT_MODEL, options=wan_model_options(mode),
+                 help="A14B é a rota de alta qualidade (Q6_K); 5B é a leve. Nenhum foi medido em GPU ainda."),
+            dict(id="size", type="chips", label="Proporção", default=next(iter(wan.SIZES)), options=wan_size_options()),
+            dict(id="seconds", type="slider", label="Duração (s)", default=3, min=wan.SECONDS[0], max=wan.SECONDS[1], step=0.5,
+                 help="Vira quadros pelo FPS; o Wan aceita 4n+1 quadros e o Studio arredonda."),
+            dict(id="variations", type="seg", label="Variações", default=1, options=[opt(n, str(n), "") for n in range(1, 5)]),
+            dict(id="width", type="number", label="Largura (Personalizado)", default=832, advanced=True, help="Só vale em «Personalizado»."),
+            dict(id="height", type="number", label="Altura (Personalizado)", default=480, advanced=True),
+            dict(id="fps", type="number", label="Quadros por segundo", default=0, advanced=True, help="0 usa o padrão do modelo (16 no A14B, 24 no 5B)."),
+            dict(id="negative", type="textarea", label="Evitar", default="flicker, artifacts, blurry, subtitles", advanced=True, rows=2),
+            dict(id="steps", type="slider", label="Passos", default=20, min=wan.STEPS[0], max=wan.STEPS[1], step=1, advanced=True),
+            dict(id="cfg", type="number", label="CFG", default=0, advanced=True, help="0 usa o padrão do modelo (3,5 no A14B, 5 no 5B)."),
+            dict(id="seed", type="number", label="Seed", default=-1, advanced=True)]
+
     return [
         App("create", "Criar imagem", "Imagem", "Do texto à imagem com o modelo que você escolher.", "image",
             run_image, lambda t: image_fields(t)),
@@ -780,25 +822,10 @@ def build_registry():
                        dict(id="padding", type="slider", label="Contexto ao redor", default=96, min=0, max=256, step=8, advanced=True),
                        dict(id="feather", type="slider", label="Suavizar borda", default=8, min=0, max=64, step=1, advanced=True)],
             min_vram=0),
-        App("animate", "Foto em movimento", "Vídeo", "Anime uma foto com movimento e câmera.", "video", run_wan,
-            lambda t: [dict(id="mode", type="hidden", default=wan.IMAGE_MODE),
-                       dict(id="image", type="files", label="Foto inicial", accept="image", max=1, min=1),
-                       dict(id="prompt", type="textarea", label="Cena e movimento", default="", required=True, rows=3),
-                       dict(id="size", type="chips", label="Proporção", default=next(iter(wan.SIZES)), options=sizes_options(wan.SIZES)),
-                       dict(id="frames", type="chips", label="Duração", default="33 quadros" if t.video_frames < 49 else "49 quadros",
-                            options=wan_frames(t)),
-                       dict(id="negative", type="textarea", label="Evitar", default="flicker, artifacts, blurry, subtitles", advanced=True, rows=2),
-                       dict(id="steps", type="slider", label="Passos", default=20, min=8, max=30, step=1, advanced=True),
-                       dict(id="seed", type="number", label="Seed", default=-1, advanced=True)],
-            note="No primeiro uso o Studio baixa ~18 GB de pesos."),
-        App("text2video", "Texto em vídeo", "Vídeo", "Descreva a cena e receba um clipe.", "video", run_wan,
-            lambda t: [dict(id="mode", type="hidden", default=wan.TEXT_MODE),
-                       dict(id="prompt", type="textarea", label="Cena e movimento", default="", required=True, rows=4),
-                       dict(id="size", type="chips", label="Proporção", default=next(iter(wan.SIZES)), options=sizes_options(wan.SIZES)),
-                       dict(id="frames", type="chips", label="Duração", default="33 quadros", options=wan_frames(t)),
-                       dict(id="negative", type="textarea", label="Evitar", default="flicker, artifacts, blurry, subtitles", advanced=True, rows=2),
-                       dict(id="steps", type="slider", label="Passos", default=20, min=8, max=30, step=1, advanced=True),
-                       dict(id="seed", type="number", label="Seed", default=-1, advanced=True)]),
+        App("animate", "Foto em movimento", "Vídeo", "Anime uma foto com movimento e câmera.", "video", run_wan, wan_fields(wan.IMAGE_MODE, True),
+            note="No primeiro uso o Studio baixa os pesos do modelo escolhido (o tamanho aparece em cada opção)."),
+        App("text2video", "Texto em vídeo", "Vídeo", "Descreva a cena e receba um clipe.", "video", run_wan, wan_fields(wan.TEXT_MODE, False),
+            note="No primeiro uso o Studio baixa os pesos do modelo escolhido (o tamanho aparece em cada opção)."),
         App("upscale", "Ampliar imagem", "Melhorar", "Lanczos ou Real-ESRGAN, sem esperar o ComfyUI.", "upscale", run_upscale,
             lambda t: [dict(id="image", type="files", label="Imagem", accept="image", max=1, min=1),
                        dict(id="mode", type="chips", label="Método", default="Lanczos (rápido, sem IA)",

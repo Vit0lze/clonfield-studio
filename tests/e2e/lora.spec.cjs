@@ -89,3 +89,14 @@ test("LoRA que aparece depois (download no worker) entra na lista sem recarregar
   await expect(panel.locator(".lora-summary")).toContainText("2 instaladas para Z-Image");
   await expect(panel.locator('.lora-row[data-name="second_zimage__cv14.safetensors"]')).toBeVisible();
 });
+
+test("LoRA adulta fica oculta no seletor por padrão e a contagem diz quantas foram ocultadas", async ({ page }) => {
+  await prefillModel(page, "z-image");
+  await open(page, "#/apps/create");
+  await settle(page);
+  const panel = await openEstilo(page);
+  await expect(panel.locator('.lora-row[data-name="night_adult__cv15.safetensors"]')).toHaveCount(0);
+  await expect(panel.locator(".lora-summary")).toContainText("1 adulta oculta");
+  await panel.locator('[data-filter="all"]').click();
+  await expect(panel.locator('.lora-row[data-name="night_adult__cv15.safetensors"]')).toHaveCount(0);  // not even under «Todas»
+});

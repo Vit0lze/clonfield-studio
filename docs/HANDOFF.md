@@ -1,5 +1,23 @@
 # ClonField Studio: handoff
 
+## Estado V8 (2026-11-13), local; o último push foi o Lote 1 (`78d16d9`)
+
+- **Lote 1 (P0):** Home, LoRAs em Criar, popovers, capas estáveis, variantes por arquivo. Ver `docs/EVIDENCIA_LOTE1.md`.
+- **Lote 2:** `cf_capabilities.py` (registro), `cf_dag.py` (DAG tipado, cache por hash, retomar), `cf_agent.py` (agente com tool calling), páginas `#/capabilities`, API `/capabilities` e `/dag/*`. `docs/BACKLOG_CAPACIDADES_APPS.md` mapeia as 93 fontes (66 ainda NÃO INICIADO).
+- **LLM 100% local:** `cf_llama.py` (Qwen3.5-9B abliterated Q6_K via llama-server, binários e pesos fixados com SHA-256), `cf_llm.py`. Gemma/Google removido. JEV só com `CLONFIELD_JEV=1`. **Não rodou o 9B** (sem GPU): só o protocolo com um Qwen3.5 de 0.8B/2B em CPU.
+- **Vídeo Wan 2.2 (Lote 3):** `cf_wan.py` com A14B Q6_K (T2V/I2V, dois samplers) e 5B Q6_K/Q8_0/FP16, controles de segundos, FPS, tamanho livre, 1–4 variações; `prepare_gguf.py` instala o ComfyUI-GGUF fixado. Grafos conferidos contra o código-fonte real do ComfyUI v0.44.0. **Nenhum vídeo foi gerado** (BLOQUEADO_GPU).
+- «Ocultar adulto» ligado por padrão (Biblioteca, busca de componentes, seletor de LoRA).
+
+### Como retomar
+```bash
+python3 -m venv ~/.cache/clonfield-venv && ~/.cache/clonfield-venv/bin/pip install starlette uvicorn requests numpy pillow pytest httpx python-multipart safetensors psutil python-dotenv jsonschema psd_tools websockets
+cd clonfield-studio && ~/.cache/clonfield-venv/bin/python -m pytest tests -q --ignore=tests/test_live.py --ignore=tests/test_jev_live.py --ignore=tests/test_civitai_live.py --ignore=tests/test_download_live.py --ignore=tests/test_resilience_live.py
+PATH=~/.nvm/versions/node/v24.15.0/bin:$PATH CF_PY=~/.cache/clonfield-venv/bin/python tests/e2e/run.sh
+```
+No Colab (T4): rodar as células na ordem; a célula «LLM local» baixa ~8 GB; depois medir: carga do 9B, VRAM, chamadas de ferramenta (`tests/agent_eval/run_eval.py`), um vídeo 5B Q6_K e um A14B Q6_K.
+
+---
+
 Estado em 2026-11-07, `main` em `github.com/Vit0lze/clonfield-studio`. Este arquivo não contém chaves. HF e Civitai ficam só em variáveis de ambiente.
 
 ## O que é
