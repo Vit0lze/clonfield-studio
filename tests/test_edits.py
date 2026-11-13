@@ -180,3 +180,65 @@ def test_pad_then_stitch_through_the_dag_returns_the_source_in_the_kept_area(tmp
     x0, y0, x1, y1 = plan["box"]
     assert (out[y0:y1, x0:x1] == np.asarray(source.resize((x1 - x0, y1 - y0), Image.Resampling.LANCZOS))).all()
     assert Image.open(run["nodes"]["pad"]["outputs"]["mask"]["path"]).mode == "L"
+
+
+def test_boxes_become_a_mask_white_inside_black_outside():
+    mask = edits.boxes_mask((200, 100), [dict(x=0.1, y=0.2, w=0.3, h=0.4), dict(x=0.6, y=0.5, w=0.2, h=0.3)])
+    a = np.asarray(mask)
+    assert mask.mode == "L" and mask.size == (200, 100)
+    assert (a[20:60, 20:80] == 255).all() and (a[50:80, 120:160] == 255).all()  # both boxes, in pixels
+    assert a[0:19, :].max() == 0 and a[:, 180:].max() == 0
+    assert 0 < np.asarray(edits.boxes_mask((200, 100), [dict(x=0.1, y=0.2, w=0.3, h=0.4)], feather=8))[20, 18] < 255  # a soft edge, not a step
+
+
+@pytest.mark.parametrize("boxes,words", [([], "pelo menos uma"), ([dict(x=0.9, y=0.1, w=0.5, h=0.2)], "sai da imagem"), ([dict(x=0.1, y=0.1, w=0.001, h=0.5)], "pequena"),
+                                       ([dict(x=0.1)], "incompleta"), ([dict(x=0.0, y=0.0, w=0.1, h=0.1)] * 17, "até 16"), ("x", "pelo menos")])
+def test_bad_boxes_are_refused_with_the_reason(boxes, words):
+    with pytest.raises(ValueError, match=words):
+        edits.boxes_mask((100, 100), boxes)
+
+
+def test_bbox_mask_capability_runs_in_a_dag(tmp_path):
+    import cf_factory
+    base = cf_factory.data().parent if cf_factory._state["data"] is not None else tmp_path
+    cf_apps.configure(base, base / "outputs")
+    tier = cf_tiers.detect()
+    registry = caps.Registry(cf_apps.registry(), tier)
+    path = tmp_path / "p.png"
+    photo((200, 100)).save(path)
+    env = dag.Env(base, tmp_path / "out", tier, lambda i: dict(type="image", path=str(path)) if i == "m" else None)
+
+    class Ctx:
+        control = None
+        def progress(self, *a, **k): pass
+        def check(self): pass
+    boxes = [dict(x=0.1, y=0.2, w=0.3, h=0.4)]
+    run = dag.execute({"nodes": [{"id": "b", "cap": "bbox_mask", "inputs": {"image": {"media": "m"}}, "params": {"boxes": boxes}}]}, registry, env, Ctx())
+    assert (np.asarray(Image.open(run["nodes"]["b"]["outputs"]["mask"]["path"]))[20:60, 20:80] == 255).all()
+    assert any(a["id"] == "region" for a in [dict(id=c["app"]) for c in registry.describe("bbox_mask")["consumers"]])
+
+
+def test_region_runner_builds_the_mask_from_boxes_when_no_mask_is_sent(tmp_path, monkeypatch):
+    """The real run_region up to the point where it would call ComfyUI: with boxes and no mask file it must prepare a real mask and crop."""
+    import cf_jobs
+    monkeypatch.setenv("CLONFIELD_FAKE_VRAM", "15")
+    src = tmp_path / "s.png"
+    photo((512, 512)).save(src)
+    seen = {}
+
+    def fake_graph_images(ctx, preset, p, files, width, height, count):  # stops before the GPU: we only need what the region step prepared
+        seen["files"], seen["size"] = files, (width, height)
+        raise cf_jobs.JobError("parou antes do ComfyUI", "falhou")
+    monkeypatch.setattr(cf_apps, "run_graph_images", fake_graph_images)
+
+    class Ctx:
+        out_dir = tmp_path / "out"
+        class job: id = "j1"
+        def progress(self, *a, **k): pass
+    Ctx.out_dir.mkdir()
+    with pytest.raises(cf_jobs.JobError, match="parou"):
+        cf_apps.run_region(Ctx(), dict(source=[str(src)], boxes=[dict(x=0.25, y=0.25, w=0.4, h=0.4)], prompt="x", size=512, padding=32), cf_tiers.detect())
+    assert (tmp_path / "out" / "edits").is_dir() and any((tmp_path / "out" / "edits").glob("mascara-*.png"))
+    assert seen["files"] and min(seen["size"]) >= 256  # a real reference crop was prepared around the box
+    with pytest.raises(cf_jobs.JobError, match="pelo menos uma"):
+        cf_apps.run_region(Ctx(), dict(source=[str(src)], boxes=[], prompt="x"), cf_tiers.detect())

@@ -73,15 +73,15 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 | civitai.red/models/1817819/wan-22-image-to-video | workflow comunitário | grafo I2V de referência | animate | image→video | NÃO INICIADO | abrir o JSON e comparar com o grafo oficial |
 | civitai.red/models/1852904/wan-22-video-sound-workflow-optimized-for-rtx-3060-12-gb-vram-gpu | workflow comunitário | vídeo com som em 12 GB | text2video | text→video+audio | NÃO INICIADO | — |
 | civitai.red/models/2881362/minimax-h3-seed-hunter-latent-upscaler-seamless-video-continuation-dialogue-gen-tool-speedups-ref-mods | workflow H3 | continuação de vídeo / upscaler latente | app H3 (futuro) | video→video | NÃO INICIADO | — |
-| civitai.red/models/2967375/qwen-image-21-outpaint-lora-extend-any-side?modelVersionId=3362269 | LoRA Qwen 2.1 Outpaint | modo Expandir do Editar | edit (modo) | image+lado→image | NÃO INICIADO | listada no catálogo de LoRAs; sem modo dedicado |
+| civitai.red/models/2967375/qwen-image-21-outpaint-lora-extend-any-side?modelVersionId=3362269 | LoRA Qwen 2.1 Outpaint v2 (ausboss, HF) | app Expandir imagem + capacidades outpaint_pad/outpaint_stitch | outpaint, agente, DAG | image→image (+mask, plan) | CÓDIGO ESCRITO | receita da página e do cartão HF seguida (canvas #808080 ×32 ≤2 MP, instrução-gatilho, 25 passos CFG 1 euler/simple, colar o original); canvas, stitch e grafo testados em CPU (tests/test_edits.py); geração BLOQUEADO_GPU; licença «other» |
 | civitai.red/models/2975820/qwen-image-21-edit-super-duper-stable-nsfw-workflow | workflow Qwen 2.1 edit | referência de grafo | edit | image→image | NÃO INICIADO | — |
-| civitai.red/models/2983159/qwen-image-21-outfit-swap-consistency-lora?modelVersionId=3381922 | LoRA Qwen 2.1 Outfit Swap | modo Trocar roupa | edit (modo) | image+ref→image | NÃO INICIADO | idem |
+| civitai.red/models/2983159/qwen-image-21-outfit-swap-consistency-lora?modelVersionId=3381922 | LoRA Qwen 2.1 Outfit Swap Consistency (ausboss, HF) | app Trocar roupa | outfit | image+image→image | CÓDIGO ESCRITO | prompt oficial, pessoa=imagem 1, roupa=imagem 2; testado em CPU; geração BLOQUEADO_GPU |
 | civitai.red/models/2986253/qwen-image-21-character-sheet-designer-image-generation | workflow folha de personagem | capacidade character_sheet (futura) | chat, Fábrica | text+image→image[] | NÃO INICIADO | — |
 | civitai.red/models/2988187/minimax-h3-character-swap-workflow | workflow H3 character swap | troca de personagem em vídeo | alternativa a openjutsu | video+image→video | NÃO INICIADO | sem gate de 96 GB: a decisão do mandato é achar alternativas |
-| civitai.red/models/2989697/qwen-image-21-restore-lora?modelVersionId=3390033 | LoRA Qwen 2.1 Restore | modo Restaurar do Editar | edit (modo) | image→image | NÃO INICIADO | idem |
+| civitai.red/models/2989697/qwen-image-21-restore-lora?modelVersionId=3390033 | LoRA Qwen 2.1 Restore (ausboss, HF) | app Restaurar foto | restore | image→image | CÓDIGO ESCRITO | prompts oficiais, ~2 MP, força 1,0 ou 0,5 (foto desfocada); testado em CPU; geração BLOQUEADO_GPU |
 | civitai.red/models/3004026/flux-3-image-klein-multi-image-edit-or-up-to-6-pictures | FLUX.3 Klein multi-imagem | edição com até 6 imagens | edit (modelo) | image[]→image | NÃO INICIADO | FLUX.3 está indisponível no catálogo (repo restrito) |
-| civitai.red/models/3010615/moss-image-inpainting-workflow | workflow MOSS inpainting | capacidade inpaint por máscara | region | image+mask→image | NÃO INICIADO | — |
-| civitai.red/models/3020564/artfat-moss-bbox-studio-or-generate-edit-llm-prompter-50-presets-dlss5-enhancer | MOSS BBox Studio (Artfat) | layout por caixas + edição localizada + prompter | app/modo a decidir (pergunta aberta) | image+bbox[]→image | NÃO INICIADO | decisão app×modo ainda pendente |
+| civitai.red/models/3010615/moss-image-inpainting-workflow | workflow MOSS inpainting | capacidade inpaint por máscara | region | image+mask→image | NÃO INICIADO | a máscara a partir de caixas já existe (bbox_mask) |
+| civitai.red/models/3020564/artfat-moss-bbox-studio-or-generate-edit-llm-prompter-50-presets-dlss5-enhancer | MOSS BBox Studio (Artfat) | edição por caixas: editor de caixas e máscara já existem no Studio; o motor MOSS não | modo do app Editar região (recomendação) em vez de app novo | image+bbox[]→image | CÓDIGO ESCRITO | estudado: exige ComfyUI ≥0.42, RES4LYF, pesos MOSS-Image de ~27 GB sem versão quantizada confirmada; canvas deles é widget Nodes 2.0. Feito e testado: caixas→máscara (bbox_mask) e editor de caixas. Motor MOSS BLOQUEADO_GPU. Decisão app×modo é do usuário (recomendo modo) |
 | civitai.red/models/3028227/qwen-character-asset-generator-emotionactionangle-workflows | workflow de ativos de personagem | emoção/ação/ângulo | Fábrica | image→image[] | NÃO INICIADO | — |
 | civitai.red/models/3038333/workflow-action-transfer-dance | workflow ação/dança | transferência de movimento | animate (modo) | video+image→video | NÃO INICIADO | — |
 | civitai.red/models/453194/swapping-deepfake-training-face-model-and-upscaling | treino de rosto + upscale | referência | — | — | NÃO INICIADO | — |
@@ -135,10 +135,10 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 | github.com/Blueforcer/ComfyUI-DLSS5-Enhancer | pacote ComfyUI | realce/upscale | upscale (modo) | image→image | NÃO INICIADO | — |
 | github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_2_1_image_edit.json | ComfyUI nativo (template oficial) | grafo de edição Qwen 2.1 (modo do app Editar) | edit | image+text→image | TESTADO CPU | grafo do preset qwen21 validado contra /object_info (V7); GPU não medida |
 | github.com/Niko1221/Strata | projeto de imagem | comparação | — | — | NÃO INICIADO | — |
-| github.com/artfat-creator/ComfyUI-Artfat-MOSS-BBox | pacote ComfyUI | motor do MOSS BBox | region | image+bbox→image | NÃO INICIADO | — |
+| github.com/artfat-creator/ComfyUI-Artfat-MOSS-BBox | pacote ComfyUI (MIT) | motor do MOSS BBox | region | image+bbox→image | NÃO INICIADO | README lido; exige ComfyUI ≥0.42, Nodes 2.0, RES4LYF para res_6s; não instalado |
 | github.com/black-forest-labs/flux2 | FLUX.2 | modelo de imagem | create | — | TESTADO GPU | mesma evidência acima |
 | github.com/black-forest-labs/flux2/blob/main/model_licenses/LICENSE-FLUX-NON-COMMERICAL | FLUX.2 | modelo de imagem | create | — | TESTADO GPU | mesma evidência acima |
-| huggingface.co/OpenMOSS-Team/MOSS-Image-Base | pesos MOSS | motor | region | — | NÃO INICIADO | — |
+| huggingface.co/OpenMOSS-Team/MOSS-Image-Base | pesos MOSS (Apache-2.0, 27,2 GB cada: Base e SFT) | motor | region | — | NÃO INICIADO | tamanho conferido na API; sem variante quantizada confirmada para T4 |
 | huggingface.co/OpenMOSS-Team/MOSS-Image-SFT | pesos MOSS | motor | region | — | NÃO INICIADO | — |
 | huggingface.co/vistralis/FLUX.2-klein-4b-INT8-transformer | variante INT8 do Klein | variante leve | create | — | NÃO INICIADO | — |
 
@@ -146,8 +146,8 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 
 | Estado | Fontes |
 |---|---|
-| NÃO INICIADO | 66 |
-| CÓDIGO ESCRITO | 8 |
+| NÃO INICIADO | 62 |
+| CÓDIGO ESCRITO | 12 |
 | TESTADO CPU | 7 |
 | baseline (não é capacidade) | 4 |
 | TESTADO API REAL | 3 |

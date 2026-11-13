@@ -132,3 +132,35 @@ def outfit_prompt(outfit):
     if not outfit:
         raise ValueError("Descreva a roupa em poucas palavras (ex.: casaco de couro preto).")
     return f"Dress the person in image 1 in the {outfit} shown in image 2. {OUTFIT_KEEP}"
+
+
+MAX_BOXES = 16
+
+
+def clean_boxes(boxes):
+    """Validate normalised boxes [{x, y, w, h}] (fractions of the image). Returns a clean list or raises ValueError with the reason."""
+    if not isinstance(boxes, list) or not boxes:
+        raise ValueError("Desenhe pelo menos uma caixa sobre a imagem.")
+    if len(boxes) > MAX_BOXES:
+        raise ValueError(f"Use até {MAX_BOXES} caixas.")
+    out = []
+    for index, box in enumerate(boxes, 1):
+        try:
+            x, y, w, h = (float(box[k]) for k in ("x", "y", "w", "h"))
+        except (TypeError, KeyError, ValueError):
+            raise ValueError(f"A caixa {index} está incompleta.") from None
+        if not all(0 <= v <= 1 for v in (x, y, w, h)) or w <= 0.005 or h <= 0.005 or x + w > 1.0001 or y + h > 1.0001:
+            raise ValueError(f"A caixa {index} sai da imagem ou é pequena demais.")
+        out.append(dict(x=x, y=y, w=min(w, 1 - x), h=min(h, 1 - y)))
+    return out
+
+
+def boxes_mask(size, boxes, feather=0):
+    """White (255) inside the union of the boxes, black outside, optionally with a soft edge. `size` is the image size in pixels."""
+    width, height = size
+    mask = Image.new("L", (width, height), 0)
+    for box in clean_boxes(boxes):
+        mask.paste(255, (round(box["x"] * width), round(box["y"] * height), round((box["x"] + box["w"]) * width), round((box["y"] + box["h"]) * height)))
+    if feather:
+        mask = mask.filter(ImageFilter.GaussianBlur(float(feather) / 2))
+    return mask

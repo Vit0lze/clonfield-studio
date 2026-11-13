@@ -741,3 +741,19 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
 .sr-filters { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .sr-filters .input { flex: 1; min-width: 160px; }
 .adult-switch { white-space: nowrap; }
+
+/* ---- box editor (Editar região) */
+.boxeditor { display: grid; gap: 8px; }
+.bsurface { position: relative; width: 100%; line-height: 0; touch-action: none; user-select: none; }
+.bsurface[hidden] { display: none; }
+.bsurface img { width: 100%; max-height: 420px; object-fit: contain; display: block; background: #050303; }
+.blayer { position: absolute; inset: 0; cursor: crosshair; }
+.bbox { position: absolute; padding: 0; border: 2px solid var(--red-hi); background: rgba(226, 52, 63, .18); border-radius: 4px; cursor: pointer; display: grid; place-items: start; }
+.bbox span { background: var(--red); color: #fff; font: 600 11px var(--mono, monospace); line-height: 1; padding: 3px 5px; border-radius: 3px 0 4px 0; }
+.bbox.on { border-color: #fff; box-shadow: 0 0 0 2px rgba(226, 52, 63, .7); background: rgba(226, 52, 63, .28); }
+.bghost { position: absolute; border: 2px dashed #fff; background: rgba(255, 255, 255, .12); pointer-events: none; }
+.blist { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.blist li { display: flex; align-items: center; gap: 10px; padding: 4px 6px; border-radius: 10px; border: 1px solid transparent; }
+.blist li.on { border-color: rgba(226, 52, 63, .5); background: var(--red-wash); }
+.blink { background: none; border: 0; color: var(--text); cursor: pointer; padding: 2px 4px; font-weight: 560; }
+.bhint { font-size: 12px; margin: 0; }

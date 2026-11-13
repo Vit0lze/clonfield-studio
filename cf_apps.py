@@ -458,8 +458,16 @@ def run_benchmark(ctx, p, tier):
 
 
 def run_region(ctx, p, tier):
+    mask_path = (p.get("mask") or [None])[0]
+    if not mask_path:  # boxes drawn over the picture become the mask (white = edit)
+        try:
+            with Image.open(p["source"][0]) as opened:
+                size = ImageOps.exif_transpose(opened).size
+            mask_path = save_png(edits.boxes_mask(size, p.get("boxes") or []), ctx, "mascara")
+        except (OSError, ValueError) as exc:
+            raise JobError(str(exc)) from None
     try:
-        original, stencil, bounds, reference = region.prepare(p["source"][0], p["mask"][0], int(p.get("size", 768)), int(p.get("padding", 96)))
+        original, stencil, bounds, reference = region.prepare(p["source"][0], str(mask_path), int(p.get("size", 768)), int(p.get("padding", 96)))
     except (OSError, ValueError) as exc:
         raise JobError(str(exc)) from None
     low = min(reference.size)
@@ -877,7 +885,8 @@ def build_registry():
             run_image, lambda t: image_fields(t, 2, lab_prompt(), "Descreva o retrato", "Pessoa e composição")),
         App("region", "Editar região", "Imagem", "Pinte uma máscara e retoque só aquela área.", "image", run_region,
             lambda t: [dict(id="source", type="files", label="Imagem original", accept="image", max=1, min=1),
-                       dict(id="mask", type="files", label="Máscara (branco = editar)", accept="image", max=1, min=1),
+                       dict(id="boxes", type="boxes", label="Caixas: arraste sobre a imagem para marcar o que muda", default=[], max=edits.MAX_BOXES),
+                       dict(id="mask", type="files", label="…ou envie uma máscara (branco = editar)", accept="image", max=1, min=0),
                        dict(id="prompt", type="textarea", label="Alteração", default="", required=True, rows=3),
                        dict(id="size", type="chips", label="Detalhe do recorte", default=768 if t.vram_gb >= 16 else 512,
                             options=[opt(s, f"{s}px") for s in region.SIZES]),

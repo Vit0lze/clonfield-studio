@@ -150,6 +150,15 @@ def run_outpaint_stitch(env, ctx, inputs, params, workdir):
     return {"image": art("image", Path(workdir) / "stitched.png")}
 
 
+def run_bbox_mask(env, ctx, inputs, params, workdir):
+    import cf_edits
+    from PIL import Image
+    with Image.open(_image_in(inputs)["path"]) as image:
+        mask = cf_edits.boxes_mask(image.size, params.get("boxes") or [], int(params.get("feather", 0)))
+    mask.save(Path(workdir) / "mask.png")
+    return {"mask": art("mask", Path(workdir) / "mask.png")}
+
+
 def run_resolution_plan(env, ctx, inputs, params, workdir):
     import cf_apps
     plan = cf_apps.resolution_plan(params.get("aspect", "1:1"), params.get("quality", "high"), env["tier"], None, float(params.get("gen_factor", 1.0)))
@@ -197,6 +206,9 @@ def native():
         Capability("outpaint_stitch", "Colar o original de volta", "1.0", "step", "Cola os pixels originais sobre o resultado gerado, com emenda suavizada.", "cf_edits", "MIT", ("stitch",),
                    (Port("original", "image"), Port("generated", "image"), Port("plan", "json")), (Port("image", "image"),),
                    {"feather": dict(type="number", default=2, min=0, max=16)}, (), cpu, tested, "low", run_outpaint_stitch),
+        Capability("bbox_mask", "Máscara a partir de caixas", "1.0", "step", "Desenha uma máscara (branco = editar) a partir de caixas em frações da imagem.", "cf_edits", "MIT", ("boxes_to_mask",),
+                   (Port("image", "image"),), (Port("mask", "mask"),),
+                   {"boxes": dict(type="list", default=[]), "feather": dict(type="number", default=0, min=0, max=64)}, (), cpu, tested, "low", run_bbox_mask),
         Capability("resolution_plan", "Plano de resolução", "1.0", "action", "Calcula geração nativa, ampliação e saída para uma proporção e qualidade.", "cf_apps.resolution_plan", "MIT",
                    ("plan",), (), (Port("plan", "json"),),
                    {"aspect": dict(type="string", default="1:1"), "quality": dict(type="enum", default="high", options=["standard", "high", "very_high", "ultra"]),
@@ -225,6 +237,8 @@ def app_capability(app, tier):
     for f in fields:
         if f["type"] == "files":
             inputs.append(Port(f["id"], _port_type(f.get("accept")), required=int(f.get("min", 0)) > 0, many=int(f.get("max", 1)) > 1, note=f.get("label", "")))
+        elif f["type"] == "boxes":
+            params[f["id"]] = dict(type="list", default=[])
         elif f["type"] in ("lights", "loras", "model", "hidden"):
             continue
         elif f["type"] in ("number", "slider"):
@@ -257,6 +271,7 @@ BINDINGS = [
     ("compare", "compare", "app", "tela dedicada de comparação"),
     ("still", "still", "app", "tela dedicada de quadro"),
     ("resolution_plan", "create", "step", "mostra «Geração → ampliação → saída»"),
+    ("bbox_mask", "region", "step", "as caixas desenhadas viram a máscara da edição"),
     ("outpaint_pad", "outpaint", "step", "prepara o canvas cinza antes do Qwen + LoRA"),
     ("outpaint_stitch", "outpaint", "step", "cola o original de volta depois da geração"),
 ]

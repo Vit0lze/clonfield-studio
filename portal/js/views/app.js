@@ -1,6 +1,7 @@
 import { api, store, isFinal, events } from "../api.js";
 import { anchorPopover } from "../popover.js";
 import { lightEditor } from "../lights.js";
+import { boxEditor } from "../boxes.js";
 import { openSearch } from "../search.js";
 import { favFirst, starButton, isFav } from "../favs.js";
 import { hideAdult } from "../adult.js";
@@ -17,7 +18,7 @@ export async function appView(id, navigate) {
 
   const prefill = store.takePrefill(app.id);
   const values = {};
-  for (const f of app.fields) values[f.id] = structuredClone(prefill[f.id] ?? f.default ?? (f.type === "files" || f.type === "loras" || f.type === "lights" ? [] : ""));
+  for (const f of app.fields) values[f.id] = structuredClone(prefill[f.id] ?? f.default ?? (f.type === "files" || f.type === "loras" || f.type === "lights" || f.type === "boxes" ? [] : ""));
   const cleanups = [];
   // Capabilities this app uses or lets you insert around its result (shared with other apps and with the agent).
   const usesBar = h("div", { class: "uses-bar", hidden: true });
@@ -110,6 +111,12 @@ export async function appView(id, navigate) {
     if (f.type === "lights") {
       const first = () => { const u = (values.refs || [])[0]; return u && !u.pending && u.kind === "image" ? api.url(u.url) : ""; };
       const editor = lightEditor({ lights: values[f.id], max: f.max, getImage: first, onChange: () => rerun() });
+      refresh.push(editor.sync);
+      return field(f.label, editor.el);
+    }
+    if (f.type === "boxes") {
+      const first = () => { const u = (values.source || values.image || values.refs || [])[0]; return u && !u.pending && u.kind === "image" ? api.url(u.url) : ""; };
+      const editor = boxEditor({ boxes: values[f.id], max: f.max, getImage: first, onChange: () => rerun() });
       refresh.push(editor.sync);
       return field(f.label, editor.el);
     }
@@ -583,6 +590,7 @@ export async function appView(id, navigate) {
     for (const f of app.fields) {
       if (f.required && !String(values[f.id] ?? "").trim()) list.push(f.label);
       if (f.type === "lights" && values[f.id].length < (f.min || 0)) list.push("uma luz");
+      if (f.type === "boxes" && !values[f.id].length && !(values.mask || []).some(u => !u.pending)) list.push("uma caixa ou uma máscara");
       if (f.type === "files") {
         const need = f.id === "refs" ? Math.min(f.min || 0, currentModel()?.refs ?? 9) : f.min || 0;
         const ready = values[f.id].filter(u => !u.pending).length;
