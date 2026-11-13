@@ -116,7 +116,7 @@ export async function appView(id, navigate) {
     }
     if (f.type === "boxes") {
       const first = () => { const u = (values.source || values.image || values.refs || [])[0]; return u && !u.pending && u.kind === "image" ? api.url(u.url) : ""; };
-      const editor = boxEditor({ boxes: values[f.id], max: f.max, getImage: first, onChange: () => rerun() });
+      const editor = boxEditor({ boxes: values[f.id], max: f.max, getImage: first, detail: Boolean(f.detail), onChange: () => rerun() });
       refresh.push(editor.sync);
       return field(f.label, editor.el);
     }
@@ -449,10 +449,13 @@ export async function appView(id, navigate) {
       r.kind === "image" ? h("img", { src: api.url(r.url), alt: job.title }) : h("video", { src: api.url(r.url), muted: true, loop: true, autoplay: true, playsinline: true }))));
     const first = media[0];
     const sounds = results.filter(r => r.kind === "audio");
-    const downloadable = first || sounds[0];
+    const files = results.filter(r => r.kind === "file" && !/\.(json|txt)$/i.test(r.name));
+    const downloadable = first || sounds[0] || files[0];
     clear(stage).append(h("div", { class: "results" }, media.length ? grid : null,
       sounds.length ? h("div", { class: "audio-list" }, sounds.map(r => h("figure", { class: "audio-card" }, h("audio", { controls: true, preload: "metadata", src: api.url(r.url) }),
         h("figcaption", null, r.name, " · ", h("a", { href: api.url(r.url), download: r.name }, "Baixar"))))) : null,
+      files.length ? h("div", { class: "audio-list" }, files.map(r => h("figure", { class: "audio-card" }, h("figcaption", null, icon("cube", "sm"), " ", r.name, " · ", fmtBytes(r.size), " · ",
+        h("a", { href: api.url(r.url), download: r.name }, "Baixar"))))) : null,
       job.message ? h("p", { class: "hint" }, job.message) : null,
       h("div", { class: "actions" }, first ? sendMenu(first) : null,
         downloadable ? h("a", { class: "btn sm", href: api.url(downloadable.url), download: downloadable.name }, icon("download", "sm"), "Baixar") : null,
@@ -594,7 +597,8 @@ export async function appView(id, navigate) {
     for (const f of app.fields) {
       if (f.required && f.type === "switch" ? !values[f.id] : f.required && !String(values[f.id] ?? "").trim()) list.push(f.label);
       if (f.type === "lights" && values[f.id].length < (f.min || 0)) list.push("uma luz");
-      if (f.type === "boxes" && !values[f.id].length && !(values.mask || []).some(u => !u.pending)) list.push("uma caixa ou uma máscara");
+      if (f.type === "boxes" && !f.detail && !values[f.id].length && !(values.mask || []).some(u => !u.pending)) list.push("uma caixa ou uma máscara");
+      if (f.type === "boxes" && f.detail && values.mode !== "edit_instruction" && !values[f.id].length) list.push("pelo menos uma caixa");
       if (f.type === "files") {
         const need = f.id === "refs" ? Math.min(f.min || 0, currentModel()?.refs ?? 9) : f.min || 0;
         const ready = values[f.id].filter(u => !u.pending).length;

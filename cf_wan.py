@@ -7,8 +7,7 @@ Sources (all real, checked against the Hugging Face API by tests/test_wan.py):
 Graph shapes follow the official ComfyUI Wan 2.2 templates (docs.comfy.org/tutorials/video/wan/wan2_2): the 5B model is one
 sampler; the A14B model is TWO samplers over two weight files (high-noise steps first, low-noise steps after).
 
-STATE: CÓDIGO ESCRITO. The graphs are checked on CPU against the real ComfyUI v0.44.0 / ComfyUI-GGUF source (node names and input
-names). Nothing here has generated a video on a GPU: speed, VRAM peak (an A14B Q6_K file is 12 GB, two of them), quality and the
+STATE: graphs ACCEPTED by a real ComfyUI 0.44.0 on CPU with ComfyUI-GGUF (POST /prompt validation, tests/test_comfy_real.py) and checked against its source. Nothing here has generated a video on a GPU: speed, VRAM peak (an A14B Q6_K file is 12 GB, two of them), quality and the
 conservative size limits below are NOT measured (BLOQUEADO_GPU).
 """
 

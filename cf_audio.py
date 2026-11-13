@@ -6,7 +6,7 @@ and the model card says they run on a CPU; Medium is ~9.2 GB and wants a GPU. Gr
 CFG 1, lcm / simple, the distilled checkpoints) -> VAEDecodeAudio -> SaveAudioAdvanced. The template can expand a short idea with a Qwen model;
 the Studio does that step with its own local LLM instead (cf_audio.reprompt), so no extra 4 GB encoder is needed.
 
-STATE: CÓDIGO ESCRITO. Node and input names are checked against the real ComfyUI v0.44.0 source and the pinned files against the Hugging Face API.
+STATE: graphs ACCEPTED by a real ComfyUI 0.44.0 on CPU (POST /prompt validation, tests/test_comfy_real.py); pinned files checked against the Hugging Face API.
 No audio was generated here (3 GB of RAM cannot hold even the small checkpoint plus its encoder): speed and quality are NOT measured.
 """
 

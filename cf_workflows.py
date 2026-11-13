@@ -14,7 +14,8 @@ from cf_seedvr2 import SERVER, WorkerError, persist, upload_input
 IMAGE_SUFFIXES = {".png", ".jpeg", ".jpg", ".webp", ".gif", ".avif", ".bmp"}
 VIDEO_SUFFIXES = {".mp4", ".webm", ".mkv", ".mov", ".avi"}
 AUDIO_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".opus"}
-MEDIA_SUFFIXES = IMAGE_SUFFIXES | VIDEO_SUFFIXES | AUDIO_SUFFIXES
+MODEL_3D_SUFFIXES = {".glb", ".gltf", ".obj", ".stl", ".fbx", ".usdz"}
+MEDIA_SUFFIXES = IMAGE_SUFFIXES | VIDEO_SUFFIXES | AUDIO_SUFFIXES | MODEL_3D_SUFFIXES
 _last_family = [None]
 MEDIA_INPUTS = {"LoadImage": "image", "LoadImageMask": "image", "LoadVideo": "file", "LoadAudio": "audio"}
 

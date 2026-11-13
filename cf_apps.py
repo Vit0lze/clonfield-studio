@@ -19,6 +19,8 @@ import cf_loras
 import cf_model_lab as lab
 import cf_openjutsu as openjutsu
 import cf_refine as refine
+import cf_3d as image3d
+import cf_moss as moss
 import cf_audio as audio
 import cf_edits as edits
 import cf_faceswap as faceswap
@@ -534,6 +536,60 @@ def save_png(image, ctx, stem):
     return target
 
 
+MOSS_SIZES = {"Vertical · 768 × 1152": (768, 1152), "Horizontal · 1152 × 768": (1152, 768), "Quadrado · 1024 × 1024": (1024, 1024)}
+
+
+def run_moss(ctx, p, tier):
+    import requests
+    mode = p.get("mode") or "generate"
+    prompt, boxes = (p.get("prompt") or "").strip(), p.get("boxes") or []
+    image = (p.get("image") or [None])[0]
+    seed, steps = int(p.get("seed", -1)), int(p.get("steps") or (30 if mode == "edit_instruction" else 25))
+    mask_path = scaled_path = None
+    try:
+        if mode == "generate":
+            width, height = MOSS_SIZES.get(p.get("size"), (768, 1152))
+            graph = moss.generate_graph(prompt, boxes, width, height, seed, steps, float(p.get("cfg") or 2.5))
+        elif mode in ("edit_boxes", "edit_instruction"):
+            if not image:
+                raise ValueError("Envie a imagem que será editada.")
+            if mode == "edit_boxes":
+                with Image.open(image) as opened:
+                    original = ImageOps.exif_transpose(opened).convert("RGB")
+                size = moss.work_size(original.size, float(p.get("megapixels") or 1.5))
+                scaled_path = save_png(original.resize(size, Image.Resampling.LANCZOS), ctx, "moss-base")
+                mask_path = save_png(edits.boxes_mask(size, boxes, int(p.get("feather", 24))), ctx, "moss-mascara")
+                graph = moss.edit_boxes_graph(prompt, boxes, size, "pending.png", "pending-mask.png", seed, steps, float(p.get("cfg") or 2.5))
+            else:
+                with requests.Session() as session:
+                    session.trust_env = False
+                    info = session.get(f"{workflows.SERVER}/object_info", timeout=60).json()
+                graph = moss.instruction_graph(info, prompt, "pending.png", seed, steps)
+        else:
+            raise ValueError("Escolha um modo.")
+    except (ValueError, requests.RequestException) as exc:
+        raise JobError(str(exc)) from None
+    job = workflows.run(graph, ctx.out_dir, ctx.progress, prepare=partial(moss.prepare, mode=mode, image=str(scaled_path or image), mask=str(mask_path) if mask_path else None),
+                        title=f"MOSS · {moss.MODES[mode]}", control=ctx.control, family="moss", stall=3000)
+    outputs = collect_job(ctx, job)
+    return outputs
+
+
+def run_image3d(ctx, p, tier):
+    import requests
+    image = (p.get("image") or [None])[0]
+    try:
+        with requests.Session() as session:
+            session.trust_env = False
+            info = session.get(f"{workflows.SERVER}/object_info", timeout=60).json()
+        graph = image3d.build(info, p.get("engine") or "pixal3d", int(p.get("seed", -1)), int(p.get("texture") or 2048), int(p.get("faces") or 700_000))
+    except (ValueError, requests.RequestException) as exc:
+        raise JobError(f"Não consegui montar o grafo 3D: {exc}") from None
+    job = workflows.run(graph, ctx.out_dir, ctx.progress, prepare=partial(image3d.prepare, image=image), title=f"3D · {image3d.ENGINES[p.get('engine') or 'pixal3d'][0]}",
+                        control=ctx.control, family="3d", stall=3600)
+    return collect_job(ctx, job)
+
+
 def run_audio(ctx, p, tier):
     model_key = p.get("model") or audio.DEFAULT_MODEL
     prompt = (p.get("prompt") or "").strip()
@@ -960,6 +1016,26 @@ def build_registry():
             note="No primeiro uso o Studio baixa os pesos do modelo escolhido (o tamanho aparece em cada opção)."),
         App("text2video", "Texto em vídeo", "Vídeo", "Descreva a cena e receba um clipe.", "video", run_wan, wan_fields(wan.TEXT_MODE, False),
             note="No primeiro uso o Studio baixa os pesos do modelo escolhido (o tamanho aparece em cada opção)."),
+        App("moss", "Caixas (MOSS)", "Imagem", "Desenhe caixas e escreva o que vai em cada uma: gere a cena inteira ou redesenhe só aquelas áreas.", "image", run_moss,
+            lambda t: [dict(id="mode", type="chips", label="O que fazer", default="generate", options=[opt(k, v, "") for k, v in moss.MODES.items()]),
+                       dict(id="image", type="files", label="Imagem (para editar)", accept="image", max=1, min=0, help="Só nos modos de edição."),
+                       dict(id="boxes", type="boxes", label="Caixas: arraste sobre a imagem e descreva cada uma", default=[], max=edits.MAX_BOXES, detail=True),
+                       dict(id="prompt", type="textarea", label="A cena inteira (como deve ficar no fim) ou a instrução", default="", required=True, rows=3),
+                       dict(id="size", type="chips", label="Formato (gerar)", default="Vertical · 768 × 1152", options=[opt(k, k, "") for k in MOSS_SIZES]),
+                       dict(id="megapixels", type="slider", label="Megapixels (editar)", default=1.5, min=0.5, max=2.5, step=0.25, advanced=True),
+                       dict(id="feather", type="slider", label="Suavizar a borda das caixas (px)", default=24, min=0, max=128, step=4, advanced=True),
+                       dict(id="steps", type="slider", label="Passos", default=25, min=8, max=60, step=1, advanced=True),
+                       dict(id="cfg", type="number", label="CFG", default=2.5, advanced=True),
+                       dict(id="seed", type="number", label="Seed", default=-1, advanced=True)],
+            note="MOSS-Image INT8 (5,4 GB) + Qwen3.5-9B W4A8 (7,3 GB) + VAE; nós do núcleo do ComfyUI, sem pacote extra. Grafos aceitos pelo ComfyUI real; nada gerado em GPU ainda."),
+        App("image3d", "Imagem para 3D", "3D", "Transforma uma foto de objeto num modelo 3D com textura (GLB), com TRELLIS.2 ou Pixal3D.", "image", run_image3d,
+            lambda t: [dict(id="image", type="files", label="Foto do objeto", accept="image", max=1, min=1),
+                       dict(id="engine", type="chips", label="Motor", default="pixal3d", options=[opt(k, v[0], "") for k, v in image3d.ENGINES.items()],
+                            help="Cada motor baixa só os seus pesos (~6–10 GB). Workflow oficial do ComfyUI; nada foi gerado em GPU ainda."),
+                       dict(id="texture", type="chips", label="Textura", default=2048, options=[opt(n, f"{n}px", "") for n in image3d.TEXTURES]),
+                       dict(id="faces", type="slider", label="Faces do modelo", default=700000, min=50000, max=1500000, step=50000, advanced=True),
+                       dict(id="seed", type="number", label="Seed", default=-1, advanced=True)],
+            note="Montado a partir do workflow oficial do ComfyUI (MIT), convertido com o /object_info do worker. Licença dos pesos: MIT (Comfy-Org)."),
         App("audio", "Áudio", "Áudio", "Efeitos sonoros, ambientes, loops e trilhas a partir de texto (Stable Audio 3).", "video", run_audio,
             lambda t: [dict(id="prompt", type="textarea", label="Descreva o som", default="", required=True, rows=3),
                        dict(id="model", type="chips", label="Modelo", default=audio.DEFAULT_MODEL, options=[opt(k, v["label"], "roda em CPU" if v["cpu"] else "precisa de GPU") for k, v in audio.MODELS.items()],

@@ -81,7 +81,7 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 | civitai.red/models/2989697/qwen-image-21-restore-lora?modelVersionId=3390033 | LoRA Qwen 2.1 Restore (ausboss, HF) | app Restaurar foto | restore | image→image | CÓDIGO ESCRITO | prompts oficiais, ~2 MP, força 1,0 ou 0,5 (foto desfocada); testado em CPU; geração BLOQUEADO_GPU |
 | civitai.red/models/3004026/flux-3-image-klein-multi-image-edit-or-up-to-6-pictures | FLUX.3 Klein multi-imagem | edição com até 6 imagens | edit (modelo) | image[]→image | NÃO INICIADO | FLUX.3 está indisponível no catálogo (repo restrito) |
 | civitai.red/models/3010615/moss-image-inpainting-workflow | workflow MOSS inpainting | capacidade inpaint por máscara | region | image+mask→image | NÃO INICIADO | a máscara a partir de caixas já existe (bbox_mask) |
-| civitai.red/models/3020564/artfat-moss-bbox-studio-or-generate-edit-llm-prompter-50-presets-dlss5-enhancer | MOSS BBox Studio (Artfat) | edição por caixas: editor de caixas e máscara já existem no Studio; o motor MOSS não | modo do app Editar região (recomendação) em vez de app novo | image+bbox[]→image | CÓDIGO ESCRITO | estudado: exige ComfyUI ≥0.42, RES4LYF, pesos MOSS-Image de ~27 GB sem versão quantizada confirmada; canvas deles é widget Nodes 2.0. Feito e testado: caixas→máscara (bbox_mask) e editor de caixas. Motor MOSS BLOQUEADO_GPU. Decisão app×modo é do usuário (recomendo modo) |
+| civitai.red/models/3020564/artfat-moss-bbox-studio-or-generate-edit-llm-prompter-50-presets-dlss5-enhancer | MOSS BBox Studio (Artfat) | app Caixas (MOSS): gerar por caixas, editar só as caixas (DifferentialDiffusion + colagem do original), editar por instrução (template oficial) — tudo com nós do núcleo do ComfyUI | app moss, agente (futuro) | image?+boxes+texto→image | CÓDIGO ESCRITO | CORREÇÃO: eu tinha escrito que o MOSS não tinha versão quantizada: tem (Comfy-Org/MOSS-Image: INT8 5,4 GB + Qwen3.5-9B W4A8 7,3 GB + VAE 0,25 GB). Os 3 grafos são ACEITOS pelo ComfyUI 0.44 real em CPU, e a cadeia caixas→CreateBoundingBoxes→MOSSImageLayoutPrompt foi EXECUTADA de verdade e produziu o prompt de layout. Nenhuma imagem gerada (T4) |
 | civitai.red/models/3028227/qwen-character-asset-generator-emotionactionangle-workflows | workflow de ativos de personagem | emoção/ação/ângulo | Fábrica | image→image[] | NÃO INICIADO | — |
 | civitai.red/models/3038333/workflow-action-transfer-dance | workflow ação/dança | transferência de movimento | animate (modo) | video+image→video | NÃO INICIADO | — |
 | civitai.red/models/453194/swapping-deepfake-training-face-model-and-upscaling | treino de rosto + upscale | referência | — | — | NÃO INICIADO | — |
@@ -108,15 +108,15 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 
 | Fonte | Motor | Capacidade-alvo | Consumidores | Contrato I/O | Estado | Evidência / próxima ação |
 |---|---|---|---|---|---|---|
-| blog.comfy.org/p/stable-audio-3-day-0-support | Stable Audio 3 (ComfyUI nativo; Comfy-Org/stable-audio-3, licença «other») | app Áudio (cf_audio.py): SFX, música curta, faixas longas; prompt expandido pelo LLM local | áudio, agente, Fábrica (futuro) | text→audio | CÓDIGO ESCRITO | grafo conferido contra o código do ComfyUI v0.44.0 (nós, entradas, tipo stable_audio), arquivos fixados conferidos na API do HF; player de áudio testado no navegador com um mp3 real; NENHUM áudio gerado (RAM/GPU): velocidade e qualidade não medidas |
-| blog.comfy.org/p/trellis2-and-pixal3d-are-now-native | TRELLIS.2 / Pixal3D (ComfyUI nativo desde o v0.44: nodes_trellis2.py; pesos Comfy-Org/Pixal3D, MoGe, BiRefNet, TRELLIS.2) | app 3D (adiado) | 3D (futuro) | image→mesh (GLB) | NÃO INICIADO | estudado: o template oficial `3d_pixal3d_trellis2_image_to_model` tem ~60 nós em vários estágios (forma, textura, MoGe, remoção de fundo, bake de normal/AO, remesh) e chaves de seleção; traduzir isso para um grafo API sem rodar o ComfyUI é arriscado. Recomendação: importar o workflow oficial exportado em formato API pelo app «Workflow» (já existe) até haver GPU para validar |
+| blog.comfy.org/p/stable-audio-3-day-0-support | Stable Audio 3 (ComfyUI nativo; Comfy-Org/stable-audio-3, licença «other») | app Áudio (cf_audio.py): SFX, música curta, faixas longas; prompt expandido pelo LLM local | áudio, agente, Fábrica (futuro) | text→audio | TESTADO CPU | os 9 grafos (3 modelos × 3 formatos) são ACEITOS pelo ComfyUI 0.44 real; grafo conferido contra o código do ComfyUI v0.44.0 (nós, entradas, tipo stable_audio), arquivos fixados conferidos na API do HF; player de áudio testado no navegador com um mp3 real; NENHUM áudio gerado (RAM/GPU): velocidade e qualidade não medidas |
+| blog.comfy.org/p/trellis2-and-pixal3d-are-now-native | TRELLIS.2 / Pixal3D (ComfyUI nativo; Comfy-Org/{Pixal3D,MoGe,BiRefNet,TRELLIS.2}, todos MIT) | app Imagem para 3D (cf_3d.py + cf_ui2api.py) | image3d | image→GLB | CÓDIGO ESCRITO | o template oficial (66 nós) é convertido mecanicamente com o /object_info do worker, o interruptor de motor é dobrado (só os pesos do motor escolhido) e o ComfyUI 0.44 real em CPU ACEITA os dois grafos. Nenhum GLB gerado (T4) |
 | design.minimax.io/h3 | página do produto | — | app H3 | — | NÃO INICIADO | — |
-| docs.comfy.org/tutorials/video/wan/wan2_2 | ComfyUI nativo + ComfyUI-GGUF | vídeo T2V/I2V Wan 2.2 A14B Q6_K (alta qualidade) e 5B baseline | text2video, animate | text/image→video | CÓDIGO ESCRITO | Lote 3: cf_wan.py ainda no 5B FP16; GGUF não integrado |
+| docs.comfy.org/tutorials/video/wan/wan2_2 | ComfyUI nativo + ComfyUI-GGUF | vídeo T2V/I2V Wan 2.2 A14B Q6_K (alta qualidade) e 5B baseline | text2video, animate | text/image→video | TESTADO CPU | app de vídeo com A14B Q6_K (T2V/I2V) e 5B Q6/Q8/FP16, segundos/FPS/tamanho; os 8 grafos (4 modelos × 2 modos) são ACEITOS pelo ComfyUI 0.44 real com o ComfyUI-GGUF fixado; nenhum vídeo gerado (T4) |
 | github.com/Comfy-Org/docs/blob/main/tutorials/video/minimax/minimax-h3-native.mdx | documentação H3 | — | app H3 | — | NÃO INICIADO | — |
 | github.com/Comfy-Org/workflow_templates/blob/main/templates/video_minimax_h3_fun_controlnet_union.json | ComfyUI nativo | ControlNet Union do H3 (vídeo) | app H3 (futuro) | video+image→video | NÃO INICIADO | abrir o template e validar nós no worker |
 | github.com/MiniMax-AI/awesome-minimax-h3-integration | MiniMax H3 | família de vídeo (FL2VA, Ref2VA, FastH3) | app H3 (futuro) | text/image/audio→video | NÃO INICIADO | — |
 | github.com/ModelTC/LightX2V | LightX2V (aceleração) | inferência rápida de vídeo | text2video | — | NÃO INICIADO | — |
-| github.com/Stability-AI/stable-audio-3 | Stable Audio 3 (ComfyUI nativo; Comfy-Org/stable-audio-3, licença «other») | app Áudio (cf_audio.py): SFX, música curta, faixas longas; prompt expandido pelo LLM local | áudio, agente, Fábrica (futuro) | text→audio | CÓDIGO ESCRITO | grafo conferido contra o código do ComfyUI v0.44.0 (nós, entradas, tipo stable_audio), arquivos fixados conferidos na API do HF; player de áudio testado no navegador com um mp3 real; NENHUM áudio gerado (RAM/GPU): velocidade e qualidade não medidas |
+| github.com/Stability-AI/stable-audio-3 | Stable Audio 3 (ComfyUI nativo; Comfy-Org/stable-audio-3, licença «other») | app Áudio (cf_audio.py): SFX, música curta, faixas longas; prompt expandido pelo LLM local | áudio, agente, Fábrica (futuro) | text→audio | TESTADO CPU | os 9 grafos (3 modelos × 3 formatos) são ACEITOS pelo ComfyUI 0.44 real; grafo conferido contra o código do ComfyUI v0.44.0 (nós, entradas, tipo stable_audio), arquivos fixados conferidos na API do HF; player de áudio testado no navegador com um mp3 real; NENHUM áudio gerado (RAM/GPU): velocidade e qualidade não medidas |
 | github.com/barelymining/ComfyUI-MiniMax-H3-FastVideo | MiniMax H3 | família de vídeo (FL2VA, Ref2VA, FastH3) | app H3 (futuro) | text/image/audio→video | NÃO INICIADO | — |
 | huggingface.co/Comfy-Org/MiniMax-H3 | MiniMax H3 | família de vídeo (FL2VA, Ref2VA, FastH3) | app H3 (futuro) | text/image/audio→video | NÃO INICIADO | — |
 | huggingface.co/Lightricks/LTX-Video | LTX-Video | vídeo alternativo | text2video | text/image→video | NÃO INICIADO | LTX parcial no V7 |
@@ -135,20 +135,20 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 | github.com/Blueforcer/ComfyUI-DLSS5-Enhancer | pacote ComfyUI | realce/upscale | upscale (modo) | image→image | NÃO INICIADO | — |
 | github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_2_1_image_edit.json | ComfyUI nativo (template oficial) | grafo de edição Qwen 2.1 (modo do app Editar) | edit | image+text→image | TESTADO CPU | grafo do preset qwen21 validado contra /object_info (V7); GPU não medida |
 | github.com/Niko1221/Strata | projeto de imagem | comparação | — | — | NÃO INICIADO | — |
-| github.com/artfat-creator/ComfyUI-Artfat-MOSS-BBox | pacote ComfyUI (MIT) | motor do MOSS BBox | region | image+bbox→image | NÃO INICIADO | README lido; exige ComfyUI ≥0.42, Nodes 2.0, RES4LYF para res_6s; não instalado |
+| github.com/artfat-creator/ComfyUI-Artfat-MOSS-BBox | pacote ComfyUI (MIT) | não é necessário: o app usa só nós do núcleo; o pacote serviu de referência da receita de edição | moss | image+bbox→image | TESTADO CPU | código lido; receita reimplementada com nós do núcleo e validada no ComfyUI real |
 | github.com/black-forest-labs/flux2 | FLUX.2 | modelo de imagem | create | — | TESTADO GPU | mesma evidência acima |
 | github.com/black-forest-labs/flux2/blob/main/model_licenses/LICENSE-FLUX-NON-COMMERICAL | FLUX.2 | modelo de imagem | create | — | TESTADO GPU | mesma evidência acima |
-| huggingface.co/OpenMOSS-Team/MOSS-Image-Base | pesos MOSS (Apache-2.0, 27,2 GB cada: Base e SFT) | motor | region | — | NÃO INICIADO | tamanho conferido na API; sem variante quantizada confirmada para T4 |
-| huggingface.co/OpenMOSS-Team/MOSS-Image-SFT | pesos MOSS | motor | region | — | NÃO INICIADO | — |
+| huggingface.co/OpenMOSS-Team/MOSS-Image-Base | pesos MOSS (Apache-2.0); o Studio usa o reempacotado Comfy-Org/MOSS-Image (INT8 ConvRot) | motor | moss | — | CÓDIGO ESCRITO | tamanhos e SHA conferidos na API do HF |
+| huggingface.co/OpenMOSS-Team/MOSS-Image-SFT | pesos MOSS (Apache-2.0); o Studio usa o reempacotado Comfy-Org/MOSS-Image (INT8 ConvRot) | motor | moss | — | CÓDIGO ESCRITO | tamanhos e SHA conferidos na API do HF |
 | huggingface.co/vistralis/FLUX.2-klein-4b-INT8-transformer | variante INT8 do Klein | variante leve | create | — | NÃO INICIADO | — |
 
 ## Resumo por estado
 
 | Estado | Fontes |
 |---|---|
-| NÃO INICIADO | 58 |
+| NÃO INICIADO | 54 |
 | CÓDIGO ESCRITO | 14 |
-| TESTADO CPU | 9 |
+| TESTADO CPU | 13 |
 | baseline (não é capacidade) | 4 |
 | TESTADO API REAL | 3 |
 | TESTADO GPU | 3 |

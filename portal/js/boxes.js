@@ -4,7 +4,7 @@ import { h, icon, clear } from "./ui.js";
 // preview size; the server turns them into the mask. Click a box to select it, Delete (or the × in the list) removes it, arrows nudge it.
 const MIN = 0.02;
 
-export function boxEditor({ boxes, getImage, onChange, max = 16 }) {
+export function boxEditor({ boxes, getImage, onChange, max = 16, detail = false }) {
   let selected = -1, drawing = null;
   const img = h("img", { alt: "", draggable: "false" });
   const empty = h("div", { class: "lempty" }, icon("frame"), h("b", null, "Envie a imagem"), h("span", null, "Depois arraste sobre ela para desenhar as caixas."));
@@ -12,11 +12,25 @@ export function boxEditor({ boxes, getImage, onChange, max = 16 }) {
   const surface = h("div", { class: "bsurface" }, img, layer);
   const stage = h("div", { class: "lstage" }, empty, surface);
   const list = h("ul", { class: "blist" });
+  const form = h("div", { class: "bform" });  // detail mode: what goes inside the selected box
   const hint = h("p", { class: "dim bhint" }, "Arraste sobre a imagem para criar uma caixa. Clique numa caixa para selecionar; Delete a remove.");
   const clamp = (v, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, v));
   const emit = () => onChange(boxes);
 
   const place = (el, b) => { el.style.left = `${b.x * 100}%`; el.style.top = `${b.y * 100}%`; el.style.width = `${b.w * 100}%`; el.style.height = `${b.h * 100}%`; };
+  function paintForm() {
+    clear(form);
+    const b = boxes[selected];
+    if (!detail || !b) return;
+    b.kind = b.kind || "obj";
+    form.append(h("div", { class: "bform-head" }, h("b", null, `Caixa ${selected + 1}`),
+        h("div", { class: "seg" }, [["obj", "Objeto"], ["text", "Texto"]].map(([value, label]) => h("button", { type: "button", "aria-pressed": String(b.kind === value),
+          onclick: () => { b.kind = value; paintForm(); emit(); } }, label)))),
+      b.kind === "text" ? h("label", { class: "field" }, h("span", { class: "label" }, "Palavras exatas que aparecem"),
+        h("input", { class: "input", type: "text", value: b.text || "", maxlength: 200, "aria-label": `Texto da caixa ${selected + 1}`, oninput: e => { b.text = e.target.value; emit(); } })) : null,
+      h("label", { class: "field" }, h("span", { class: "label" }, b.kind === "text" ? "Onde está o texto e como ele é (fonte, cor, em que superfície)" : "O que aparece nesta caixa"),
+        h("textarea", { class: "input", rows: 2, maxlength: 600, "aria-label": `Descrição da caixa ${selected + 1}`, oninput: e => { b.desc = e.target.value; emit(); } }, b.desc || "")));
+  }
   function paint() {
     clear(layer); clear(list);
     boxes.forEach((b, i) => {
@@ -39,6 +53,7 @@ export function boxEditor({ boxes, getImage, onChange, max = 16 }) {
         h("button", { type: "button", class: "btn ghost sm icon-only", "aria-label": `Remover caixa ${i + 1}`, onclick: () => remove(i) }, icon("x", "sm"))));
     });
     if (drawing) { const ghost = h("i", { class: "bghost" }); place(ghost, drawing.box); layer.append(ghost); }
+    paintForm();
   }
   function remove(i) { boxes.splice(i, 1); selected = -1; paint(); emit(); }
 
@@ -74,5 +89,5 @@ export function boxEditor({ boxes, getImage, onChange, max = 16 }) {
     hint.hidden = !src;
   }
   paint(); sync();
-  return { el: h("div", { class: "boxeditor" }, stage, hint, list), sync };
+  return { el: h("div", { class: "boxeditor" }, stage, hint, list, form), sync };
 }
