@@ -35,6 +35,9 @@ CAPABILITIES = {
     "still": ({"video"}, "extrair quadro frame captura still screenshot", "low"),
     "board": ({"video"}, "prancha storyboard momentos cenas board contact sheet", "low"),
     "sequence": ({"video"}, "juntar unir concatenar sequencia montar join merge concatenate sequence", "low"),
+    "outpaint": ({"image"}, "expandir estender aumentar o fundo bordas lados cena outpaint expand extend canvas wider", "low"),
+    "restore": ({"image"}, "restaurar foto antiga riscos poeira desfoque ruido recuperar restore old scratches dust denoise", "low"),
+    "outfit": ({"image"}, "roupa vestir trocar roupa figurino outfit dress clothes swap wear", "low"),
     "compare": ({"image"}, "comparar antes depois lado compare before after side", "low"),
     "openjutsu": ({"video", "image"}, "trocar personagem swap substituir pessoa no video replace character", "high"),
 }
@@ -136,7 +139,7 @@ def route(request, media, registry, tier, installed_nodes=None, provider=None):
 
 
 # What each app hands to the next step (media kinds), used to chain a plan.
-PRODUCES = {"clip": "video", "sequence": "video", "text2video": "video", "animate": "video", "openjutsu": "video",
+PRODUCES = {"outpaint": "image", "restore": "image", "outfit": "image", "clip": "video", "sequence": "video", "text2video": "video", "animate": "video", "openjutsu": "video",
             "board": "image", "compare": "image", "seethrough": "image"}
 MAX_STEPS = 5
 FINISHED_AT = 0.35  # Noul is weakly calibrated (0.43 right after a fulfilled one-step request), so stop early

@@ -128,6 +128,28 @@ def run_still(env, ctx, inputs, params, workdir):
     return {"image": art("image", target)}
 
 
+def run_outpaint_pad(env, ctx, inputs, params, workdir):
+    import cf_edits
+    from PIL import Image
+    source = _image_in(inputs)["path"]
+    with Image.open(source) as image:
+        plan = cf_edits.outpaint_plan(image.size, params.get("left", 0), params.get("top", 0), params.get("right", 0), params.get("bottom", 0))
+        canvas, mask = cf_edits.pad_canvas(image, plan)
+    canvas.save(Path(workdir) / "canvas.png")
+    mask.save(Path(workdir) / "mask.png")
+    return {"image": art("image", Path(workdir) / "canvas.png"), "mask": art("mask", Path(workdir) / "mask.png"), "plan": art("json", value=plan)}
+
+
+def run_outpaint_stitch(env, ctx, inputs, params, workdir):
+    import cf_edits
+    from PIL import Image
+    plan = inputs["plan"]["value"]
+    with Image.open(inputs["original"]["path"]) as original, Image.open(inputs["generated"]["path"]) as generated:
+        out = cf_edits.stitch(original, generated, plan, int(params.get("feather", 2)))
+    out.save(Path(workdir) / "stitched.png")
+    return {"image": art("image", Path(workdir) / "stitched.png")}
+
+
 def run_resolution_plan(env, ctx, inputs, params, workdir):
     import cf_apps
     plan = cf_apps.resolution_plan(params.get("aspect", "1:1"), params.get("quality", "high"), env["tier"], None, float(params.get("gen_factor", 1.0)))
@@ -168,6 +190,13 @@ def native():
                    (Port("before", "image"), Port("after", "image")), (Port("image", "image"),), {}, (), cpu, tested, "low", run_compare),
         Capability("still", "Extrair quadro", "1.0", "step", "Tira um quadro de um vídeo em um instante.", "cf_finish (ffmpeg)", "MIT", ("extract_frame",),
                    (Port("video", "video"),), (Port("image", "image"),), {"time": dict(type="number", default=0, min=0, max=36000)}, (), cpu, tested, "low", run_still),
+        Capability("outpaint_pad", "Preparar expansão (canvas cinza)", "1.0", "step", "Coloca a imagem num canvas cinza #808080 com lados múltiplos de 32 (até 2 MP) e gera a máscara da área original.",
+                   "cf_edits (receita do LoRA Outpaint do Qwen 2.1)", "MIT", ("pad", "mask"), (Port("image", "image"),),
+                   (Port("image", "image"), Port("mask", "mask"), Port("plan", "json")),
+                   {side: dict(type="number", default=0, min=0, max=1024) for side in ("left", "top", "right", "bottom")}, (), cpu, tested, "low", run_outpaint_pad),
+        Capability("outpaint_stitch", "Colar o original de volta", "1.0", "step", "Cola os pixels originais sobre o resultado gerado, com emenda suavizada.", "cf_edits", "MIT", ("stitch",),
+                   (Port("original", "image"), Port("generated", "image"), Port("plan", "json")), (Port("image", "image"),),
+                   {"feather": dict(type="number", default=2, min=0, max=16)}, (), cpu, tested, "low", run_outpaint_stitch),
         Capability("resolution_plan", "Plano de resolução", "1.0", "action", "Calcula geração nativa, ampliação e saída para uma proporção e qualidade.", "cf_apps.resolution_plan", "MIT",
                    ("plan",), (), (Port("plan", "json"),),
                    {"aspect": dict(type="string", default="1:1"), "quality": dict(type="enum", default="high", options=["standard", "high", "very_high", "ultra"]),
@@ -228,6 +257,8 @@ BINDINGS = [
     ("compare", "compare", "app", "tela dedicada de comparação"),
     ("still", "still", "app", "tela dedicada de quadro"),
     ("resolution_plan", "create", "step", "mostra «Geração → ampliação → saída»"),
+    ("outpaint_pad", "outpaint", "step", "prepara o canvas cinza antes do Qwen + LoRA"),
+    ("outpaint_stitch", "outpaint", "step", "cola o original de volta depois da geração"),
 ]
 # Where an app accepts more steps around its result: after producing `point`, these capabilities may be chained.
 INSERTION_POINTS = [

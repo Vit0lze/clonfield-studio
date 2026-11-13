@@ -4,6 +4,7 @@ import os
 import random
 import shutil
 import time
+import uuid
 from functools import partial
 from pathlib import Path
 
@@ -18,6 +19,7 @@ import cf_loras
 import cf_model_lab as lab
 import cf_openjutsu as openjutsu
 import cf_refine as refine
+import cf_edits as edits
 import cf_registry as registry_mod
 import dataclasses
 import cf_region as region
@@ -505,6 +507,66 @@ def run_wan(ctx, p, tier):
     return outputs
 
 
+def edit_params(p, prompt, lora, strength, steps=None, cfg=None, sampler=None, scheduler=None):
+    """The parameters run_graph_images needs for a Qwen 2.1 edit with ONE catalog LoRA switched on (never inherited from a form default)."""
+    out = dict(prompt=prompt, model="qwen21", seed=int(p.get("seed", -1)), loras=[dict(name=edits.LORAS[lora], strength=strength, clip=strength, on=True)])
+    for key, value in (("steps", steps), ("cfg", cfg), ("sampler", sampler), ("scheduler", scheduler)):
+        if value is not None:
+            out[key] = value
+    return out
+
+
+def save_png(image, ctx, stem):
+    folder = ctx.out_dir / "edits"
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / f"{stem}-{uuid.uuid4().hex[:10]}.png"
+    image.save(target)
+    return target
+
+
+def run_outpaint(ctx, p, tier):
+    source = p["image"][0]
+    with Image.open(source) as opened:
+        original = ImageOps.exif_transpose(opened).convert("RGB")
+    try:
+        plan = edits.outpaint_plan(original.size, *(int(p.get(side) or 0) for side in ("left", "top", "right", "bottom")))
+    except ValueError as exc:
+        raise JobError(str(exc)) from None
+    canvas, _mask = edits.pad_canvas(original, plan)
+    canvas_path = save_png(canvas, ctx, "canvas")
+    # the author's recipe: 25 steps, CFG 1, euler / simple, LoRA 1.0, the trigger instruction first
+    params = edit_params(p, edits.outpaint_prompt(p.get("scene", "")), "outpaint", 1.0, 25, 1, "euler", "simple")
+    outputs = run_graph_images(ctx, lab.PRESETS["qwen21"], params, [str(canvas_path)], plan["canvas"][0], plan["canvas"][1], max(1, min(4, int(p.get("variations", 1)))))
+    finals = []
+    for path in outputs:
+        with Image.open(path) as generated:
+            finals.append(save_png(edits.stitch(original, generated, plan, int(p.get("feather", 2))), ctx, "expandida"))
+    return finals
+
+
+def run_restore(ctx, p, tier):
+    with Image.open(p["image"][0]) as opened:
+        picture = edits.restore_resize(opened)
+    try:
+        prompt = edits.restore_prompt(p.get("kind"))
+    except ValueError as exc:
+        raise JobError(str(exc)) from None
+    path = save_png(picture, ctx, "restaurar")
+    params = edit_params(p, prompt, "restore", edits.restore_strength(bool(p.get("blurry"))))
+    return run_graph_images(ctx, lab.PRESETS["qwen21"], params, [str(path)], picture.width, picture.height, max(1, min(4, int(p.get("variations", 1)))))
+
+
+def run_outfit(ctx, p, tier):
+    try:
+        prompt = edits.outfit_prompt(p.get("outfit"))
+    except ValueError as exc:
+        raise JobError(str(exc)) from None
+    with Image.open(p["person"][0]) as opened:
+        size = edits.restore_resize(opened, 1_500_000).size
+    params = edit_params(p, prompt, "outfit", 1.0)
+    return run_graph_images(ctx, lab.PRESETS["qwen21"], params, [p["person"][0], p["outfit_image"][0]], size[0], size[1], max(1, min(4, int(p.get("variations", 1)))))
+
+
 def compute_device():
     """The device torch can really use in THIS process (the card's VRAM says nothing about the studio's own torch build)."""
     try:
@@ -826,6 +888,29 @@ def build_registry():
             note="No primeiro uso o Studio baixa os pesos do modelo escolhido (o tamanho aparece em cada opção)."),
         App("text2video", "Texto em vídeo", "Vídeo", "Descreva a cena e receba um clipe.", "video", run_wan, wan_fields(wan.TEXT_MODE, False),
             note="No primeiro uso o Studio baixa os pesos do modelo escolhido (o tamanho aparece em cada opção)."),
+        App("outpaint", "Expandir imagem", "Imagem", "Estenda qualquer lado da foto; a parte original fica exatamente no lugar.", "image", run_outpaint,
+            lambda t: [dict(id="image", type="files", label="Imagem", accept="image", max=1, min=1),
+                       *[dict(id=side, type="slider", label=label, default=0, min=0, max=1024, step=32, help="Pixels a acrescentar deste lado (múltiplos de 32).")
+                         for side, label in (("left", "Esquerda"), ("top", "Em cima"), ("right", "Direita"), ("bottom", "Embaixo"))],
+                       dict(id="scene", type="textarea", label="O que há na cena (opcional)", default="", rows=2, help="Vira «Scene: …» depois da instrução do LoRA."),
+                       dict(id="variations", type="seg", label="Variações", default=1, options=[opt(n, str(n), "") for n in range(1, 5)]),
+                       dict(id="feather", type="slider", label="Suavizar a emenda (px)", default=2, min=0, max=16, step=1, advanced=True),
+                       dict(id="seed", type="number", label="Seed", default=-1, advanced=True)],
+            note="Usa Qwen Image 2.1 + LoRA Outpaint v2 (licença «other» no Hugging Face: confira o cartão). O Qwen é pesado; na T4 depende de offload e não foi medido."),
+        App("restore", "Restaurar foto", "Imagem", "Tira desfoque, ruído, riscos e poeira sem inventar detalhes.", "image", run_restore,
+            lambda t: [dict(id="image", type="files", label="Foto", accept="image", max=1, min=1),
+                       dict(id="kind", type="chips", label="Tipo", default=next(iter(edits.RESTORE_PROMPTS)), options=[opt(k, k, "") for k in edits.RESTORE_PROMPTS]),
+                       dict(id="blurry", type="switch", label="Foto desfocada, tremida ou quadro de vídeo", default=False, help="Usa a LoRA com força 0,5 em vez de 1,0."),
+                       dict(id="variations", type="seg", label="Variações", default=1, options=[opt(n, str(n), "") for n in range(1, 5)]),
+                       dict(id="seed", type="number", label="Seed", default=-1, advanced=True)],
+            note="Usa Qwen Image 2.1 + LoRA Restore. A foto é levada a ~2 megapixels antes."),
+        App("outfit", "Trocar roupa", "Identidade", "A pessoa recebe a roupa de outra foto; o resto fica como estava.", "identity", run_outfit,
+            lambda t: [dict(id="person", type="files", label="Pessoa", accept="image", max=1, min=1),
+                       dict(id="outfit_image", type="files", label="Foto da roupa", accept="image", max=1, min=1),
+                       dict(id="outfit", type="text", label="Roupa, em poucas palavras", default="", required=True, help="Ex.: casaco de couro preto."),
+                       dict(id="variations", type="seg", label="Variações", default=1, options=[opt(n, str(n), "") for n in range(1, 5)]),
+                       dict(id="seed", type="number", label="Seed", default=-1, advanced=True)],
+            note="Usa Qwen Image 2.1 + LoRA Outfit Swap Consistency."),
         App("upscale", "Ampliar imagem", "Melhorar", "Lanczos ou Real-ESRGAN, sem esperar o ComfyUI.", "upscale", run_upscale,
             lambda t: [dict(id="image", type="files", label="Imagem", accept="image", max=1, min=1),
                        dict(id="mode", type="chips", label="Método", default="Lanczos (rápido, sem IA)",

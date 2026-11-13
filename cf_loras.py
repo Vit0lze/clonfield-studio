@@ -37,6 +37,9 @@ CATALOGO = [
     {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_sunsetblur.safetensors'},
     {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_turbo_lora_rank_64_bf16.safetensors'},
     {'repo': 'Comfy-Org/Krea-2', 'revision': '588feaf955b08b9ac4723eeb751752ab045dba71', 'file': 'loras/krea2_vintagetarot.safetensors'},
+    {'repo': 'ausboss/Qwen-Image-2.1-Outpaint-LoRA', 'revision': 'dca5bdc7eb328f6021f330140f64b00a820ae5cd', 'file': 'qwen-image-2.1-outpaint-v2.safetensors'},
+    {'repo': 'ausboss/Qwen-Image-2.1-Restore-LoRA', 'revision': 'a223f1255f4738b89b36d79c44d61740d3b3546f', 'file': 'qwen-image-2.1-restore.safetensors'},
+    {'repo': 'ausboss/Qwen-Image-2.1-Outfit-Swap-Consistency-LoRA', 'revision': 'f0e0fc4e4c65527963d875536aa4e77fe1e9b165', 'file': 'qwen-image-2.1-outfit-swap.safetensors'},
 ]
 CATALOGO_BY_ID = {f"{r['repo']} :: {r['file']}": r for r in CATALOGO}
 
