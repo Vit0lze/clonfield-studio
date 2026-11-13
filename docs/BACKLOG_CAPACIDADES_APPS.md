@@ -95,10 +95,10 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 | Fonte | Motor | Capacidade-alvo | Consumidores | Contrato I/O | Estado | Evidência / próxima ação |
 |---|---|---|---|---|---|---|
 | blog.comfy.org/p/wan22-animate-and-qwen-image-edit-2509 | Wan Animate + Qwen Edit 2509 | alternativa ao OpenJutsu (animar/substituir personagem) | swap em vídeo | video+image→video | NÃO INICIADO | — |
-| docs.facefusion.io/usage/cli-arguments/face-selector | documentação | seleção de rosto | swap | — | NÃO INICIADO | — |
+| docs.facefusion.io/usage/cli-arguments/face-selector | documentação | seleção de rosto (`--face-selector-*`) | swap | — | TESTADO CPU | opções usadas conferidas contra o `--help` real |
 | github.com/Gourieff/comfyui-reactor | ReActor (ComfyUI) | troca de rosto | swap | image+image→image | NÃO INICIADO | — |
 | github.com/PrunaAI | organização de modelos quantizados | — | — | — | NÃO INICIADO | — |
-| github.com/facefusion/facefusion | FaceFusion (CLI) | troca de rosto em imagem e vídeo | swap, agente | image/video+image→image/video | NÃO INICIADO | — |
+| github.com/facefusion/facefusion | FaceFusion 3.9.2 (CLI headless-run, venv próprio, licença «other») | app Trocar rosto (cf_faceswap.py, prepare_facefusion.py) | swap, agente (com confirmação: risco médio) | image+image→image · image+video→video | TESTADO CPU | troca real em CPU com o programa real: mudou só a região do rosto (tests/test_faceswap.py); sem rosto no destino ou na origem o Studio diz o motivo; consentimento obrigatório. Vídeo, GPU e os outros modelos de troca NÃO testados |
 | huggingface.co/Alissonerdx/BFS-Best-Face-Swap | LoRAs BFS (Qwen 2.1 / LTX2) | troca de cabeça/corpo | swap | image+image→image | CÓDIGO ESCRITO | LoRAs catalogadas e classificáveis; sem app de swap |
 | huggingface.co/Alissonerdx/BFS-Best-Face-Swap/blob/main/README.md | LoRAs BFS (Qwen 2.1 / LTX2) | troca de cabeça/corpo | swap | image+image→image | CÓDIGO ESCRITO | LoRAs catalogadas e classificáveis; sem app de swap |
 | huggingface.co/Alissonerdx/BFS-Best-Face-Swap/blob/main/docs/qwen-image-2.1-body.md | LoRAs BFS (Qwen 2.1 / LTX2) | troca de cabeça/corpo | swap | image+image→image | CÓDIGO ESCRITO | LoRAs catalogadas e classificáveis; sem app de swap |
@@ -146,9 +146,9 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 
 | Estado | Fontes |
 |---|---|
-| NÃO INICIADO | 62 |
+| NÃO INICIADO | 60 |
 | CÓDIGO ESCRITO | 12 |
-| TESTADO CPU | 7 |
+| TESTADO CPU | 9 |
 | baseline (não é capacidade) | 4 |
 | TESTADO API REAL | 3 |
 | TESTADO GPU | 3 |

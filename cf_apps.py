@@ -20,6 +20,7 @@ import cf_model_lab as lab
 import cf_openjutsu as openjutsu
 import cf_refine as refine
 import cf_edits as edits
+import cf_faceswap as faceswap
 import cf_registry as registry_mod
 import dataclasses
 import cf_region as region
@@ -532,6 +533,24 @@ def save_png(image, ctx, stem):
     return target
 
 
+def run_faceswap(ctx, p, tier):
+    if not p.get("consent"):
+        raise JobError("Confirme que as pessoas nas fotos e no vídeo autorizaram o uso dos rostos.")
+    target = p["target"][0]
+    try:
+        kind = faceswap.kind_of(target)
+        suffix = ".mp4" if kind == "video" else ".png"
+        output = finish.output_path(ctx.out_dir, "troca-rosto", suffix)
+        enhancer = (p.get("enhancer") or "") or None
+        ctx.progress(0.05, desc="Preparando o FaceFusion")
+        faceswap.run(faceswap.root(ENV["base"]), p["source"], target, output, check=ctx.check, on_line=lambda line: ctx.progress(None, desc=line[:120]),
+                     swapper=p.get("swapper") or "inswapper_128", enhancer=enhancer, mode=p.get("mode") or "one", order=p.get("order") or "left-right",
+                     providers=("cuda",) if p.get("cuda") else ("cpu",), pixel_boost=p.get("pixel_boost") or "256x256")
+    except ValueError as exc:
+        raise JobError(str(exc)) from None
+    return [output]
+
+
 def run_outpaint(ctx, p, tier):
     source = p["image"][0]
     with Image.open(source) as opened:
@@ -919,6 +938,19 @@ def build_registry():
             note="No primeiro uso o Studio baixa os pesos do modelo escolhido (o tamanho aparece em cada opção)."),
         App("text2video", "Texto em vídeo", "Vídeo", "Descreva a cena e receba um clipe.", "video", run_wan, wan_fields(wan.TEXT_MODE, False),
             note="No primeiro uso o Studio baixa os pesos do modelo escolhido (o tamanho aparece em cada opção)."),
+        App("faceswap", "Trocar rosto", "Identidade", "Coloca o rosto de uma foto em outra foto ou vídeo (FaceFusion, roda em CPU).", "identity", run_faceswap,
+            lambda t: [dict(id="source", type="files", label="Rosto de origem (quem vai aparecer)", accept="image", max=4, min=1),
+                       dict(id="target", type="files", label="Foto ou vídeo de destino", accept="image,video", max=1, min=1),
+                       dict(id="mode", type="chips", label="Quais rostos trocar", default="one", options=[opt(k, v, "") for k, v in faceswap.SELECTOR_MODES.items()]),
+                       dict(id="enhancer", type="chips", label="Melhorar o rosto depois", default="", options=[opt("", "Não", "")] + [opt(k, v, "") for k, v in faceswap.ENHANCERS.items()]),
+                       dict(id="consent", type="switch", label="Tenho a autorização das pessoas nas fotos e no vídeo", default=False, required=True,
+                            help="Obrigatório. Use só com consentimento: o Studio recusa o pedido sem esta confirmação."),
+                       dict(id="swapper", type="chips", label="Modelo de troca", default="inswapper_128", options=[opt(k, v, "") for k, v in faceswap.SWAPPERS.items()], advanced=True,
+                            help="Só o inswapper 128 foi testado aqui; os pesos têm licenças próprias (inswapper: pesquisa/não comercial)."),
+                       dict(id="order", type="chips", label="Ordem dos rostos", default="left-right", options=[opt(k, k, "") for k in faceswap.ORDERS], advanced=True),
+                       dict(id="pixel_boost", type="chips", label="Pixel boost", default="256x256", options=[opt(k, k, "") for k in ("256x256", "512x512", "768x768", "1024x1024")], advanced=True),
+                       dict(id="cuda", type="switch", label="Usar a GPU (onnxruntime-gpu)", default=False, advanced=True, help="Só funciona se o FaceFusion foi instalado com --cuda.")],
+            lane="cpu", note="No CPU uma foto leva ~20 s depois de baixar ~1 GB de pesos na primeira vez; vídeo é lento. Licença do FaceFusion: «other» (leia LICENSE.md)."),
         App("outpaint", "Expandir imagem", "Imagem", "Estenda qualquer lado da foto; a parte original fica exatamente no lugar.", "image", run_outpaint,
             lambda t: [dict(id="image", type="files", label="Imagem", accept="image", max=1, min=1),
                        *[dict(id=side, type="slider", label=label, default=0, min=0, max=1024, step=32, help="Pixels a acrescentar deste lado (múltiplos de 32).")

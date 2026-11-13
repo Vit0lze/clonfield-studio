@@ -1,7 +1,7 @@
 const { test } = require("@playwright/test");
 const { open, settle, noErrorCard, expect, SIZES } = require("./helpers.cjs");
 
-const ROUTES = ["#/", "#/chat", "#/apps", "#/apps/create", "#/apps/edit", "#/apps/upscale", "#/apps/text2video", "#/apps/animate", "#/apps/outpaint", "#/apps/factory", "#/apps/restore", "#/apps/outfit", "#/library", "#/history", "#/jobs", "#/system", "#/capabilities"];
+const ROUTES = ["#/", "#/chat", "#/apps", "#/apps/create", "#/apps/edit", "#/apps/upscale", "#/apps/text2video", "#/apps/animate", "#/apps/outpaint", "#/apps/faceswap", "#/apps/factory", "#/apps/restore", "#/apps/outfit", "#/library", "#/history", "#/jobs", "#/system", "#/capabilities"];
 
 for (const size of SIZES) {
   for (const route of ROUTES) {

@@ -97,7 +97,7 @@ export async function appView(id, navigate) {
       binders[f.id] = v => { values[f.id] = v; range.set(v); };
       return field(f.label, range, f.help);
     }
-    if (f.type === "switch") return switchRow(f.label, values[f.id], v => { values[f.id] = v; });
+    if (f.type === "switch") return switchRow(f.label, values[f.id], v => { values[f.id] = v; rerun(); });  // rerun refreshes the «Falta:» line and the button
     if (f.type === "set") return setControl(f);
     if (f.type === "model") return modelControl(f);
     if (f.type === "seg") {
@@ -588,7 +588,7 @@ export async function appView(id, navigate) {
   function missing() {
     const list = [];
     for (const f of app.fields) {
-      if (f.required && !String(values[f.id] ?? "").trim()) list.push(f.label);
+      if (f.required && f.type === "switch" ? !values[f.id] : f.required && !String(values[f.id] ?? "").trim()) list.push(f.label);
       if (f.type === "lights" && values[f.id].length < (f.min || 0)) list.push("uma luz");
       if (f.type === "boxes" && !values[f.id].length && !(values.mask || []).some(u => !u.pending)) list.push("uma caixa ou uma máscara");
       if (f.type === "files") {
