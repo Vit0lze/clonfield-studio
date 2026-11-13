@@ -62,7 +62,7 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 | github.com/floomhq/opencut | editor de vídeo web | comparação | Fábrica | — | NÃO INICIADO | não aberto |
 | github.com/gyoridavid/short-video-maker | gerador de vídeos curtos | comparação | Fábrica | — | NÃO INICIADO | não aberto |
 | github.com/harry0703/MoneyPrinterTurbo | gerador de vídeos | comparação | Fábrica | — | NÃO INICIADO | não aberto |
-| github.com/jutsuhq/content-factory | vendorizado em vendor/content_factory (MIT) | Fábrica de vídeo (modo drawn) | app factory | texto→vídeo | TESTADO CPU | render narrado real em CPU; cenas geradas pelo ComfyUI ainda não |
+| github.com/jutsuhq/content-factory | vendorizado em vendor/content_factory (MIT) | Fábrica de vídeo: modo desenhado + modo «states» com cenas do ComfyUI local | app factory | texto→vídeo | TESTADO CPU | render narrado real em CPU (V6); modo «states» ligado ao gerador local pelo hook `private` (sem API paga), frames/cache/9:16 testados com o motor real e um pintor de imagens no lugar do ComfyUI (tests/test_factory_scenes.py); cenas reais BLOQUEADO_GPU |
 | github.com/wexloops/openfield | projeto de produção de conteúdo | comparação | Fábrica | — | NÃO INICIADO | não aberto |
 | higgsfield.ai/blog/higgsfield-introduces-content-factory | referência de produto | UX da Fábrica | Fábrica | — | CÓDIGO ESCRITO | inspirou o fluxo; sem cópia de código |
 

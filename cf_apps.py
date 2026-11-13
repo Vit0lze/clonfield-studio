@@ -675,6 +675,24 @@ def run_seethrough(ctx, p, tier):
     return seethrough.write_package(info, layers, ctx.out_dir / job["id"]) + [o for o in outputs if o.suffix != ".psd"]
 
 
+SCENE_SIZES = {"v": (768, 1152), "l": (1152, 768), "sq": (1024, 1024)}
+
+
+def scene_generator(ctx, p, tier):
+    """The callback the Content Factory calls for each scene: run the Studio's own image pipeline on the local ComfyUI worker."""
+    key = p.get("scene_model") or "flux2"
+    preset = lab.PRESETS[key]
+
+    def generate(prompt, shape, refs, out):
+        ctx.check()
+        width, height = SCENE_SIZES.get(shape, SCENE_SIZES["sq"])
+        files = [str(r) for r in refs][:preset.refs] if preset.refs else []  # later scenes are edits of the first one when the model takes references
+        made = run_graph_images(ctx, preset, dict(prompt=prompt, model=key, seed=int(p.get("seed", -1))), files, width, height, 1)
+        shutil.copyfile(made[0], out)
+
+    return generate
+
+
 def run_factory(ctx, p, tier):
     import json as _json
     raw = (p.get("script") or "").strip()
@@ -682,6 +700,10 @@ def run_factory(ctx, p, tier):
         script = _json.loads(raw) if raw else factory_pipeline.example_script()
     except ValueError as exc:
         raise JobError(f"O roteiro não é um JSON válido: {exc}") from None
+    if script.get("render_mode") == "states":
+        factory_pipeline.set_image_generator(scene_generator(ctx, p, tier))  # scenes from the local ComfyUI worker, never a paid API
+    else:
+        factory_pipeline.set_image_generator(None)
     script["voice"] = bool(p.get("voice"))
     if not script["voice"]:
         for beat in script.get("beats", []):
@@ -948,6 +970,9 @@ def build_registry():
             lambda t: [dict(id="script", type="textarea", label="Roteiro (JSON de beats)", default="", rows=10,
                             help="Vazio usa o exemplo «What if the Sun went out?» (modo desenhado, sem gerar imagens)."),
                        dict(id="title", type="text", label="Nome do episódio", default="", advanced=True),
+                       dict(id="scene_model", type="chips", label="Modelo das cenas (modo «states»)", default="flux2", options=[opt(k, k, "") for k in ("flux2", "qwen21", "flux3", "krea2", "z-image")], advanced=True,
+                            help="Só vale quando o roteiro usa render_mode «states»: cada cena é gerada pelo ComfyUI local. No modo desenhado nenhuma imagem é gerada."),
+                       dict(id="seed", type="number", label="Seed das cenas", default=-1, advanced=True),
                        dict(id="voice", type="switch", label="Narração", default=True,
                             help="Kokoro (CPU, inglês e outros) + Whisper alinham a fala às legendas. Baixa ~270 MB na primeira vez. Desligada, o vídeo sai mudo.")],
             lane="cpu", note="Motor: Content Factory (MIT). Renderizador Remotion tem licença própria."),

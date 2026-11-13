@@ -120,6 +120,12 @@ def status(slug):
                 qa=json.loads(qa.read_text()) if qa.exists() else None, cached_outputs=len(keys))
 
 
+def set_image_generator(fn):
+    """Register the local scene generator (`fn(prompt, shape, refs, out)`) used by the `states` render mode. Pass None to remove it."""
+    from factory.providers.image import private
+    private.set_generator(fn)
+
+
 def run(slug, progress=lambda fraction=None, desc=None: None, names=None):
     """Run the episode's stages; every stage skips outputs whose input hash is unchanged. Progress follows stage lines."""
     from factory import stages
@@ -145,6 +151,9 @@ def run(slug, progress=lambda fraction=None, desc=None: None, names=None):
             return super().write(text)
     tap = Tap()
     profile = load_profile()
+    # Scenes come ONLY from the local worker (or none, in `drawn` mode): the paid image APIs the engine knows are never selected here.
+    from factory.providers.image import private
+    profile["providers"] = {**profile.get("providers", {}), "image": ({"clonfield": 1} if private.available() else {})}
     done = 0
     for name in todo:
         progress(done / max(len(todo), 1), desc=f"Etapa {name}")

@@ -688,7 +688,8 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         prompt = str(params.get("prompt", "")).strip()
         if prompt:
             title += " · " + (prompt[:48] + "…" if len(prompt) > 48 else prompt)
-        lane = "gpu" if (app.lane == "gpu" or (app.id == "upscale" and not str(resolved.get("mode", "")).startswith("Lanczos"))) else "cpu"
+        lane = "gpu" if (app.lane == "gpu" or (app.id == "upscale" and not str(resolved.get("mode", "")).startswith("Lanczos"))
+                         or (app.id == "factory" and re.search(r'"render_mode"\s*:\s*"states"', str(resolved.get("script", ""))))) else "cpu"  # states scenes use the GPU
         job = manager.submit(app.id, title, params, lane, lambda ctx: app.runner(ctx, resolved, tier))
         return JSONResponse(public_job(job), 202)
 
