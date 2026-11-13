@@ -448,10 +448,14 @@ export async function appView(id, navigate) {
     media.forEach((r, i) => grid.append(h("button", { class: "shot", type: "button", style: { "--i": i }, "aria-label": `Abrir ${r.name}`, onclick: () => lightbox(r.original || r, job) },
       r.kind === "image" ? h("img", { src: api.url(r.url), alt: job.title }) : h("video", { src: api.url(r.url), muted: true, loop: true, autoplay: true, playsinline: true }))));
     const first = media[0];
-    clear(stage).append(h("div", { class: "results" }, grid,
+    const sounds = results.filter(r => r.kind === "audio");
+    const downloadable = first || sounds[0];
+    clear(stage).append(h("div", { class: "results" }, media.length ? grid : null,
+      sounds.length ? h("div", { class: "audio-list" }, sounds.map(r => h("figure", { class: "audio-card" }, h("audio", { controls: true, preload: "metadata", src: api.url(r.url) }),
+        h("figcaption", null, r.name, " · ", h("a", { href: api.url(r.url), download: r.name }, "Baixar"))))) : null,
       job.message ? h("p", { class: "hint" }, job.message) : null,
       h("div", { class: "actions" }, first ? sendMenu(first) : null,
-        first ? h("a", { class: "btn sm", href: api.url(first.url), download: first.name }, icon("download", "sm"), "Baixar") : null,
+        downloadable ? h("a", { class: "btn sm", href: api.url(downloadable.url), download: downloadable.name }, icon("download", "sm"), "Baixar") : null,
         h("button", { class: "btn sm primary", type: "button", onclick: () => run() }, icon("refresh", "sm"), "Gerar de novo"))));
   }
   const GROUP_ICON = { Imagem: "image", Vídeo: "video", Identidade: "user", Melhorar: "sparkle", Avançado: "sliders" };

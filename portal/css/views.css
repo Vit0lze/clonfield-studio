@@ -757,3 +757,7 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
 .blist li.on { border-color: rgba(226, 52, 63, .5); background: var(--red-wash); }
 .blink { background: none; border: 0; color: var(--text); cursor: pointer; padding: 2px 4px; font-weight: 560; }
 .bhint { font-size: 12px; margin: 0; }
+.audio-list { display: grid; gap: 10px; width: min(560px, 100%); margin: 0 auto; }
+.audio-card { margin: 0; padding: 12px; border-radius: 14px; border: 1px solid var(--line); background: var(--s1); display: grid; gap: 6px; }
+.audio-card audio { width: 100%; }
+.audio-card figcaption { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }

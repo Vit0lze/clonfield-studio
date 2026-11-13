@@ -108,7 +108,7 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 
 | Fonte | Motor | Capacidade-alvo | Consumidores | Contrato I/O | Estado | Evidência / próxima ação |
 |---|---|---|---|---|---|---|
-| blog.comfy.org/p/stable-audio-3-day-0-support | Stable Audio 3 | SFX/trilha | áudio (futuro) | text→audio | NÃO INICIADO | — |
+| blog.comfy.org/p/stable-audio-3-day-0-support | Stable Audio 3 (ComfyUI nativo; Comfy-Org/stable-audio-3, licença «other») | app Áudio (cf_audio.py): SFX, música curta, faixas longas; prompt expandido pelo LLM local | áudio, agente, Fábrica (futuro) | text→audio | CÓDIGO ESCRITO | grafo conferido contra o código do ComfyUI v0.44.0 (nós, entradas, tipo stable_audio), arquivos fixados conferidos na API do HF; player de áudio testado no navegador com um mp3 real; NENHUM áudio gerado (RAM/GPU): velocidade e qualidade não medidas |
 | blog.comfy.org/p/trellis2-and-pixal3d-are-now-native | TRELLIS.2 / Pixal3D | imagem→3D | 3D (futuro) | image→mesh | NÃO INICIADO | — |
 | design.minimax.io/h3 | página do produto | — | app H3 | — | NÃO INICIADO | — |
 | docs.comfy.org/tutorials/video/wan/wan2_2 | ComfyUI nativo + ComfyUI-GGUF | vídeo T2V/I2V Wan 2.2 A14B Q6_K (alta qualidade) e 5B baseline | text2video, animate | text/image→video | CÓDIGO ESCRITO | Lote 3: cf_wan.py ainda no 5B FP16; GGUF não integrado |
@@ -116,7 +116,7 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 | github.com/Comfy-Org/workflow_templates/blob/main/templates/video_minimax_h3_fun_controlnet_union.json | ComfyUI nativo | ControlNet Union do H3 (vídeo) | app H3 (futuro) | video+image→video | NÃO INICIADO | abrir o template e validar nós no worker |
 | github.com/MiniMax-AI/awesome-minimax-h3-integration | MiniMax H3 | família de vídeo (FL2VA, Ref2VA, FastH3) | app H3 (futuro) | text/image/audio→video | NÃO INICIADO | — |
 | github.com/ModelTC/LightX2V | LightX2V (aceleração) | inferência rápida de vídeo | text2video | — | NÃO INICIADO | — |
-| github.com/Stability-AI/stable-audio-3 | Stable Audio 3 | SFX/trilha | áudio (futuro) | text→audio | NÃO INICIADO | — |
+| github.com/Stability-AI/stable-audio-3 | Stable Audio 3 (ComfyUI nativo; Comfy-Org/stable-audio-3, licença «other») | app Áudio (cf_audio.py): SFX, música curta, faixas longas; prompt expandido pelo LLM local | áudio, agente, Fábrica (futuro) | text→audio | CÓDIGO ESCRITO | grafo conferido contra o código do ComfyUI v0.44.0 (nós, entradas, tipo stable_audio), arquivos fixados conferidos na API do HF; player de áudio testado no navegador com um mp3 real; NENHUM áudio gerado (RAM/GPU): velocidade e qualidade não medidas |
 | github.com/barelymining/ComfyUI-MiniMax-H3-FastVideo | MiniMax H3 | família de vídeo (FL2VA, Ref2VA, FastH3) | app H3 (futuro) | text/image/audio→video | NÃO INICIADO | — |
 | huggingface.co/Comfy-Org/MiniMax-H3 | MiniMax H3 | família de vídeo (FL2VA, Ref2VA, FastH3) | app H3 (futuro) | text/image/audio→video | NÃO INICIADO | — |
 | huggingface.co/Lightricks/LTX-Video | LTX-Video | vídeo alternativo | text2video | text/image→video | NÃO INICIADO | LTX parcial no V7 |
@@ -146,8 +146,8 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 
 | Estado | Fontes |
 |---|---|
-| NÃO INICIADO | 60 |
-| CÓDIGO ESCRITO | 12 |
+| NÃO INICIADO | 58 |
+| CÓDIGO ESCRITO | 14 |
 | TESTADO CPU | 9 |
 | baseline (não é capacidade) | 4 |
 | TESTADO API REAL | 3 |

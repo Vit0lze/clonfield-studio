@@ -19,6 +19,7 @@ import cf_loras
 import cf_model_lab as lab
 import cf_openjutsu as openjutsu
 import cf_refine as refine
+import cf_audio as audio
 import cf_edits as edits
 import cf_faceswap as faceswap
 import cf_registry as registry_mod
@@ -533,6 +534,27 @@ def save_png(image, ctx, stem):
     return target
 
 
+def run_audio(ctx, p, tier):
+    model_key = p.get("model") or audio.DEFAULT_MODEL
+    prompt = (p.get("prompt") or "").strip()
+    if p.get("reprompt"):
+        import cf_llm
+        prompt, used = audio.reprompt(prompt, p.get("category") or "SFX", cf_llm.generate) if prompt else (prompt, False)
+        ctx.job.update(message="Prompt expandido pelo modelo local." if used else "O modelo local não respondeu: usei o seu texto como está.")
+    seed = int(p.get("seed", -1))
+    outputs = []
+    for index in range(max(1, min(4, int(p.get("variations", 1))))):
+        ctx.check()
+        try:
+            graph = audio.make_graph(model_key, prompt, float(p.get("seconds", 10)), -1 if seed < 0 else seed + index, p.get("format") or "mp3", int(p.get("steps", 8)))
+        except ValueError as exc:
+            raise JobError(str(exc)) from None
+        job = workflows.run(graph, ctx.out_dir, scaled(ctx, index, max(1, min(4, int(p.get("variations", 1))))), prepare=partial(audio.prepare, model_key=model_key),
+                            title=f"Áudio · {audio.MODELS[model_key]['label']}", control=ctx.control, family="audio", stall=1800)
+        outputs.extend(collect_job(ctx, job))
+    return outputs
+
+
 def run_faceswap(ctx, p, tier):
     if not p.get("consent"):
         raise JobError("Confirme que as pessoas nas fotos e no vídeo autorizaram o uso dos rostos.")
@@ -938,6 +960,18 @@ def build_registry():
             note="No primeiro uso o Studio baixa os pesos do modelo escolhido (o tamanho aparece em cada opção)."),
         App("text2video", "Texto em vídeo", "Vídeo", "Descreva a cena e receba um clipe.", "video", run_wan, wan_fields(wan.TEXT_MODE, False),
             note="No primeiro uso o Studio baixa os pesos do modelo escolhido (o tamanho aparece em cada opção)."),
+        App("audio", "Áudio", "Áudio", "Efeitos sonoros, ambientes, loops e trilhas a partir de texto (Stable Audio 3).", "video", run_audio,
+            lambda t: [dict(id="prompt", type="textarea", label="Descreva o som", default="", required=True, rows=3),
+                       dict(id="model", type="chips", label="Modelo", default=audio.DEFAULT_MODEL, options=[opt(k, v["label"], "roda em CPU" if v["cpu"] else "precisa de GPU") for k, v in audio.MODELS.items()],
+                            help="Small roda em CPU segundo o cartão do modelo; nada disso foi medido aqui."),
+                       dict(id="seconds", type="slider", label="Duração (s)", default=10, min=1, max=120, step=1, help="Small vai até 120 s; Medium até ~380 s."),
+                       dict(id="reprompt", type="switch", label="Melhorar o prompt com o modelo local", default=False, help="O LLM local (Qwen3.5) transforma a ideia curta num prompt completo. Sem ele rodando, usa o seu texto."),
+                       dict(id="category", type="chips", label="Categoria (para melhorar o prompt)", default="SFX", options=[opt(k, k, "") for k in audio.CATEGORIES], advanced=True),
+                       dict(id="variations", type="seg", label="Variações", default=1, options=[opt(n, str(n), "") for n in range(1, 5)]),
+                       dict(id="format", type="chips", label="Formato", default="mp3", options=[opt(k, k, "") for k in audio.FORMATS], advanced=True),
+                       dict(id="steps", type="slider", label="Passos", default=8, min=1, max=60, step=1, advanced=True),
+                       dict(id="seed", type="number", label="Seed", default=-1, advanced=True)],
+            note="Baixa o checkpoint (~2,3 GB no Small) e o codificador de texto (~1,2 GB) na primeira vez. Licença dos pesos: «other» (Stability AI)."),
         App("faceswap", "Trocar rosto", "Identidade", "Coloca o rosto de uma foto em outra foto ou vídeo (FaceFusion, roda em CPU).", "identity", run_faceswap,
             lambda t: [dict(id="source", type="files", label="Rosto de origem (quem vai aparecer)", accept="image", max=4, min=1),
                        dict(id="target", type="files", label="Foto ou vídeo de destino", accept="image,video", max=1, min=1),

@@ -58,3 +58,13 @@ trace = [dict(step=1, tool="list_capabilities", args='{"query": "ampliar"}', ok=
     messages=[dict(id="u1", role="user", time=now - 50, text="amplie a foto em 2x", media=[]),
               dict(id="b1", role="assistant", kind="text", time=now - 10, pending=False, text="Ampliei a foto 2x: 160×120 virou 320×240.",
                    agent=dict(trace=trace, provider="llama-server", model="qwen3.5-local", steps=3, stop="resposta final"))])), encoding="utf-8")
+
+
+# A finished audio job with a real mp3 (ffmpeg), to check the player the app shows for audio results.
+import subprocess
+(out / "e2e").mkdir(parents=True, exist_ok=True)
+subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-q:a", "6", str(out / "e2e" / "tom.mp3")], check=True)
+audio_job = {"id": "job_e2eaudio", "app": "audio", "title": "Áudio · seed", "status": "concluído", "fraction": 1.0, "desc": "pronto", "message": "",
+             "results": [{"path": "e2e/tom.mp3", "name": "tom.mp3", "kind": "audio", "size": (out / "e2e" / "tom.mp3").stat().st_size}],
+             "created": time.time() - 5, "started": time.time() - 5, "finished": time.time() - 4, "lane": "gpu", "position": None, "params": {}, "version": 1}
+(out / "jobs" / "job_e2eaudio.json").write_text(json.dumps(audio_job), encoding="utf-8")

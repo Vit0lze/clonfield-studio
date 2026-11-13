@@ -39,6 +39,7 @@ CAPABILITIES = {
     "restore": ({"image"}, "restaurar foto antiga riscos poeira desfoque ruido recuperar restore old scratches dust denoise", "low"),
     "outfit": ({"image"}, "roupa vestir trocar roupa figurino outfit dress clothes swap wear", "low"),
     "faceswap": ({"image"}, "trocar rosto cara face swap deepfake colocar rosto substituir rosto", "medium"),
+    "audio": (set(), "audio som efeito sonoro musica trilha ambiente loop sfx barulho sound music track ambience", "low"),
     "compare": ({"image"}, "comparar antes depois lado compare before after side", "low"),
     "openjutsu": ({"video", "image"}, "trocar personagem swap substituir pessoa no video replace character", "high"),
 }
@@ -140,7 +141,7 @@ def route(request, media, registry, tier, installed_nodes=None, provider=None):
 
 
 # What each app hands to the next step (media kinds), used to chain a plan.
-PRODUCES = {"faceswap": "image", "outpaint": "image", "restore": "image", "outfit": "image", "clip": "video", "sequence": "video", "text2video": "video", "animate": "video", "openjutsu": "video",
+PRODUCES = {"audio": "audio", "faceswap": "image", "outpaint": "image", "restore": "image", "outfit": "image", "clip": "video", "sequence": "video", "text2video": "video", "animate": "video", "openjutsu": "video",
             "board": "image", "compare": "image", "seethrough": "image"}
 MAX_STEPS = 5
 FINISHED_AT = 0.35  # Noul is weakly calibrated (0.43 right after a fulfilled one-step request), so stop early
