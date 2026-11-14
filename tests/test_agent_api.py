@@ -55,7 +55,7 @@ def test_catalog_endpoints_filter_and_describe(api):
     everything = api.get(f"{BASE}/capabilities").json()
     ids = {c["id"] for c in everything}
     assert {"upscale", "quality_gate", "look", "frame", "app.create", "app.seethrough"} <= ids
-    assert {c["id"] for c in api.get(f"{BASE}/capabilities", params={"accepts": "video", "kind": "step"}).json()} == {"still", "video_frames", "video_join", "loop_check"}
+    assert {c["id"] for c in api.get(f"{BASE}/capabilities", params={"accepts": "video", "kind": "step"}).json()} == {"still", "video_frames", "video_join", "loop_check", "video_fx"}
     for_create = {c["id"] for c in api.get(f"{BASE}/capabilities", params={"app": "create"}).json()}
     assert {"upscale", "quality_gate", "resolution_plan"} <= for_create  # what the Criar screen uses or lets you insert
     one = api.get(f"{BASE}/capabilities/upscale").json()

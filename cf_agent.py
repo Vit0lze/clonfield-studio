@@ -33,7 +33,7 @@ Regras:
 - Descubra o que existe com list_capabilities (filtre por texto, por tipo de entrada com accepts, por saída com produces) e inspect_capability. Nunca invente o id de uma capacidade, de uma mídia ou de um parâmetro.
 - As mídias do usuário vêm de list_media; use o campo id delas em {"media": "<id>"}.
 - Monte um grafo JSON: {"nodes":[{"id":"a","cap":"<capacidade>","inputs":{"<entrada>":{"media":"<id>"} ou {"from":"<no>.<saida>"}},"params":{...}}]}. Passos podem se repetir (por exemplo duas ampliações) e podem usar a saída de qualquer passo anterior.
-- Para encadear passos (por exemplo gerar imagem, ampliar e animar em vídeo, escolhendo o modelo de cada passo) prefira compose_chain: ele liga o resultado de um passo ao seguinte e devolve o grafo pronto; com run=sim já executa. Escolha parâmetros reais olhando inspect_capability (modelo, qualidade, duração, seed). Para listas (vários cenários, quadros de um vídeo) um passo pode rodar uma vez por item ("each"), receber um texto de um passo anterior ("bind") ou rodar só se uma medição passar ("when"). Se uma receita de list_recipes cobre o pedido, use run_recipe.
+- Para encadear passos (por exemplo gerar imagem, ampliar e animar em vídeo, escolhendo o modelo de cada passo) prefira compose_chain: ele liga o resultado de um passo ao seguinte e devolve o grafo pronto; com run=sim já executa. Escolha parâmetros reais olhando inspect_capability (modelo, qualidade, duração, seed). Para listas (vários cenários, quadros de um vídeo) um passo pode rodar uma vez por item ("each"), receber um texto de um passo anterior ("bind") ou rodar só se uma medição passar ("when"). Se uma receita de list_recipes cobre o pedido, use run_recipe. Para mudar um fluxo já montado (trocar um parâmetro, inserir uma ampliação, tirar um passo) use edit_graph em vez de reescrever o grafo; listas podem ser cortadas (take_images), unidas (merge_images) e filtradas por qualidade (keep_passing); imagens viram vídeo com slideshow e clipes viram loop com video_fx.
 - Antes de executar, rode validate_graph. Se houver erros, corrija o grafo usando os motivos devolvidos e valide de novo.
 - Execute com execute_graph. Depois confira o resultado com inspect_artifact; se a conferência técnica falhar, ajuste e execute de novo.
 - Apps de GPU e passos de risco alto: se execute_graph responder needs_confirmation, pare e peça ao usuário para confirmar; não tente contornar.
@@ -132,6 +132,8 @@ class Toolbox:
                  parameters=schema(), fn=self.list_cast),
             dict(name="compose_chain", description="Monta um fluxo ligando passos em fila: o resultado de cada passo entra no seguinte (mesmo tipo de mídia). Ex.: gerar imagem, ampliar, animar em vídeo. Cada passo: {\"cap\", \"params\"?, \"inputs\"?: {entrada: id_de_mídia}, \"each\"?}. Se o passo anterior devolve uma lista, o seguinte roda uma vez por item. Com run=sim já executa (se válido).",
                  parameters=schema(stages_json=S("lista JSON de passos: [{\"cap\":\"app.create\",\"params\":{...}},{\"cap\":\"upscale\"},{\"cap\":\"app.animate\",\"params\":{\"model\":\"5b-q6\"}}]", True), run=S("sim para executar já; padrão não")), fn=self.compose_chain),
+            dict(name="edit_graph", description="Revisa um grafo já montado sem reescrevê-lo. ops_json é uma lista de operações: {\"op\":\"set_param\",\"node\",\"name\",\"value\"}, set_params, remove (os passos seguintes passam a ler o que o removido lia), insert_after ({\"node\",\"cap\",\"params\"?,\"id\"?,\"output\"?}: o novo passo entra depois e assume os consumidores), replace_cap, set_each, set_when, set_bind. Devolve o grafo novo já validado; com run=sim executa.",
+                 parameters=schema(graph_json=S("o grafo atual como texto JSON", True), ops_json=S("lista JSON de operações", True), run=S("sim para executar já; padrão não")), fn=self.edit_graph),
             dict(name="list_recipes", description="Receitas prontas: fluxos de vários passos (lote de imagens, matriz de cenários, storyboard em filme…) com o formulário de cada uma. Prefira uma receita a montar o grafo à mão quando ela cobre o pedido.",
                  parameters=schema(), fn=self.list_recipes),
             dict(name="run_recipe", description="Executa uma receita. vars_json é o formulário como objeto JSON (ids de mídia de list_media nos campos de arquivo); uma LISTA de objetos enfileira uma execução por item. Receitas de GPU devolvem job_id.",
@@ -217,6 +219,18 @@ class Toolbox:
         except ValueError as exc:
             raise ValueError(f"stages_json não é JSON válido: {exc}") from None
         graph = dag.chain(stages, self.registry)
+        report = dag.validate(graph, self.registry, self.env.tier, self.env.resolve_media)
+        out = dict(graph=graph, ok=report["ok"], errors=[e["message"] for e in report["errors"]], order=report["order"], resources=report["resources"])
+        if report["ok"] and str(run).lower() in ("sim", "true", "1", "yes"):
+            out["execution"] = self.execute_graph(json.dumps(graph))
+        return out
+
+    def edit_graph(self, graph_json, ops_json, run="nao"):
+        try:
+            ops = json.loads(ops_json) if isinstance(ops_json, str) else ops_json
+        except ValueError as exc:
+            raise ValueError(f"ops_json não é JSON válido: {exc}") from None
+        graph = dag.edit(self.graph(graph_json), ops, self.registry)
         report = dag.validate(graph, self.registry, self.env.tier, self.env.resolve_media)
         out = dict(graph=graph, ok=report["ok"], errors=[e["message"] for e in report["errors"]], order=report["order"], resources=report["resources"])
         if report["ok"] and str(run).lower() in ("sim", "true", "1", "yes"):

@@ -15,7 +15,7 @@ import cf_director
 import cf_finish
 
 MAX_BATCH = 12  # variable sets queued by one request
-KINDS = ("image", "images", "video", "videos", "text", "lines", "number", "enum", "bool")
+KINDS = ("image", "images", "video", "videos", "text", "lines", "number", "enum", "enumlist", "bool")
 
 
 @dataclasses.dataclass
@@ -74,6 +74,10 @@ def resolve(recipe, raw):
         elif kind == "enum":
             if value not in spec["options"]:
                 raise ValueError(f"«{label}»: escolha uma das opções ({', '.join(map(str, spec['options']))}).")
+        elif kind == "enumlist":
+            value = value if isinstance(value, list) else ([value] if value else [])
+            if not value or any(v not in spec["options"] for v in value):
+                raise ValueError(f"«{label}»: escolha entre {', '.join(map(str, spec['options']))}.")
         elif kind == "bool":
             value = bool(value)
         out[key] = value
@@ -123,6 +127,37 @@ def build_cutouts(v, preview=False):
     return {"nodes": [
         dict(id="cut", label="Remover o fundo de cada uma", cap="app.removebg", each="image", inputs={"image": medias(v["images"])}, params=dict(model="u2netp", background=v["background"])),
         dict(id="sheet", label="Folha de recortes", cap="contact_sheet", inputs={"images": {"from": "cut.result"}}, params=dict(columns=4)),
+    ]}
+
+
+def build_slideshow(v, preview=False):
+    return {"nodes": [
+        dict(id="frame", label="Enquadrar cada imagem", cap="frame", each="image", inputs={"image": medias(v["images"])}, params=dict(ratio=v["ratio"], fit="Preencher")),
+        dict(id="look", label="Dar o mesmo look", cap="look", each="image", inputs={"image": {"from": "frame.image"}}, params=dict(look=v["look"], strength=60)),
+        dict(id="show", label="Montar a apresentação", cap="slideshow", inputs={"images": {"from": "look.image"}},
+             params=dict(seconds=v["seconds"], ratio=v["ratio"] if v["ratio"] in cf_finish.SEQUENCE_SIZES else "Paisagem · 16:9", zoom=v["zoom"], fade=True)),
+        dict(id="seam", label="Medir a volta ao início", cap="loop_check", inputs={"video": {"from": "show.video"}}),
+    ]}
+
+
+def build_best_of(v, preview=False):
+    return {"nodes": [
+        dict(id="keep", label="Descartar as que reprovam", cap="keep_passing", inputs={"images": medias(v["images"])}, params=dict(checks=v["checks"])),
+        dict(id="top", label="Ficar com as primeiras", cap="take_images", inputs={"images": {"from": "keep.images"}}, params=dict(count=v["count"])),
+        dict(id="look", label="Dar o look", cap="look", each="image", inputs={"image": {"from": "top.images"}}, params=dict(look=v["look"], strength=70)),
+        dict(id="sheet", label="Folha das escolhidas", cap="contact_sheet", inputs={"images": {"from": "look.image"}}, params=dict(columns=4)),
+        dict(id="best", label="A mais nítida de todas", cap="pick_best", inputs={"images": {"from": "look.image"}}, params=dict(by="sharp")),
+    ]}
+
+
+def build_boomerangs(v, preview=False):
+    return {"nodes": [
+        dict(id="boom", label="Boomerang de cada clipe", cap="video_fx", each="video", inputs={"video": medias(v["videos"])}, params=dict(op="boomerang")),
+        dict(id="join", label="Juntar tudo", cap="video_join", inputs={"videos": {"from": "boom.video"}}, params=dict(ratio=v["ratio"], fit="Preencher", mute=True)),
+        dict(id="seam", label="Medir a volta ao início", cap="loop_check", inputs={"video": {"from": "join.video"}}),
+    ] if len(v["videos"]) > 1 else [
+        dict(id="boom", label="Boomerang do clipe", cap="video_fx", inputs={"video": {"media": v["videos"][0]}}, params=dict(op="boomerang")),
+        dict(id="seam", label="Medir a volta ao início", cap="loop_check", inputs={"video": {"from": "boom.video"}}),
     ]}
 
 
@@ -196,6 +231,17 @@ RECIPES = {r.id: r for r in [
     Recipe("recortes_em_lote", "Recortes em lote", "Remove o fundo de várias imagens (U²-Net no CPU) e junta numa folha.", "Lote",
            [dict(id="images", kind="images", label="Imagens", min=1, max=12), _enum("background", "Fundo", ["Transparente", "Branco", "Preto"])], build_cutouts,
            evidence="tests/test_recipes.py: U²-Net real (u2netp) em CPU"),
+    Recipe("apresentacao_de_imagens", "Apresentação de imagens", "Enquadra e dá o mesmo look a até 12 imagens e monta um vídeo com zoom lento e fade.", "Vídeo",
+           [dict(id="images", kind="images", label="Imagens", min=2, max=12), _enum("ratio", "Formato", cf_finish.SEQUENCE_SIZES), _enum("look", "Look", cf_finish.LOOKS),
+            dict(id="seconds", kind="number", label="Segundos por imagem", min=0.5, max=8, default=2), dict(id="zoom", kind="bool", label="Zoom lento", default=True)], build_slideshow,
+           evidence="tests/test_recipes.py: 4 imagens reais viram um MP4 de duração conferida"),
+    Recipe("melhores_do_lote", "Melhores do lote", "Descarta as imagens que reprovam na conferência técnica, fica com as primeiras, dá o look e monta a folha.", "Lote",
+           [dict(id="images", kind="images", label="Imagens", min=1, max=16), dict(id="checks", kind="enumlist", label="Conferências", options=["not_blank", "sharp", "exposure", "size", "structure"], default=["not_blank", "sharp"]),
+            dict(id="count", kind="number", label="Quantas ficam", min=1, max=16, default=4), _enum("look", "Look", cf_finish.LOOKS)], build_best_of,
+           evidence="tests/test_recipes.py: conferência real descarta uma imagem lisa"),
+    Recipe("boomerang_de_clipes", "Boomerang de clipes", "Cada clipe vai e volta (loop natural); com vários, os loops são emendados.", "Vídeo",
+           [dict(id="videos", kind="videos", label="Clipes", min=1, max=6), _enum("ratio", "Formato", cf_finish.SEQUENCE_SIZES)], build_boomerangs,
+           evidence="tests/test_recipes.py: 2 clipes reais com boomerang e emenda"),
     Recipe("cenarios_em_matriz", "Cenários em matriz", "Combina dois eixos (ex.: personagem × lugar), aplica a direção de cinema e gera uma imagem por combinação.", "Criar",
            [dict(id="template", kind="text", label="Frase com {a} e {b}", default="{a} em {b}"), dict(id="axis_a", kind="lines", label="Valores de {a} (um por linha)", min=1, max=6, default="uma detetive\num robô velho"),
             dict(id="axis_b", kind="lines", label="Valores de {b} (um por linha)", min=1, max=6, default="um beco chuvoso\numa estação vazia"), _enum("genre", "Gênero", GENRES, "noir"),

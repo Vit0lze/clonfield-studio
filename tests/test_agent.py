@@ -232,3 +232,50 @@ def test_compose_chain_fans_out_lists_and_runs_cpu_chains_for_real(world):
     nodes = out["graph"]["nodes"]
     assert nodes[1]["each"] == "image" and "each" not in nodes[2]  # one look per frame, then the list folds into one sheet
     assert out["execution"].get("status") != "invalid", out["execution"]
+
+
+def test_edit_graph_revises_a_flow_without_rewriting_it(world):
+    tools = world.tools()
+    base = tools.compose_chain(json.dumps([
+        dict(cap="video_frames", inputs=dict(video="m-clipe"), params=dict(every_s=0.25, max=3)),
+        dict(cap="look", params=dict(look="Frio suave")),
+        dict(cap="contact_sheet", params=dict(columns=3)),
+    ]))["graph"]
+    look_id, sheet_id = base["nodes"][1]["id"], base["nodes"][2]["id"]
+    out = tools.edit_graph(json.dumps(base), json.dumps([
+        dict(op="set_param", node=look_id, name="look", value="Cinema quente"),
+        dict(op="insert_after", node=look_id, cap="frame", params=dict(ratio="Quadrado · 1:1"), id="quadro"),
+        dict(op="insert_after", node="quadro", cap="caption", params=dict(text="plano"), id="legenda"),
+    ]))
+    assert out["ok"], out["errors"]
+    nodes = {n["id"]: n for n in out["graph"]["nodes"]}
+    assert nodes[look_id]["params"]["look"] == "Cinema quente"
+    assert nodes["quadro"]["each"] == "image" and nodes["legenda"]["each"] == "image"
+    assert nodes[sheet_id]["inputs"]["images"] == {"from": "legenda.image"}  # the sheet now reads the last inserted step
+    assert [n["id"] for n in out["graph"]["nodes"]] == [base["nodes"][0]["id"], look_id, "quadro", "legenda", sheet_id]
+    assert base["nodes"][1]["params"]["look"] == "Frio suave"  # the original graph is untouched
+    removed = tools.edit_graph(json.dumps(out["graph"]), json.dumps([dict(op="remove", node="quadro")]))
+    assert removed["ok"] and {n["id"]: n for n in removed["graph"]["nodes"]}["legenda"]["inputs"]["image"] == {"from": f"{look_id}.image"}
+    swapped = tools.edit_graph(json.dumps(base), json.dumps([dict(op="replace_cap", node=look_id, cap="caption", params=dict(text="oi"))]))
+    assert swapped["ok"] and swapped["graph"]["nodes"][1]["cap"] == "caption"
+    ran = tools.edit_graph(json.dumps(base), json.dumps([dict(op="set_param", node=look_id, name="strength", value=40)]), run="sim")
+    assert ran["execution"].get("status") != "invalid", ran["execution"]
+
+
+def test_edit_graph_refuses_what_it_cannot_do(world):
+    tools = world.tools()
+    base = tools.compose_chain(json.dumps([dict(cap="look", inputs=dict(image="m-foto")), dict(cap="upscale")]))["graph"]
+    a, b = base["nodes"][0]["id"], base["nodes"][1]["id"]
+    with pytest.raises(ValueError, match="não existe no grafo"):
+        tools.edit_graph(json.dumps(base), json.dumps([dict(op="set_param", node="fantasma", name="x", value=1)]))
+    with pytest.raises(ValueError, match="não recebe e devolve"):
+        tools.edit_graph(json.dumps(base), json.dumps([dict(op="insert_after", node=a, cap="video_join")]))
+    with pytest.raises(ValueError, match="operação «gira» desconhecida"):
+        tools.edit_graph(json.dumps(base), json.dumps([dict(op="gira", node=a)]))
+    with pytest.raises(ValueError, match="falta o campo"):
+        tools.edit_graph(json.dumps(base), json.dumps([dict(op="set_param", node=a)]))
+    bad = tools.edit_graph(json.dumps(base), json.dumps([dict(op="set_param", node=b, name="scale", value=99)]))
+    assert not bad["ok"] and "scale" in bad["errors"][0]  # edit applies, validation still speaks
+    # removing the first step: the second one reads the media the first read
+    gone = tools.edit_graph(json.dumps(base), json.dumps([dict(op="remove", node=a)]))
+    assert gone["ok"] and gone["graph"]["nodes"][0]["inputs"]["image"] == {"media": "m-foto"}

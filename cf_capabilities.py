@@ -19,6 +19,8 @@ import dataclasses
 import re
 from pathlib import Path
 
+import cf_steps
+
 MEDIA = ("image", "video", "audio", "mask", "text", "json", "psd", "file")
 STATES = ("NÃO INICIADO", "CÓDIGO ESCRITO", "TESTADO CPU", "TESTADO API REAL", "TESTADO GPU", "INTEGRADO E VALIDADO", "BLOQUEADO_GPU")
 KINDS = ("engine", "step", "action", "mode", "app")
@@ -440,6 +442,32 @@ def native():
         Capability("split_grid", "Fatiar em partes", "1.0", "step", "Corta a imagem em colunas × linhas iguais (o inverso da folha de contatos).", "cf_capabilities", "MIT", ("tile",),
                    (Port("image", "image"),), (Port("tiles", "image", many=True),),
                    {"columns": dict(type="number", default=2, min=1, max=6), "rows": dict(type="number", default=2, min=1, max=6)}, (), cpu, tested, "low", run_split_grid),
+        Capability("take_images", "Cortar a lista", "1.0", "step", "Fica com as N primeiras imagens (pulando, de k em k, ou de trás para frente).", "cf_steps", "MIT", ("slice",),
+                   (Port("images", "image", many=True),), (Port("images", "image", many=True),),
+                   {"count": dict(type="number", default=8, min=1, max=MAX_LIST), "skip": dict(type="number", default=0, min=0, max=MAX_LIST), "every": dict(type="number", default=1, min=1, max=MAX_LIST),
+                    "reverse": dict(type="bool", default=False)}, (), cpu, tested, "low", cf_steps.run_take_images),
+        Capability("merge_images", "Juntar listas de imagens", "1.0", "step", "Une até três listas de imagens (de passos diferentes) numa só, para a fila seguinte.", "cf_steps", "MIT", ("merge",),
+                   (Port("a", "image", many=True), Port("b", "image", required=False, many=True), Port("c", "image", required=False, many=True)), (Port("images", "image", many=True),),
+                   {}, (), cpu, tested, "low", cf_steps.run_merge_images),
+        Capability("keep_passing", "Ficar só com as que passam", "1.0", "step", "Descarta as imagens que reprovam na conferência técnica (nitidez, exposição, vazio…); falha com motivo se nenhuma passa.", "cf_refine", "MIT", ("filter",),
+                   (Port("images", "image", many=True),), (Port("images", "image", many=True), Port("report", "json")),
+                   {"checks": dict(type="list", default=["not_blank", "sharp", "exposure"], options=["not_blank", "sharp", "exposure", "size", "structure"])}, (), cpu, tested, "low", cf_steps.run_keep_passing),
+        Capability("text_template", "Reescrever texto com modelo", "1.0", "action", "Coloca o texto de entrada dentro de um modelo com {text} (ex.: «{text}, luz de fim de tarde»); com `each` vale para cada item da lista.", "cf_steps", "MIT", ("template",),
+                   (Port("text", "text", required=False),), (Port("text", "text"),),
+                   {"template": dict(type="string", default="{text}", required=True), "text": dict(type="string", default="")}, (), cpu, tested, "low", cf_steps.run_text_template),
+        Capability("text_join", "Juntar textos", "1.0", "action", "Une uma lista de textos num só (vírgula, linha ou ponto e vírgula).", "cf_steps", "MIT", ("join",),
+                   (Port("texts", "text", many=True),), (Port("text", "text"),),
+                   {"separator": dict(type="enum", default="vírgula", options=["vírgula", "linha", "ponto e vírgula"])}, (), cpu, tested, "low", cf_steps.run_text_join),
+        Capability("slideshow", "Imagens em vídeo", "1.0", "step", "Transforma de 1 a 12 imagens num vídeo, com zoom lento e fade (ffmpeg).", "cf_steps (ffmpeg)", "MIT", ("slideshow",),
+                   (Port("images", "image", many=True),), (Port("video", "video"),),
+                   {"seconds": dict(type="number", default=2, min=0.5, max=8), "ratio": dict(type="enum", default="Paisagem · 16:9", options=list(cf_finish.SEQUENCE_SIZES)),
+                    "zoom": dict(type="bool", default=True), "fade": dict(type="bool", default=True)}, (), cpu, tested, "low", cf_steps.run_slideshow),
+        Capability("video_fx", "Efeito de vídeo", "1.0", "step", "Boomerang (vai e volta, ótimo para loop), reverso ou mudança de velocidade (ffmpeg, sem áudio).", "cf_steps (ffmpeg)", "MIT", ("boomerang", "reverse", "speed"),
+                   (Port("video", "video"),), (Port("video", "video"),),
+                   {"op": dict(type="enum", default="boomerang", options=["boomerang", "reverse", "speed"]), "factor": dict(type="number", default=2, min=0.25, max=8)}, (), cpu, tested, "low", cf_steps.run_video_fx),
+        Capability("blend", "Misturar duas imagens", "1.0", "step", "Mistura a segunda sobre a primeira (0–100%).", "cf_steps", "MIT", ("blend",),
+                   (Port("a", "image"), Port("b", "image")), (Port("image", "image"),),
+                   {"mix": dict(type="number", default=50, min=0, max=100)}, (), cpu, tested, "low", cf_steps.run_blend),
         Capability("direction", "Direção de cinema", "1.0", "action", "Acrescenta gênero, câmera, luz e movimento (vocabulário de cinema) ao texto.", "cf_director (OpenField, MIT)", "MIT", ("compile",),
                    (Port("text", "text", required=False),), (Port("text", "text"),),
                    {"prompt": dict(type="string", default=""), **{cf_director_field(a): dict(type="enum", default="auto", options=cf_director_options(a)) for a in cf_director_axes()}}, (), cpu, tested, "low", run_direction),

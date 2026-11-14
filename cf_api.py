@@ -110,6 +110,9 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
     def public_job(job):
         data = job.snapshot(manager.position(job))
         data["results"] = [{**r, "url": sign(r["path"])} for r in data["results"]]
+        run = (data.get("params") or {}).get("run")
+        if run:
+            data["run"] = run  # the DAG run record the screen reads for the per-step timeline
         data.pop("params", None)
         return data
 
@@ -367,10 +370,12 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             return JSONResponse({"detail": str(exc)}, 400)
         registry, env, jobs = capability_registry(), dag_env(upload_media), []
         for index, (values, graph, report) in enumerate(built, 1):
-            def runner(ctx, graph=graph):
-                return cf_dag.final_files(cf_dag.execute(graph, registry, env, ctx))
+            run_id = uuid.uuid4().hex[:12]
+
+            def runner(ctx, graph=graph, run_id=run_id):
+                return cf_dag.final_files(cf_dag.execute(graph, registry, env, ctx, run_id=run_id))
             title = recipe.title + (f" · {index}/{len(built)}" if len(built) > 1 else "")
-            jobs.append(public_job(manager.submit("dag", title, {"recipe": recipe.id}, report["resources"]["lane"], runner)))
+            jobs.append(public_job(manager.submit("dag", title, {"recipe": recipe.id, "run": run_id}, report["resources"]["lane"], runner)))
         return JSONResponse(dict(recipe=recipe.id, jobs=jobs), 202)
 
     def adopt_results(session_id, files, job):

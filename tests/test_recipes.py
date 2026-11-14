@@ -131,3 +131,41 @@ def test_cutouts_use_the_real_u2net_on_cpu(world, tmp_path):
     assert result["nodes"]["cut"]["items"] == 2
     with Image.open(result["nodes"]["cut"]["outputs"]["result"][0]["path"]) as cut:
         assert cut.mode == "RGBA" and cut.getchannel("A").getextrema()[0] < 255
+
+
+def probe_seconds(path):
+    import json
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)], capture_output=True, text=True, check=True)
+    return float(json.loads(out.stdout)["format"]["duration"])
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg ausente")
+def test_slideshow_recipe_makes_a_real_video(world, tmp_path):
+    run = go(world, tmp_path, "apresentacao_de_imagens", dict(images=[ident(1), ident(2), ident(3)], ratio="Quadrado · 1:1", look="Preto e branco", seconds=1, zoom=True))
+    assert run["nodes"]["frame"]["items"] == 3 and run["nodes"]["look"]["items"] == 3
+    video = run["nodes"]["show"]["outputs"]["video"]["path"]
+    assert abs(probe_seconds(video) - 3.0) < 0.4
+    assert run["nodes"]["seam"]["outputs"]["report"]["value"]["ratio"] >= 0
+
+
+def test_best_of_recipe_discards_the_flat_picture_for_real(world, tmp_path):
+    flat = ident(99)
+    registry, tier, media, base = world
+    flat_path = tmp_path / "flat.png"
+    Image.new("RGB", (200, 140), (128, 128, 128)).save(flat_path)
+    media = {**media, flat: dict(type="image", path=str(flat_path))}
+    graph = recipes.graph_for("melhores_do_lote", dict(images=[ident(1), flat, ident(2)], checks=["not_blank"], count=4, look="Frio suave"))
+    run = dag.execute(graph, registry, dag.Env(base, tmp_path / "out", tier, media.get), Ctx())
+    assert run["nodes"]["keep"]["outputs"]["report"]["value"]["kept"] == 2
+    assert run["nodes"]["look"]["items"] == 2
+    with pytest.raises(ValueError, match="escolha entre"):
+        recipes.graph_for("melhores_do_lote", dict(images=[ident(1)], checks=[], count=1, look="Frio suave"))
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg ausente")
+def test_boomerang_recipe_loops_each_clip_and_joins(world, tmp_path):
+    run = go(world, tmp_path, "boomerang_de_clipes", dict(videos=[ident(10), ident(11)], ratio="Paisagem · 16:9"))
+    assert run["nodes"]["boom"]["items"] == 2
+    assert abs(probe_seconds(run["nodes"]["join"]["outputs"]["video"]["path"]) - 12.0) < 1.0  # two 3 s clips, each there and back
+    single = go(world, tmp_path, "boomerang_de_clipes", dict(videos=[ident(10)], ratio="Paisagem · 16:9"))
+    assert "join" not in single["nodes"] and abs(probe_seconds(single["nodes"]["boom"]["outputs"]["video"]["path"]) - 6.0) < 0.6

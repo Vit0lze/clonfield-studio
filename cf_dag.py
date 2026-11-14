@@ -591,6 +591,125 @@ def chain(stages, registry):
     return {"nodes": nodes}
 
 
+def _rewire(nodes, old, new, skip=()):
+    """Point every reference to `old` ("node.port") at `new`, except inside the nodes in `skip`."""
+    for node in nodes:
+        if node.get("id") in skip:
+            continue
+        for value in (node.get("inputs") or {}).values():
+            for src in value if isinstance(value, list) else [value]:
+                if isinstance(src, dict) and src.get("from") == old:
+                    src["from"] = new
+        for key, ref in list((node.get("bind") or {}).items()):
+            if isinstance(ref, dict) and ref.get("from") == old:
+                ref["from"] = new
+            elif ref == old:
+                node["bind"][key] = new
+        when = node.get("when")
+        if isinstance(when, dict) and when.get("from") == old:
+            when["from"] = new
+
+
+def edit(graph, ops, registry):
+    """Revise a graph without rewriting it. Returns a NEW graph; raises ValueError (plain language) when an operation cannot be applied.
+    ops: [{"op": "set_param", "node", "name", "value"} | {"op": "set_params", "node", "params"} | {"op": "remove", "node"} (consumers are
+    re-pointed to what the node itself read, when the type matches) | {"op": "insert_after", "node", "cap", "params"?, "id"?, "output"?}
+    (the new step reads that output and takes over its consumers) | {"op": "replace_cap", "node", "cap", "params"?} | {"op": "set_each", "node",
+    "each"} (null clears it) | {"op": "set_when", "node", "when"} | {"op": "set_bind", "node", "param", "ref"}]."""
+    import copy
+    graph = copy.deepcopy(graph)
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list) or not isinstance(ops, list) or not ops:
+        raise ValueError("passe um grafo com «nodes» e uma lista de operações")
+
+    def find(nid):
+        for n in nodes:
+            if n.get("id") == nid:
+                return n
+        raise ValueError(f"o nó «{nid}» não existe no grafo ({', '.join(str(n.get('id')) for n in nodes)})")
+
+    def capability(cap_id):
+        try:
+            return registry.get(cap_id)
+        except KeyError:
+            raise ValueError(f"«{cap_id}» não existe no catálogo (use list_capabilities)") from None
+
+    for number, op in enumerate(ops, 1):
+        kind = (op or {}).get("op")
+        try:
+            if kind == "set_param":
+                find(op["node"]).setdefault("params", {})[op["name"]] = op["value"]
+            elif kind == "set_params":
+                find(op["node"]).setdefault("params", {}).update(op["params"])
+            elif kind == "set_each":
+                node = find(op["node"])
+                if op.get("each"):
+                    node["each"] = op["each"]
+                else:
+                    node.pop("each", None)
+            elif kind == "set_when":
+                node = find(op["node"])
+                if op.get("when"):
+                    node["when"] = op["when"]
+                else:
+                    node.pop("when", None)
+            elif kind == "set_bind":
+                node = find(op["node"])
+                if op.get("ref"):
+                    node.setdefault("bind", {})[op["param"]] = op["ref"]
+                else:
+                    (node.get("bind") or {}).pop(op["param"], None)
+            elif kind == "replace_cap":
+                node = find(op["node"])
+                capability(op["cap"])
+                node["cap"] = op["cap"]
+                node["params"] = dict(op.get("params") or {})
+            elif kind == "remove":
+                node = find(op["node"])
+                cap = capability(node["cap"])
+                for out in cap.outputs:
+                    ref = f"{node['id']}.{out.name}"
+                    users = [n for n in nodes if n is not node and ref in sources_of(n)]
+                    if not users:
+                        continue
+                    feed = next((src for p in cap.inputs if p.type == out.type for src in [((node.get("inputs") or {}).get(p.name))] if isinstance(src, dict)), None)
+                    if feed is None:
+                        raise ValueError(f"«{node['id']}» alimenta {', '.join(u['id'] for u in users)} e não tem uma entrada do tipo {out.type} para repassar; remova ou troque esses passos também")
+                    if "from" in feed:
+                        _rewire(nodes, ref, feed["from"], skip=(node["id"],))
+                    else:  # a media id: consumers that read this output read the media directly
+                        for u in users:
+                            for pname, value in (u.get("inputs") or {}).items():
+                                if isinstance(value, dict) and value.get("from") == ref:
+                                    u["inputs"][pname] = dict(feed)
+                nodes.remove(node)
+            elif kind == "insert_after":
+                node = find(op["node"])
+                cap, new_cap = capability(node["cap"]), capability(op["cap"])
+                out = next((o for o in cap.outputs if o.name == op.get("output")), None) if op.get("output") else (cap.outputs[0] if cap.outputs else None)
+                if out is None:
+                    raise ValueError(f"«{node['id']}» não tem a saída «{op.get('output')}»")
+                port = next((p for p in new_cap.inputs if p.type == out.type), None)
+                back = next((o for o in new_cap.outputs if o.type == out.type), None)
+                if port is None or back is None:
+                    raise ValueError(f"{new_cap.id} não recebe e devolve {out.type}, então não cabe depois de «{node['id']}.{out.name}»")
+                new_id = str(op.get("id") or f"{caps.slug(new_cap.id)}_{len(nodes) + 1}")
+                if any(n.get("id") == new_id for n in nodes):
+                    raise ValueError(f"o id «{new_id}» já existe; escolha outro em «id»")
+                fresh = dict(id=new_id, cap=new_cap.id, params=dict(op.get("params") or {}), inputs={port.name: {"from": f"{node['id']}.{out.name}"}})
+                if (out.many or node.get("each")) and not port.many:
+                    fresh["each"] = port.name
+                _rewire(nodes, f"{node['id']}.{out.name}", f"{new_id}.{back.name}", skip=(new_id,))
+                nodes.insert(nodes.index(node) + 1, fresh)
+            else:
+                raise ValueError(f"operação «{kind}» desconhecida (use set_param, set_params, set_each, set_when, set_bind, replace_cap, remove, insert_after)")
+        except KeyError as exc:
+            raise ValueError(f"operação {number} ({kind}): falta o campo {exc}") from None
+        except ValueError as exc:
+            raise ValueError(f"operação {number} ({kind}): {exc}") from None
+    return graph
+
+
 class AppCtx:
     """The job context an app runner expects, with its output folder pointed at the node's own work dir."""
 

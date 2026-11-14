@@ -61,6 +61,14 @@ export async function flowsView(id, navigate) {
         return field(label, h("div", { class: "row" }, input, status));
       }
       values[key] = spec.default ?? (spec.kind === "bool" ? false : "");
+      if (spec.kind === "enumlist") {
+        values[key] = [...(spec.default || [])];
+        return field(label, h("div", { class: "flow-checks", role: "group", "aria-label": label }, spec.options.map(o => h("label", { class: "flow-check" },
+          h("input", { type: "checkbox", checked: values[key].includes(o), "data-option": o, onchange: e => {
+            values[key] = e.target.checked ? [...values[key], o] : values[key].filter(x => x !== o);
+            refresh();
+          } }), h("span", null, o)))));
+      }
       if (spec.kind === "bool") return switchRow(label, values[key], v => { values[key] = v; refresh(); });
       if (spec.kind === "enum") {
         const select = h("select", { class: "input", onchange: () => { values[key] = select.value; refresh(); } }, spec.options.map(o => h("option", { value: o, selected: o === values[key] }, o)));
@@ -124,13 +132,21 @@ export async function flowsView(id, navigate) {
       const bar = h("div", { class: "light" }, h("i"));
       const line = h("p", { class: "stage-line" }, job.desc || "Na fila");
       const out = h("div", { class: "flow-out" });
-      const card = h("article", { class: "flow-job", "data-job": job.id }, h("strong", null, job.title), bar, line, out);
+      const timeline = h("ol", { class: "flow-timeline", "aria-label": "Andamento por passo" });
+      const card = h("article", { class: "flow-job", "data-job": job.id }, h("strong", null, job.title), bar, line, timeline, out);
+      let reading = false;
+      const readRun = async j => {
+        if (!j.run || reading) return;
+        reading = true;
+        try { paintTimeline(timeline, await api.get(`/dag/runs/${j.run}`)); } catch { /* the record appears once the first step starts */ } finally { reading = false; }
+      };
       jobsBox.prepend(card);
       const paint = j => {
         bar.style.setProperty("--p", String(j.fraction || 0));
         bar.classList.toggle("indeterminate", j.status === "fila" || (j.fraction || 0) <= 0.011);
         line.textContent = j.status === "fila" ? `Na fila${j.position ? ` · posição ${j.position}` : ""}` : j.status === "concluído" ? `Concluído · ${(j.results || []).length} arquivo(s)` : (j.desc || j.message || j.status);
         card.dataset.status = j.status;
+        readRun(j);
         if (!isFinal(j.status)) return;
         clear(out);
         for (const r of j.results || []) {
@@ -150,4 +166,20 @@ export async function flowsView(id, navigate) {
       jobsBox);
     refresh();
   }
+}
+
+const RUN_LABEL = { pendente: "espera", executando: "rodando", "concluído": "feito", "em cache": "em cache", ignorado: "ignorado", falhou: "falhou", cancelado: "cancelado" };
+
+// One line per step of the run record: what it is, its state, how many items, how many came from the cache.
+export function paintTimeline(list, run) {
+  const labels = Object.fromEntries((run.graph?.nodes || []).map(n => [n.id, n.label || n.id]));
+  clear(list).append(...(run.order || []).map(id => {
+    const n = run.nodes?.[id] || {};
+    const state = n.status || "pendente";
+    const detail = n.status === "ignorado" ? (n.reason || "condição não atendida")
+      : n.items ? `${n.items} itens${n.cached_items ? ` · ${n.cached_items} em cache` : ""}`
+      : n.status === "falhou" ? (n.error || "falhou") : "";
+    return h("li", { "data-step": id, "data-state": state }, h("span", { class: "tl-name" }, labels[id] || id),
+      h("span", { class: `sr-chip tl-${state.replace(/\s+/g, "-")}` }, RUN_LABEL[state] || state), detail ? h("small", { class: "muted" }, detail) : null);
+  }));
 }
