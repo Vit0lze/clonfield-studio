@@ -17,6 +17,7 @@ import cf_jobs
 import cf_civitai
 import cf_loras
 import cf_model_lab as lab
+import cf_character as character
 import cf_compare as compare
 import cf_openjutsu as openjutsu
 import cf_refine as refine
@@ -514,6 +515,39 @@ def run_compare_models(ctx, p, tier):
     quickest = compare.faster(items)
     ctx.job.update(message=compare.summary_line(items) + (f" · mais rápido: {quickest[0]} ({quickest[1]}× o mais lento)" if quickest and quickest[1] else ""))
     return [destination, *[item["image"] for item in items]]
+
+
+def run_character_sheet(ctx, p, tier):
+    """One edit of the same reference per view (shared seed), then a labelled sheet. Qwen 2.1 (or its Turbo recipe) in edit mode."""
+    image = (p.get("image") or [None])[0]
+    if not image:
+        raise JobError("Envie a imagem do personagem.")
+    try:
+        chosen = character.views(p.get("set") or "turnaround")
+    except ValueError as exc:
+        raise JobError(str(exc)) from None
+    model = p.get("model") if p.get("model") in ("qwen21", "qwen21-turbo") else "qwen21"
+    size = character.SIZES.get(p.get("size"), (768, 1152))
+    seed = int(p.get("seed", -1))
+    seed = random.randrange(2**31) if seed < 0 else seed
+    try:
+        with Image.open(image) as opened:
+            reference = character.fit(opened, size)
+    except OSError as exc:
+        raise JobError(f"Não consegui abrir a imagem: {exc}") from None
+    folder = ctx.out_dir / "personagem"
+    folder.mkdir(parents=True, exist_ok=True)
+    ref_path = folder / f"ref-{ctx.job.id}.png"
+    reference.save(ref_path)
+    made = []
+    for index, view in enumerate(chosen):
+        ctx.check()
+        ctx.progress(index / len(chosen), desc=f"Vista {index + 1}/{len(chosen)} · {view[1]}")
+        out = run_graph_images(ctx, lab.PRESETS[model], {"prompt": character.prompt_for(view, p.get("notes")), "seed": seed}, [str(ref_path)], size[0], size[1], 1)
+        made.append((view[1], out[0]))
+    destination = finish.output_path(ctx.out_dir, "folha-personagem", ".png")
+    character.sheet(made, columns=4).save(destination)
+    return [destination, *[path for _, path in made]]
 
 
 def run_region(ctx, p, tier):
@@ -1134,6 +1168,15 @@ def build_registry():
                             help="O tempo frio inclui carregar os pesos. O quente usa uma seed nova com os pesos já na memória e dá o segundos por passo mais justo."),
                        dict(id="seed", type="number", label="Seed", default=-1, advanced=True)],
             note="Mede tempo e VRAM desta placa; nada é estimado. Cada modelo baixa seus pesos no primeiro uso."),
+        App("character_sheet", "Folha de personagem", "Identidade", "Uma imagem do personagem vira uma folha: ângulos (frente, 3/4, perfil, costas) e expressões.", "identity", run_character_sheet,
+            lambda t: [dict(id="image", type="files", label="Imagem do personagem", accept="image", max=1, min=1, help="Corpo inteiro funciona melhor para os ângulos; a imagem é encaixada no quadro sem cortar."),
+                       dict(id="set", type="chips", label="Vistas", default="turnaround", options=[opt(k, v[0], "") for k, v in character.SETS.items()]),
+                       dict(id="notes", type="textarea", label="Detalhes a preservar (opcional)", default="", rows=2, help="Ex.: cicatriz no olho esquerdo, colar dourado."),
+                       dict(id="model", type="chips", label="Modelo", default="qwen21", options=[opt("qwen21", "Qwen Image 2.1", "40 passos"), opt("qwen21-turbo", "Qwen Image 2.1 Turbo", "8 passos")]),
+                       dict(id="size", type="chips", label="Quadro de cada vista", default="Vertical · 768 × 1152", options=[opt(k, k, "") for k in character.SIZES]),
+                       dict(id="seed", type="number", label="Seed (igual em todas as vistas)", default=-1, advanced=True)],
+            offload=True, min_vram=16,
+            note="Cada vista é uma edição do mesmo personagem com o Qwen 2.1; a fidelidade entre vistas não foi medida em GPU, revise o resultado."),
         App("edit", "Editar com referências", "Imagem", "Mude o que importa e preserve o resto.", "image",
             run_image, lambda t: image_fields(t, 1, prompt_label="O que deve mudar?", refs_label="Imagem a editar")),
         App("relight", "Luz ambiente", "Imagem", "Posicione luzes, escolha cor e intensidade e a IA integra à foto.", "image",

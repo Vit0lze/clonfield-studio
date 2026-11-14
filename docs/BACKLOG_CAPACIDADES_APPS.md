@@ -76,13 +76,13 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 | civitai.red/models/2967375/qwen-image-21-outpaint-lora-extend-any-side?modelVersionId=3362269 | LoRA Qwen 2.1 Outpaint v2 (ausboss, HF) | app Expandir imagem + capacidades outpaint_pad/outpaint_stitch | outpaint, agente, DAG | image→image (+mask, plan) | CÓDIGO ESCRITO | receita da página e do cartão HF seguida (canvas #808080 ×32 ≤2 MP, instrução-gatilho, 25 passos CFG 1 euler/simple, colar o original); canvas, stitch e grafo testados em CPU (tests/test_edits.py); geração BLOQUEADO_GPU; licença «other» |
 | civitai.red/models/2975820/qwen-image-21-edit-super-duper-stable-nsfw-workflow | workflow Qwen 2.1 edit | referência de grafo | edit | image→image | NÃO INICIADO | — |
 | civitai.red/models/2983159/qwen-image-21-outfit-swap-consistency-lora?modelVersionId=3381922 | LoRA Qwen 2.1 Outfit Swap Consistency (ausboss, HF) | app Trocar roupa | outfit | image+image→image | CÓDIGO ESCRITO | prompt oficial, pessoa=imagem 1, roupa=imagem 2; testado em CPU; geração BLOQUEADO_GPU |
-| civitai.red/models/2986253/qwen-image-21-character-sheet-designer-image-generation | workflow folha de personagem | capacidade character_sheet (futura) | chat, Fábrica | text+image→image[] | NÃO INICIADO | — |
+| civitai.red/models/2986253/qwen-image-21-character-sheet-designer-image-generation | workflow folha de personagem | capacidade character_sheet (futura) | chat, Fábrica | text+image→image[] | CÓDIGO ESCRITO | app «Folha de personagem» (cf_character.py): receita própria com o modo edição do Qwen 2.1, uma edição por vista com a mesma seed e baseline+delta; o zip do workflow não foi baixado nem usado (exige rgthree e outros pacotes); fidelidade entre vistas BLOQUEADA_GPU |
 | civitai.red/models/2988187/minimax-h3-character-swap-workflow | workflow H3 character swap | troca de personagem em vídeo | alternativa a openjutsu | video+image→video | ESTUDADO — INVIÁVEL NA T4 | medido na API do HF (Comfy-Org/MiniMax-H3): o menor modelo de difusão é 16 GB (w6a8 podado) e o codificador Qwen3-VL 32B menor é 15,7 GB (nvfp4): ~32 GB de pesos só para começar, sem os VAEs (2,8–5,2 GB). Há ~50 templates oficiais (convertíveis com `cf_ui2api`); fica para uma GPU de ≥48 GB. Licença «other»
 | civitai.red/models/2989697/qwen-image-21-restore-lora?modelVersionId=3390033 | LoRA Qwen 2.1 Restore (ausboss, HF) | app Restaurar foto | restore | image→image | CÓDIGO ESCRITO | prompts oficiais, ~2 MP, força 1,0 ou 0,5 (foto desfocada); testado em CPU; geração BLOQUEADO_GPU |
 | civitai.red/models/3004026/flux-3-image-klein-multi-image-edit-or-up-to-6-pictures | FLUX.3 Klein multi-imagem | edição com até 6 imagens | edit (modelo) | image[]→image | ESTUDADO — SEM CÓDIGO | página lida: usa nós AusBoss e o modelo gated da BFL (não consegui ler o cartão); o preset FLUX.3 mantém as 3 referências do template oficial, 6 só se medido em GPU |
 | civitai.red/models/3010615/moss-image-inpainting-workflow | workflow MOSS inpainting | capacidade inpaint por máscara | region | image+mask→image | NÃO INICIADO | a máscara a partir de caixas já existe (bbox_mask) |
 | civitai.red/models/3020564/artfat-moss-bbox-studio-or-generate-edit-llm-prompter-50-presets-dlss5-enhancer | MOSS BBox Studio (Artfat) | app Caixas (MOSS): gerar por caixas, editar só as caixas (DifferentialDiffusion + colagem do original), editar por instrução (template oficial) — tudo com nós do núcleo do ComfyUI | app moss, agente (futuro) | image?+boxes+texto→image | CÓDIGO ESCRITO | CORREÇÃO: eu tinha escrito que o MOSS não tinha versão quantizada: tem (Comfy-Org/MOSS-Image: INT8 5,4 GB + Qwen3.5-9B W4A8 7,3 GB + VAE 0,25 GB). Os 3 grafos são ACEITOS pelo ComfyUI 0.44 real em CPU, e a cadeia caixas→CreateBoundingBoxes→MOSSImageLayoutPrompt foi EXECUTADA de verdade e produziu o prompt de layout. Nenhuma imagem gerada (T4) |
-| civitai.red/models/3028227/qwen-character-asset-generator-emotionactionangle-workflows | workflow de ativos de personagem | emoção/ação/ângulo | Fábrica | image→image[] | NÃO INICIADO | — |
+| civitai.red/models/3028227/qwen-character-asset-generator-emotionactionangle-workflows | workflow de ativos de personagem | emoção/ação/ângulo | Fábrica | image→image[] | CÓDIGO ESCRITO | parcial: ângulos e expressões saem do app «Folha de personagem»; ações não foram feitas; o workflow (5 pacotes de nós extras) não foi usado |
 | civitai.red/models/3038333/workflow-action-transfer-dance | workflow ação/dança | transferência de movimento | animate (modo) | video+image→video | NÃO INICIADO | — |
 | civitai.red/models/453194/swapping-deepfake-training-face-model-and-upscaling | treino de rosto + upscale | referência | — | — | NÃO INICIADO | — |
 | civitai.red/models/736681/flux-realistic-amateurs | LoRA FLUX realismo amador | LoRA de estilo | create | — | NÃO INICIADO | — |
@@ -146,9 +146,9 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 
 | Estado | Fontes |
 |---|---|
-| NÃO INICIADO | 31 |
+| NÃO INICIADO | 29 |
 | TESTADO CPU | 16 |
-| CÓDIGO ESCRITO | 17 |
+| CÓDIGO ESCRITO | 19 |
 | ESTUDADO — INVIÁVEL NA T4 | 14 |
 | ESTUDADO — DISPENSADO | 1 |
 | ESTUDADO — SEM CÓDIGO | 2 |

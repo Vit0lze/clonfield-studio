@@ -17,6 +17,7 @@ import unicodedata
 CAPABILITIES = {
     "create": (set(), "criar gerar imagem foto desenho ilustracao arte create generate image picture draw render", "low"),
     "compare_models": (set(), "comparar modelos comparacao benchmark lado a lado velocidade compare models side", "low"),
+    "character_sheet": ({"image"}, "folha de personagem turnaround angulos expressoes personagem character sheet model sheet views", "low"),
     "edit": ({"image"}, "editar mudar trocar alterar tirar remover adicionar edit change replace remove add modify", "low"),
     "relight": ({"image"}, "luz iluminacao iluminar sombra relight lighting light shadow", "low"),
     "portrait": ({"image"}, "rosto identidade pessoa retrato pose face identity portrait person same", "low"),
