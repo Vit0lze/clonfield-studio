@@ -1,20 +1,19 @@
-"""colibri (github.com/JustVugg/colibri, Apache-2.0) as the Studio's local LLM and local System One.
+"""colibri (github.com/JustVugg/colibri, Apache-2.0) as the Studio's local LLM.
 
 colibri is a C inference engine that keeps the always-needed part of a big mixture-of-experts model in RAM and streams the rest from disk
 (hot experts on the GPU when there is one). That is how a 35B model with 3B active parameters can serve the chat on a Colab T4 that
-could not hold it in VRAM. It speaks the OpenAI and Anthropic APIs and `POST /v1/systemone`, which has the request and reply of
-TypeSafe's Jev: the router's typed decisions then run on the same local model, with no outside service.
+could not hold it in VRAM. It speaks the OpenAI and Anthropic APIs, so the chat and the agent use it like llama-server.
 
 Files are pinned: the engine by release tag AND commit, each model by repository revision, size and SHA-256 (read from the Hugging Face API).
 GGUFs are read in place by `coli import` (a ~7 MB model directory next to the file); nothing is converted or quantised again.
 
 STATE (honest):
   * VERIFIED on this CPU-only box: the engine builds from the pinned commit; a real LFM3-VL-2B Q4_K_M GGUF (SHA-256 checked) is imported and
-    served; chat text, a native tool call and /v1/systemone work through cf_llm / cf_agent / cf_router (tests/test_colibri.py, live).
-  * FOUND: LFM3's sliding-window KV ring aborts the engine when System One scores the Studio's ~50 options (`the KV ring no longer holds the
-    window`); Q36_KV_RING=0 (every layer linear) avoids it, so start() sets it. Reported upstream-style in the notes below, not patched.
+    served; chat text and a native tool call work through cf_llm / cf_agent (tests/test_colibri.py, live).
+  * FOUND: LFM3's sliding-window KV ring aborts the engine when a long scored prompt rewinds past the ring (`the KV ring no longer holds the
+    window`); Q36_KV_RING=0 (every layer linear) avoids it, so start() sets it. Not patched upstream.
   * NOT VERIFIED (BLOQUEADO_GPU / no RAM here): the abliterated Qwen3.6-35B-A3B, its refusal behaviour, tool-call quality, routing accuracy
-    (the 2B stand-in routes badly: it is a wire-format check, not a quality claim), speed on a T4 and how it shares RAM with ComfyUI.
+    (the 2B stand-in is a wire-format check, not a quality claim), speed on a T4 and how it shares RAM with ComfyUI.
 """
 
 import hashlib
@@ -116,7 +115,7 @@ def server_command(base, key=DEFAULT, port=PORT):
 def start(base, key=DEFAULT, wait=600, port=PORT):
     """Start `coli serve` and point the Studio at it (CLONFIELD_COLIBRI_URL + CLONFIELD_LLM_BACKEND=colibri)."""
     command = server_command(base, key, port)
-    env = dict(os.environ, Q36_KV_RING="0")  # LFM3's sliding-window ring aborts the engine under System One; every layer linear avoids it
+    env = dict(os.environ, Q36_KV_RING="0")  # LFM3's sliding-window ring can abort the engine on a rewind; every layer linear avoids it
     process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, cwd=src_dir(base) / "c")
     url = f"http://127.0.0.1:{port}"
     for _ in range(wait):

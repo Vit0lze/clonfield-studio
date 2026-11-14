@@ -118,31 +118,29 @@ def test_refine_outputs_keeps_baseline_and_only_regenerates_when_needed(tmp_path
     assert generated == [1] and out[0] == good  # unsharp could not fix it, one regeneration found a sharp image
 
 
-@pytest.mark.skipif(not cf_router.jev_token(), reason="no Jev token in the environment")
-def test_live_jev_routes_and_availability_filter_still_applies(monkeypatch):
-    monkeypatch.setenv("CLONFIELD_FAKE_VRAM", "16")
-    tier = cf_tiers.detect()
-    registry = cf_apps.registry()
-    result = cf_router.route("separa esse desenho anime em camadas para editar no photoshop", {"image"}, registry, tier)
-    assert result["provider"] == "jev" and result["fallback"] is None and result["choice"] == "seethrough"
-    assert abs(sum(c["probability"] for c in result["candidates"]) - 1) < 0.02
-    video = cf_router.route("cortar os primeiros cinco segundos", {"video"}, registry, tier)
-    assert video["choice"] == "clip"
-    no_media = cf_router.route("separa esse desenho anime em camadas para o photoshop", set(), registry, tier)
-    see = next(c for c in no_media["candidates"] if c["app"] == "seethrough")
-    assert not see["router"]["available"] and no_media["choice"] != "seethrough"  # Jev's probability kept, router filters
-
-
-def test_bad_token_falls_back_to_local_and_says_so(monkeypatch):
-    for name in ("TYPESAFE_API_KEY", "JEV_API_KEY"):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("TYPESAFE_API_TOKEN", "invalid-token-for-test")
-    result = cf_router.route("cortar um trecho", {"video"}, cf_apps.registry(), cf_tiers.detect())
-    assert result["provider"] == "local" and "recusou" in result["fallback"] and result["choice"] == "clip"
-
-
 def test_benchmark_is_a_system_job_not_a_creative_app():
     registry = cf_apps.registry()
     assert "speedtest" not in registry and registry["benchmark"].hidden and registry["benchmark"].group == "Sistema"
     visible = [a.id for a in registry.values() if not a.hidden]
     assert "benchmark" not in visible and "create" in visible
+
+
+def test_router_is_local_and_never_calls_an_outside_service(monkeypatch):
+    monkeypatch.setenv("CLONFIELD_FAKE_VRAM", "16")
+    registry, tier = cf_apps.registry(), cf_tiers.detect()
+    result = cf_router.route("cortar um trecho", {"video"}, registry, tier)
+    assert result["provider"] == "local" and result["fallback"] is None and result["choice"] == "clip"
+    assert not hasattr(cf_router, "jev_provider") and not hasattr(cf_router, "JEV_ENDPOINT")
+
+
+def test_plan_suggests_one_available_step_and_treats_plain_talk_as_conversation(monkeypatch):
+    monkeypatch.setenv("CLONFIELD_FAKE_VRAM", "16")
+    registry, tier = cf_apps.registry(), cf_tiers.detect()
+    talk = cf_router.plan("oi, tudo bem?", set(), registry, tier)
+    assert talk["conversation"] and talk["steps"] == []
+    job = cf_router.plan("ampliar esta foto", {"image"}, registry, tier)
+    assert not job["conversation"] and len(job["steps"]) == 1 and job["steps"][0]["app"] in registry
+    assert cf_router.CAPABILITIES[job["steps"][0]["app"]][0] <= {"image"}  # never a step whose media is missing
+    with pytest.raises(ValueError):
+        cf_router.plan("  ", set(), registry, tier)
+

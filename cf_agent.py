@@ -7,7 +7,7 @@ repeat steps. Nothing here parses free text for decisions: every decision is a t
 The only provider is a llama.cpp `llama-server` (OpenAI-style `tools`) on 127.0.0.1, meant for an abliterated Qwen3.5-9B GGUF on
 the Colab GPU (see cf_llama). No outside API is called. Protocol validated here against a real Qwen3.5-0.8B on CPU; the 9B has
 not been run on this machine (no GPU), so its tool-calling quality is NOT measured.
-JEV / TypeSafe is NOT in this path; the router keeps it behind a feature flag.
+No outside service is involved: the model is local (llama-server or colibri).
 
 Policy: low-risk graphs run without asking. A graph that needs a high-risk capability is returned as `needs_confirmation`
 and only runs when the user has confirmed it (the `confirm` argument is set by the application, never trusted from the model

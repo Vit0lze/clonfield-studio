@@ -1,5 +1,5 @@
 """Chat sessions through the real Starlette engine app (TestClient): persistence, plan, missing-input guard, job + results.
-The router uses the live Jev when a token is present, otherwise the local heuristic; both paths are accepted."""
+The router is the local heuristic."""
 import io
 
 import pytest
@@ -22,8 +22,7 @@ def api(tmp_path_factory):
     mp = pytest.MonkeyPatch()
     mp.setenv("CLONFIELD_FAKE_VRAM", "15")
     mp.setenv("CLONFIELD_COMFY_MODELS", str(tmp_path / "models"))
-    mp.setenv("CLONFIELD_AGENT", "0")  # these tests cover the Jev/heuristic path; the agent has its own tests (test_agent.py, test_agent_api.py)
-    mp.setenv("CLONFIELD_JEV", "1")
+    mp.setenv("CLONFIELD_AGENT", "0")  # these tests cover the heuristic path; the agent has its own tests (test_agent.py, test_agent_api.py)
     mp.setattr(cf_llm, "available", lambda: False)  # unit tests stay offline for the LLM; the live ones switch it back on
     cf_apps.configure(tmp_path, tmp_path / "outputs")
     app = cf_api.build_app(tmp_path, tmp_path / "outputs", lambda t: t == "pw", "secret")
@@ -137,7 +136,7 @@ def test_live_local_model_answers_a_question_without_proposing_any_job(api, monk
     sid = api.post("/clonfield/api/sessions", json={}).json()["id"]
     first = api.post(f"/clonfield/api/sessions/{sid}/message", json={"text": "oi! o que significa o conjunto Qualidade?"}).json()
     assert any(m.get("pending") for m in first["messages"])  # the reply is written in the background
-    assert not any(m.get("plan") for m in first["messages"])  # Jev saw conversation, not a task: no plan card
+    assert not any(m.get("plan") for m in first["messages"])  # plain talk, not a task: no plan card
     done = wait_reply(api, sid)
     reply = next(m for m in done["messages"] if m.get("kind") == "text")
     assert reply["text"] and not reply.get("error") and reply["model"] == cf_llm.models()[0]

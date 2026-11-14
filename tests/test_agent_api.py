@@ -93,7 +93,7 @@ def test_live_chat_agent_path_runs_tools_and_answers(api):
     session = api.post(f"{BASE}/sessions", json={"title": "agente"}).json()
     up = upload(api)
     reply = api.post(f"{BASE}/sessions/{session['id']}/message", json={"text": "Quais capacidades servem para ampliar imagem? Só responda.", "media": [dict(id=up["id"], name=up["name"], kind="image")]}).json()
-    assert reply["messages"][-1]["pending"] is True and "agent" in reply["messages"][-1]  # the agent path, not the Jev/heuristic plan
+    assert reply["messages"][-1]["pending"] is True and "agent" in reply["messages"][-1]  # the agent path, not the heuristic plan
     final = None
     for _ in range(400):
         time.sleep(1)

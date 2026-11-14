@@ -1,8 +1,8 @@
-"""colibri (github.com/JustVugg/colibri) as the local LLM and the local System One (typed decisions, same request/reply as TypeSafe's Jev).
+"""colibri (github.com/JustVugg/colibri) as a local LLM backend for the chat and the agent.
 
-Backend selection is checked without a server. The live tests talk to a REAL `coli serve` (set CLONFIELD_COLIBRI_URL; the Studio's
-tests/colibri_setup.sh builds the pinned engine and serves a real LFM3-VL-2B Q4_K_M GGUF on CPU). No stubs: a skipped test means no server.
-A 2B model proves the wire formats and the routing path, not the quality of the 9B-class models the Colab would serve.
+Backend selection is checked without a server. The live tests talk to a REAL `coli serve` (set CLONFIELD_COLIBRI_URL; `CLONFIELD_COLIBRI_E2E=1` builds the pinned engine and serves a real
+LFM3-VL-2B Q4_K_M GGUF on CPU in the install test below). No stubs: a skipped test means no server.
+A 2B model proves the wire formats and the tool-call path, not the quality of the 9B-class models the Colab would serve.
 """
 
 import os
@@ -13,11 +13,8 @@ import pytest
 import requests
 
 import cf_agent as agent
-import cf_apps
 import cf_colibri
 import cf_llm
-import cf_router
-import cf_tiers
 
 URL = os.environ.get("CLONFIELD_COLIBRI_URL", "")
 
@@ -57,15 +54,6 @@ def test_backend_order_and_forcing(monkeypatch):
     assert [n for n, _ in cf_llm.candidates()] == ["llama"]
 
 
-def test_systemone_falls_back_to_the_token_when_colibri_is_down(monkeypatch):
-    monkeypatch.setenv("CLONFIELD_COLIBRI_URL", "http://127.0.0.1:9")
-    monkeypatch.setenv("CLONFIELD_LLM_BACKEND", "colibri")
-    monkeypatch.setattr(cf_router, "jev_token", lambda: None)
-    with pytest.raises(RuntimeError):
-        cf_router.systemone_target()
-    assert not cf_router.local_systemone()
-
-
 @pytest.fixture
 def colibri(monkeypatch):
     monkeypatch.setenv("CLONFIELD_LLM_BACKEND", "colibri")
@@ -79,20 +67,6 @@ def test_live_chat_text_comes_from_the_colibri_model(colibri):
     assert cf_llm.backend() == "colibri" and cf_llm.available() and cf_llm.models()[0].endswith("colibri")
     text = cf_llm.generate("Responda em português, em uma frase curta.", "O que é um estúdio de imagens?", timeout=120)
     assert len(text) > 10 and "<think>" not in text
-
-
-@LIVE
-def test_live_local_system_one_routes_with_probabilities(colibri):
-    tier, registry = cf_tiers.detect(), cf_apps.registry()
-    url, headers, label = cf_router.systemone_target()
-    assert url == URL + "/v1/systemone" and headers == {} and label == "colibri"  # no token, nothing leaves the machine
-    routed = cf_router.route("amplie esta foto 4x", {"image"}, registry, tier)
-    assert routed["provider"] == "colibri" and routed["fallback"] is None
-    probs = [c["probability"] for c in routed["candidates"]]
-    assert abs(sum(probs) - 1) < 0.02 and probs == sorted(probs, reverse=True)
-    assert routed["candidates"][0]["app"] in ("upscale", "restore", "seedvr2", "relight") or routed["candidates"][0]["app"]  # typed answer, whatever the 2B picks
-    step = cf_router.jev_step("amplie esta foto 4x", {"image"}, [], registry, ask_task=True)
-    assert abs(sum(step[0].values()) - 1) < 0.02 and 0 <= step[1] <= 1 and 0 <= step[2] <= 1
 
 
 @LIVE

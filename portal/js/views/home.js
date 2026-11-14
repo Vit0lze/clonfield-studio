@@ -36,7 +36,7 @@ export async function homeView(navigate) {
   const suggest = async button => {
     if (!input.value.trim()) return input.focus();
     if (uploads.some(u => u.pending)) return toast("Aguarde o envio terminar.", "err");
-    button.disabled = true; plan.replaceChildren(h("span", { class: "muted" }, "O Jev está montando o caminho…"));
+    button.disabled = true; plan.replaceChildren(h("span", { class: "muted" }, "Montando o caminho…"));
     try {
       const result = await api.post("/plan", { request: input.value.trim(), media: media.kinds() });
       const steps = result.steps.filter(s => s.app);

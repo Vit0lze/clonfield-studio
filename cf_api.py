@@ -165,8 +165,6 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             result = await run_in_threadpool(cf_router.plan, str(body.get("request", ""))[:2000], kinds, cf_apps.registry(), tier)
         except ValueError as exc:
             return JSONResponse({"detail": str(exc)}, 400)
-        except (RuntimeError, requests.RequestException, KeyError, TypeError) as exc:
-            return JSONResponse({"detail": f"Planejamento indisponível (Jev): {str(exc)[:160]}"}, 503)
         return JSONResponse(result)
 
     async def slots(request):
@@ -370,7 +368,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         return JSONResponse({"favorite": now})
 
     async def llm_info(request):
-        return JSONResponse(dict(available=cf_llm.available(), model=cf_llm.models()[0], backend=("colibri" if cf_llm.backend() == "colibri" else "llama-server") + " (local)", url=cf_llm.base_url(), keys=cf_env.status(), agent=cf_env.flag("agent"), jev=cf_env.flag("jev")))
+        return JSONResponse(dict(available=cf_llm.available(), model=cf_llm.models()[0], backend=("colibri" if cf_llm.backend() == "colibri" else "llama-server") + " (local)", url=cf_llm.base_url(), agent=cf_env.flag("agent")))
 
     async def sessions_message(request):
         session = session_or_404(request.path_params["id"])
@@ -395,18 +393,9 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             return JSONResponse(with_urls(session))
         if text:
             registry = cf_apps.registry()
-            conversation = False
-            try:
-                if not (cf_env.flag("jev") or cf_router.local_systemone()):
-                    raise RuntimeError("")  # typed routing runs on the local colibri server, or on JEV behind CLONFIELD_JEV; otherwise the local heuristic suggests one step
-                plan = await run_in_threadpool(cf_router.plan, text, cf_chat.kinds(session), registry, tier)
-                note = ""
-                conversation = bool(plan.get("conversation"))
-            except (RuntimeError, requests.RequestException, KeyError, TypeError, ValueError) as exc:
-                routed = await run_in_threadpool(cf_router.route, text, cf_chat.kinds(session), registry, tier, None, cf_router.local_provider)
-                best = next((c for c in routed["candidates"] if c["router"]["available"]), None)
-                plan = dict(provider="local", steps=[dict(app=best["app"], title=best["title"], probability=best["probability"])] if best else [], complete=bool(best))
-                note = f"O roteador tipado não respondeu ({str(exc)[:80]}); usei a heurística local, que só sugere um passo." if str(exc) else "Sem agente neste ambiente: a heurística local sugere um passo."
+            plan = await run_in_threadpool(cf_router.plan, text, cf_chat.kinds(session), registry, tier)
+            conversation = bool(plan.get("conversation"))
+            note = "" if conversation else "Sem agente neste ambiente: a heurística local sugere um passo."
             steps = []
             for step in plan["steps"]:
                 if not step.get("app"):

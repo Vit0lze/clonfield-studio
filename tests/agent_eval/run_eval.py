@@ -1,5 +1,5 @@
 """Runs the 30 tasks against the agent on the LOCAL llama-server (CLONFIELD_LLAMA_URL; real tools, real DAG jobs on CPU) and, for the routing
-subset, against the previous path (live Jev plan). Writes results.json and docs/AGENT_EVAL.md.
+subset, against the local keyword router (cf_router.plan, the baseline). Writes results.json and docs/AGENT_EVAL.md.
 
   python tests/agent_eval/run_eval.py [--only id,id] [--workers 3]
 
@@ -92,7 +92,7 @@ def run_one(task):
     return record
 
 
-def jev_routing(task):
+def router_baseline(task):
     tid, request, kind, expected, _check, category = task
     apps = [CAP_APP[c] for c in (expected or []) if c in CAP_APP]
     if not expected or len(apps) != len(set(expected) & set(CAP_APP)) or set(expected) - set(CAP_APP):
@@ -109,7 +109,7 @@ def jev_routing(task):
     return dict(id=tid, status="pass" if set(apps) <= set(got) else "fail", planned=got, expected_apps=sorted(set(apps)), repeated_steps_possible=False)
 
 
-def summarize(results, jev):
+def summarize(results, baseline):
     scored = [r for r in results if r["status"] in ("pass", "fail")]
     by_cat = {}
     for r in scored:
@@ -122,22 +122,22 @@ def summarize(results, jev):
                 invalid_call_rate=round(sum(r["invalid_calls"] for r in scored) / max(1, sum(r["steps"] for r in scored)), 3),
                 improper_jobs=sum(bool(r.get("improper_job")) for r in scored),
                 right_caps=sum(1 for r in scored if r.get("right_caps")), with_expected=sum(1 for r in scored if r.get("right_caps") is not None),
-                jev_scored=len([j for j in jev if j and j["status"] in ("pass", "fail")]), jev_passed=len([j for j in jev if j and j["status"] == "pass"]))
+                baseline_scored=len([j for j in baseline if j and j["status"] in ("pass", "fail")]), baseline_passed=len([j for j in baseline if j and j["status"] == "pass"]))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", default="")
     parser.add_argument("--workers", type=int, default=3)
-    parser.add_argument("--no-jev", action="store_true")
+    parser.add_argument("--no-baseline", action="store_true")
     args = parser.parse_args()
     BASE = Path(tempfile.mkdtemp(prefix="cf-eval-base-"))
     cf_apps.configure(BASE, BASE / "outputs")
     chosen = [t for t in TASKS if not args.only or t[0] in args.only.split(",")]
     with ThreadPoolExecutor(args.workers) as pool:
         results = list(pool.map(run_one, chosen))
-    jev = [] if args.no_jev else [jev_routing(t) for t in chosen]
-    summary = summarize(results, jev)
+    baseline = [] if args.no_baseline else [router_baseline(t) for t in chosen]
+    summary = summarize(results, baseline)
     out = Path(__file__).parent / "results.json"
-    out.write_text(json.dumps(dict(summary=summary, results=results, jev=jev, date=time.strftime("%Y-%m-%d %H:%M")), ensure_ascii=False, indent=1), encoding="utf-8")
+    out.write_text(json.dumps(dict(summary=summary, results=results, baseline=baseline, date=time.strftime("%Y-%m-%d %H:%M")), ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=1))
