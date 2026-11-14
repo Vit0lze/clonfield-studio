@@ -43,6 +43,7 @@ class Preset:
     refs: int = 0
     sampler: str = "euler"
     scheduler: str = "simple"
+    sigmas: tuple = ()  # a fixed noise schedule (distilled models): the graph uses SamplerCustomAdvanced + ManualSigmas and ignores `steps`
 
     @property
     def bases(self):
@@ -73,6 +74,13 @@ PRESETS = {p.key: p for p in (
         "Encoder": (QWEN, "text_encoders/qwen3vl_8b_int8_convrot.safetensors"),
         "VAE": (QWEN, "vae/qwen_image_2.1_vae_bf16.safetensors"),
     }, refs=10),
+    # The official ComfyUI template (templates/image_qwen_image_2_1_turbo_image_edit.json): Turbo INT8 weights, ManualSigmas for its
+    # 8-step schedule, euler, CFGGuider 8. Same encoder, VAE and references as the base model.
+    Preset("qwen21-turbo", "Qwen Image 2.1 Turbo · Comfy INT8", ("Qwen 2.1",), "qwen_image", "EmptyLatentImage", 8, 8, {
+        "Difusão": (QWEN, "diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors"),
+        "Encoder": (QWEN, "text_encoders/qwen3vl_8b_int8_convrot.safetensors"),
+        "VAE": (QWEN, "vae/qwen_image_2.1_vae_bf16.safetensors"),
+    }, refs=10, sigmas=(1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568, 0.0)),
     Preset("flux2", "FLUX.2 Klein 4B · Distilled", ("Flux.2 Klein 4B",), "flux2", "EmptyFlux2LatentImage", 4, 1, {
         "Difusão": (FLUX2, "split_files/diffusion_models/flux-2-klein-4b.safetensors"),
         "Encoder": (FLUX2, "split_files/text_encoders/qwen_3_4b.safetensors"),
@@ -196,7 +204,7 @@ def make_graph(preset, names, prompt, negative, width, height, steps, cfg, seed,
     for index, path in enumerate(files):
         image = node("LoadImage", image="")
         uploads[image[0]] = path
-        if preset.key == "qwen21" and index == 0:
+        if preset.key.startswith("qwen21") and index == 0:
             scaled = node("ImageScale", image=image, upscale_method="lanczos", width=width,
                           height=height, crop="center")
         else:
@@ -209,7 +217,7 @@ def make_graph(preset, names, prompt, negative, width, height, steps, cfg, seed,
         caption = node("TextGenerateV2", clip=pup, prompt=caption, system_prompt=UPSAMPLE_INSTRUCTIONS,
                        max_length=1024, sampling_mode="off", thinking=False, mtp="off",
                        **{f"images.image{i}": image for i, image in enumerate(references, 1)})
-    if preset.key == "qwen21":
+    if preset.key.startswith("qwen21"):
         positive = node("TextEncodeQwenImage21", clip=clip, vae=vae, prompt=caption,
                         negative_prompt=negative or "", resolution=0,
                         **{f"images.image_{i}": image for i, image in enumerate(references, 1)})
@@ -222,13 +230,14 @@ def make_graph(preset, names, prompt, negative, width, height, steps, cfg, seed,
             latent_ref = node("VAEEncode", pixels=reference, vae=vae)
             positive = node("ReferenceLatent", conditioning=positive, latent=latent_ref)
             negative_cond = node("ReferenceLatent", conditioning=negative_cond, latent=latent_ref)
-    latent = ([positive[0], 2] if preset.key == "qwen21" and references else
+    latent = ([positive[0], 2] if preset.key.startswith("qwen21") and references else
               node(preset.latent, width=width, height=height, batch_size=1))
-    if preset.key == "flux2":
+    if preset.key == "flux2" or preset.sigmas:
         noise = node("RandomNoise", noise_seed=seed)
         guider = node("CFGGuider", model=model, positive=positive, negative=negative_cond, cfg=float(cfg))
         sampler = node("KSamplerSelect", sampler_name=preset.sampler)
-        sigmas = node("Flux2Scheduler", width=width, height=height, steps=steps)
+        sigmas = (node("ManualSigmas", sigmas=", ".join(f"{value:g}" for value in preset.sigmas)) if preset.sigmas
+                  else node("Flux2Scheduler", width=width, height=height, steps=steps))
         samples = node("SamplerCustomAdvanced", noise=noise, guider=guider, sampler=sampler, sigmas=sigmas,
                        latent_image=latent)
     else:

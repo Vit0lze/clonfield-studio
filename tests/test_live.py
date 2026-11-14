@@ -71,7 +71,7 @@ def test_apps_follow_tier():
     tier = call("GET", "/system").json()["tier"]
     assert {a["id"] for a in apps} >= {"create", "animate", "upscale", "workflow"}
     openjutsu = next(a for a in apps if a["id"] == "openjutsu")
-    assert openjutsu["blocked"] == (tier["vram_gb"] < 90)
+    assert openjutsu["slow"] == (tier["vram_gb"] < 90) and not openjutsu["blocked"]
     create = next(a for a in apps if a["id"] == "create")
     qualities = next(f for f in create["fields"] if f["id"] == "quality")
     assert any(o["hint"].startswith(str(tier["default_side"])) for o in qualities["options"])

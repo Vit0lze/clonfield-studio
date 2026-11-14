@@ -46,6 +46,15 @@ MODELS = {
     "5b-fp16": dict(label="Wan 2.2 5B · FP16 (original)", kind="5b", quant="FP16", fps=24, vram=10, align=32, note="O mesmo de antes: 10 GB só de pesos.",
                     both=[("diffusion_models", "Comfy-Org/Wan-2.2", "split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors", "ee6f4a4073", 10_000_000_000, "456f901338bd")], vae=VAE_22),
 }
+# LightX2V 4-step distillation LoRAs in ComfyUI's own packaging (Comfy-Org/Wan-2.2, the files the official A14B templates load with their
+# "4 steps" switch on): high-noise LoRA on the high-noise model, low-noise LoRA on the low-noise one. Sizes and SHA-256 prefixes from the HF API.
+LIGHTNING = {
+    "t2v": [("loras", "Comfy-Org/Wan-2.2", "split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors", "ee6f4a4073", 1_226_977_424, "698321cb86bd"),
+            ("loras", "Comfy-Org/Wan-2.2", "split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors", "ee6f4a4073", 1_226_977_424, "ec95216e614b")],
+    "i2v": [("loras", "Comfy-Org/Wan-2.2", "split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors", "ee6f4a4073", 1_226_977_424, "d176c808d6fc"),
+            ("loras", "Comfy-Org/Wan-2.2", "split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors", "ee6f4a4073", 1_226_977_424, "024f21de095b")],
+}
+FAST_STEPS, FAST_CFG, FAST_SHIFT = 4, 1.0, 5  # the official template with the switch on: 4 steps (2 + 2), CFG 1, ModelSamplingSD3 shift 5
 DEFAULT_MODEL = "5b-q6"
 SIZES = {"Horizontal · 832 × 480": (832, 480), "Vertical · 480 × 832": (480, 832), "Quadrado · 640 × 640": (640, 640),
          "Horizontal · 512 × 288 (rápido)": (512, 288), "HD · 1280 × 704": (1280, 704), "Personalizado": None}
@@ -70,17 +79,18 @@ def budget(kind, vram_gb):
     return BUDGET[kind][-1][1]
 
 
-def files_for(model_key, mode):
+def files_for(model_key, mode, fast=False):
     spec = MODELS[model_key]
     unets = spec["both"] if "both" in spec else spec["t2v" if mode == TEXT_MODE else "i2v"]
-    return [*unets, TEXT_ENCODER, spec["vae"]]
+    loras = LIGHTNING["t2v" if mode == TEXT_MODE else "i2v"] if fast and spec["kind"] == "a14b" else []
+    return [*unets, *loras, TEXT_ENCODER, spec["vae"]]
 
 
-def download_gb(model_key, mode, models_root=None):
+def download_gb(model_key, mode, models_root=None, fast=False):
     """(total GB, missing GB) for the files this model needs. Shown before anything downloads."""
     root = Path(models_root or os.environ.get("CLONFIELD_COMFY_MODELS", "/content/ComfyUI/models"))
-    total = sum(f[4] for f in files_for(model_key, mode))
-    missing = sum(f[4] for f in files_for(model_key, mode) if not (root / f[0] / Path(f[2]).name).is_file())
+    total = sum(f[4] for f in files_for(model_key, mode, fast))
+    missing = sum(f[4] for f in files_for(model_key, mode, fast) if not (root / f[0] / Path(f[2]).name).is_file())
     return round(total / 1e9, 1), round(missing / 1e9, 1)
 
 
@@ -99,10 +109,15 @@ def resolve_size(size, width, height, align, kind, vram_gb, frames):
     return width, height
 
 
-def make_graph(model_key, mode, image, prompt, negative, size, seconds, fps, steps, cfg, seed, width=None, height=None, vram_gb=15):
+def make_graph(model_key, mode, image, prompt, negative, size, seconds, fps, steps, cfg, seed, width=None, height=None, vram_gb=15, fast=False):
+    """`fast`: A14B with the LightX2V 4-step LoRAs (4 steps, CFG 1, shift 5), ignoring `steps` and `cfg`."""
     if model_key not in MODELS:
         raise ValueError("Escolha um modelo de vídeo da lista.")
     spec = MODELS[model_key]
+    if fast and spec["kind"] != "a14b":
+        raise ValueError("O modo rápido (LightX2V, 4 passos) só existe para os modelos A14B.")
+    if fast:
+        steps, cfg = FAST_STEPS, FAST_CFG
     if mode not in (TEXT_MODE, IMAGE_MODE):
         raise ValueError("Escolha texto em vídeo ou foto em movimento.")
     if not prompt or not prompt.strip():
@@ -111,7 +126,7 @@ def make_graph(model_key, mode, image, prompt, negative, size, seconds, fps, ste
         raise ValueError("Envie uma foto para animar.")
     if not SECONDS[0] <= float(seconds) <= SECONDS[1] or int(fps) != float(fps) or not FPS[0] <= int(fps) <= FPS[1]:
         raise ValueError(f"Use de {SECONDS[0]:g} a {SECONDS[1]:g} segundos e de {FPS[0]} a {FPS[1]} quadros por segundo.")
-    if int(steps) != steps or not STEPS[0] <= steps <= STEPS[1] or not 0 < float(cfg) <= 15:
+    if int(steps) != steps or (not fast and not STEPS[0] <= steps <= STEPS[1]) or not 0 < float(cfg) <= 15:
         raise ValueError(f"Use de {STEPS[0]} a {STEPS[1]} passos e CFG entre 0 e 15.")
     if seed != int(seed) or not -1 <= seed < 2**53:
         raise ValueError("Use uma seed inteira válida.")
@@ -145,8 +160,14 @@ def make_graph(model_key, mode, image, prompt, negative, size, seconds, fps, ste
     else:
         unets = spec["t2v"] if mode == TEXT_MODE else spec["i2v"]
         graph["37"], graph["47"] = unet(unets[0]), unet(unets[1])  # high noise, low noise
-        graph["48"] = node("ModelSamplingSD3", model=["37", 0], shift=8)
-        graph["49"] = node("ModelSamplingSD3", model=["47", 0], shift=8)
+        high, low = ["37", 0], ["47", 0]
+        if fast:  # UNET -> LoraLoaderModelOnly -> ModelSamplingSD3, as in the official template
+            files = LIGHTNING["t2v" if mode == TEXT_MODE else "i2v"]
+            graph["60"] = node("LoraLoaderModelOnly", model=high, lora_name=Path(files[0][2]).name, strength_model=1.0)
+            graph["61"] = node("LoraLoaderModelOnly", model=low, lora_name=Path(files[1][2]).name, strength_model=1.0)
+            high, low = ["60", 0], ["61", 0]
+        graph["48"] = node("ModelSamplingSD3", model=high, shift=FAST_SHIFT if fast else 8)
+        graph["49"] = node("ModelSamplingSD3", model=low, shift=FAST_SHIFT if fast else 8)
         if mode == TEXT_MODE:
             graph["55"] = node("EmptyHunyuanLatentVideo", width=width, height=height, length=frames, batch_size=1)
             positive, negative_ref, start = ["6", 0], ["7", 0], ["55", 0]
@@ -169,12 +190,12 @@ def make_graph(model_key, mode, image, prompt, negative, size, seconds, fps, ste
     return graph
 
 
-def downloads(model_key, mode):
+def downloads(model_key, mode, fast=False):
     """The files to fetch, as (key of the node input, folder, repo, filename, revision) for prepare()."""
-    return [(f[0], f[1], f[2], f[3]) for f in files_for(model_key, mode)]
+    return [(f[0], f[1], f[2], f[3]) for f in files_for(model_key, mode, fast)]
 
 
-def prepare(session, graph, progress, *, image, model_key=DEFAULT_MODEL, mode=TEXT_MODE):
+def prepare(session, graph, progress, *, image, model_key=DEFAULT_MODEL, mode=TEXT_MODE, fast=False):
     """Make every weight the graph names exist under ComfyUI/models (download on demand, pinned revision, size and SHA-256 checked)."""
     import cf_download
     try:
@@ -184,7 +205,7 @@ def prepare(session, graph, progress, *, image, model_key=DEFAULT_MODEL, mode=TE
             raise ValueError("O nó UnetLoaderGGUF não está no ComfyUI. Rode prepare_gguf.py (célula do Colab) e reinicie o worker.") from None
         raise
     root = Path(os.environ.get("CLONFIELD_COMFY_MODELS", "/content/ComfyUI/models"))
-    files = files_for(model_key, mode)
+    files = files_for(model_key, mode, fast)
     for index, (folder, repo, filename, revision, size, sha) in enumerate(files):
         target = root / folder / Path(filename).name
         if not (target.is_file() and target.stat().st_size):

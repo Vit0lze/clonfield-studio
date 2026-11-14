@@ -107,8 +107,8 @@ def test_high_risk_graph_needs_confirmation_and_creates_no_job(world):
     before = len(world.manager.jobs)
     result = agent.Toolbox(world.registry, big, world.host).execute_graph(g)
     assert result["status"] == "needs_confirmation" and len(world.manager.jobs) == before
-    small = world.tools().execute_graph(g)  # on the real 15 GB tier it is refused for the reason, before any risk question
-    assert small["status"] == "invalid" and any("VRAM" in e for e in small["errors"])
+    small = world.tools().execute_graph(g)  # on the 15 GB tier it is no longer refused for VRAM (it offloads, slowly): the risk gate still stops it
+    assert small["status"] == "needs_confirmation" and len(world.manager.jobs) == before
 
 
 def test_search_models_finds_real_civitai_variants_and_downloads_nothing(world):

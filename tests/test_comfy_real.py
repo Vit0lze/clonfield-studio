@@ -78,6 +78,12 @@ def test_wan_graphs_are_accepted(comfy, model, mode):
     assert ok(comfy, graph) == []
 
 
+@pytest.mark.parametrize("mode", [cf_wan.TEXT_MODE, cf_wan.IMAGE_MODE])
+def test_wan_fast_lightx2v_graphs_are_accepted(comfy, mode):
+    graph = cf_wan.make_graph("a14b-q6", mode, "x.png" if mode == cf_wan.IMAGE_MODE else None, "uma raposa corre na neve", "", "Horizontal · 832 × 480", 3, 16, 20, 3.5, 7, vram_gb=24, fast=True)
+    assert ok(comfy, graph) == []
+
+
 @pytest.mark.parametrize("model", list(cf_audio.MODELS))
 @pytest.mark.parametrize("fmt", list(cf_audio.FORMATS))
 def test_audio_graphs_are_accepted(comfy, model, fmt):

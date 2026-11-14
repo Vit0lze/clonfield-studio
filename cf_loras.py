@@ -96,7 +96,7 @@ def local(base):
 # Every LoRA the worker could load, from three places: base/loras (downloads + sidecars), ComfyUI/models/loras (loose
 # files) and the pinned catalog. Each one is classified against the model the user is on, and nothing is hidden: the
 # UI shows the ones for other families too, with the reason, instead of an empty list.
-GROUP = {"krea2-turbo": "krea2", "z-image-turbo": "z-image"}
+GROUP = {"krea2-turbo": "krea2", "z-image-turbo": "z-image", "qwen21-turbo": "qwen21"}
 LABELS = {"qwen21": "Qwen Image 2.1", "flux2": "FLUX.2", "flux3": "FLUX.3", "krea2": "Krea 2", "z-image": "Z-Image", "sdxl": "SDXL", "sd15": "SD 1.5"}
 NAME_HINTS = (("flux2", r"flux[._ -]?2"), ("flux3", r"flux[._ -]?3"), ("qwen21", r"qwen"), ("krea2", r"krea"),
               ("z-image", r"z[-_ ]?image|zimage"), ("sd15", r"sd[-_ ]?1[._]?5|sd_v1"), ("sdxl", r"sdxl|\bxl\b"))

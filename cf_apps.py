@@ -81,6 +81,8 @@ MODEL_INFO = {
                     page="https://huggingface.co/Comfy-Org/Z-Image"),
     "z-image-turbo": dict(name="Z-Image Turbo", tagline="Z-Image em 8 passos", weight="médio", min_vram=12, speed=5, quality=4,
                           page="https://huggingface.co/Comfy-Org/Z-Image-Turbo"),
+    "qwen21-turbo": dict(name="Qwen Image 2.1 Turbo", tagline="Qwen 2.1 em 8 passos (receita oficial do ComfyUI)", weight="pesado", min_vram=16, speed=4, quality=4,
+                         page="https://huggingface.co/Comfy-Org/Qwen-Image-2.1"),
 }
 IMAGE_MODELS = [key for key in MODEL_INFO if key in lab.PRESETS]
 
@@ -464,6 +466,11 @@ def run_benchmark(ctx, p, tier):
 
 
 def run_region(ctx, p, tier):
+    if p.get("engine") == "moss":  # same boxes, MOSS-Image's own inpainting recipe (cf_moss), instead of the cropped Qwen edit
+        if (p.get("mask") or [None])[0]:
+            raise JobError("O motor MOSS usa as caixas; a máscara enviada só vale no motor Qwen.")
+        # the Qwen slider is the compositing blur in px; MOSS blurs its noise mask, which is wider by design
+        return run_moss(ctx, {**p, "mode": "edit_boxes", "image": p.get("source"), "feather": int(p.get("feather", 8)) * 3}, tier)
     mask_path = (p.get("mask") or [None])[0]
     if not mask_path:  # boxes drawn over the picture become the mask (white = edit)
         try:
@@ -532,16 +539,17 @@ def run_wan(ctx, p, tier):
     fps = int(p.get("fps") or 0) or spec["fps"]  # 0 = the model's own rate
     seed = int(p.get("seed", -1))
     count = max(1, min(4, int(p.get("variations", 1))))
+    fast = bool(p.get("fast"))
     outputs = []
     for index in range(count):
         ctx.check()
         try:
             graph = wan.make_graph(model_key, mode, image, p["prompt"], p.get("negative", ""), p.get("size", next(iter(wan.SIZES))), float(p.get("seconds", 3)), fps,
                                    int(p.get("steps", 20)), float(p.get("cfg") or (5 if spec["kind"] == "5b" else 3.5)), -1 if seed < 0 else seed + index,
-                                   p.get("width"), p.get("height"), tier.vram_gb)
+                                   p.get("width"), p.get("height"), tier.vram_gb, fast=fast)
         except ValueError as exc:
             raise JobError(str(exc)) from None
-        job = workflows.run(graph, ctx.out_dir, ctx.progress, prepare=partial(wan.prepare, image=image, model_key=model_key, mode=mode),
+        job = workflows.run(graph, ctx.out_dir, ctx.progress, prepare=partial(wan.prepare, image=image, model_key=model_key, mode=mode, fast=fast),
                             title=f"{mode} · {spec['label']}", control=ctx.control, family="wan", stall=2400)
         outputs.extend(collect_job(ctx, job))
     return outputs
@@ -909,7 +917,7 @@ def install_model(ctx, key):
 
 
 LORA_FAMILIES = {"sdxl": ["sdxl"], "sd15": ["sd15"],
-                 "qwen21": ["qwen21"], "krea2": ["krea2", "krea2-turbo"], "krea2-turbo": ["krea2", "krea2-turbo"],
+                 "qwen21": ["qwen21", "qwen21-turbo"], "qwen21-turbo": ["qwen21", "qwen21-turbo"], "krea2": ["krea2", "krea2-turbo"], "krea2-turbo": ["krea2", "krea2-turbo"],
                  "flux2": ["flux2"], "flux3": ["flux3"], "z-image": ["z-image", "z-image-turbo"],
                  "z-image-turbo": ["z-image", "z-image-turbo"]}
 
@@ -1056,6 +1064,8 @@ def build_registry():
             dict(id="height", type="number", label="Altura (Personalizado)", default=480, advanced=True),
             dict(id="fps", type="number", label="Quadros por segundo", default=0, advanced=True, help="0 usa o padrão do modelo (16 no A14B, 24 no 5B)."),
             dict(id="negative", type="textarea", label="Evitar", default="flicker, artifacts, blurry, subtitles", advanced=True, rows=2),
+            dict(id="fast", type="switch", label="Rápido: LoRA LightX2V de 4 passos (só A14B)", default=False,
+                 help="Destilação oficial do ComfyUI: 4 passos, CFG 1, shift 5 (no lugar dos 20 passos). Baixa mais 2 × 1,2 GB de LoRAs. Qualidade e tempo não medidos em GPU ainda."),
             dict(id="steps", type="slider", label="Passos", default=20, min=wan.STEPS[0], max=wan.STEPS[1], step=1, advanced=True),
             dict(id="cfg", type="number", label="CFG", default=0, advanced=True, help="0 usa o padrão do modelo (3,5 no A14B, 5 no 5B)."),
             dict(id="seed", type="number", label="Seed", default=-1, advanced=True)]
@@ -1071,9 +1081,11 @@ def build_registry():
             run_image, lambda t: image_fields(t, 2, lab_prompt(), "Descreva o retrato", "Pessoa e composição")),
         App("region", "Editar região", "Imagem", "Pinte uma máscara e retoque só aquela área.", "image", run_region,
             lambda t: [dict(id="source", type="files", label="Imagem original", accept="image", max=1, min=1),
-                       dict(id="boxes", type="boxes", label="Caixas: arraste sobre a imagem para marcar o que muda", default=[], max=edits.MAX_BOXES),
-                       dict(id="mask", type="files", label="…ou envie uma máscara (branco = editar)", accept="image", max=1, min=0),
-                       dict(id="prompt", type="textarea", label="Alteração", default="", required=True, rows=3),
+                       dict(id="engine", type="chips", label="Motor", default="qwen", options=[opt("qwen", "Qwen 2.1 (padrão)", "Retoca o recorte; o texto descreve a alteração."), opt("moss", "MOSS (caixas descritas)", "Cada caixa recebe um objeto ou texto; o texto descreve a imagem inteira depois da mudança.")],
+                            help="O mesmo recurso do app «Caixas (MOSS)». No MOSS, descreva cada caixa (objeto ou texto) e a imagem inteira como fica no fim."),
+                       dict(id="boxes", type="boxes", label="Caixas: arraste sobre a imagem para marcar o que muda", default=[], max=edits.MAX_BOXES, detail=True),
+                       dict(id="mask", type="files", label="…ou envie uma máscara (branco = editar; só no motor Qwen)", accept="image", max=1, min=0),
+                       dict(id="prompt", type="textarea", label="Alteração (Qwen) ou a imagem inteira como fica (MOSS)", default="", required=True, rows=3),
                        dict(id="size", type="chips", label="Detalhe do recorte", default=768 if t.vram_gb >= 16 else 512,
                             options=[opt(s, f"{s}px") for s in region.SIZES]),
                        dict(id="padding", type="slider", label="Contexto ao redor", default=96, min=0, max=256, step=8, advanced=True),
@@ -1248,7 +1260,7 @@ def build_registry():
                        dict(id="quality", type="chips", label="Resolução", default=480, options=[opt(480, "480"), opt(768, "768")]),
                        dict(id="direction", type="textarea", label="Direção adicional", default="", rows=2, advanced=True),
                        dict(id="seed", type="number", label="Seed", default=-1, advanced=True)],
-            min_vram=90, note="Exige worker da classe de 96 GB."),
+            min_vram=90, offload=True, note="Pensado para uma GPU da classe de 96 GB. Em placa menor o ComfyUI move os pesos para a RAM e o disco: roda, mas bem mais devagar e pedindo muita RAM livre; nada foi gerado ainda."),
         App("workflow", "Workflow ComfyUI", "Avançado", "Execute um grafo em API JSON.", "workflow", run_workflow,
             lambda t: [dict(id="graph", type="files", label="Workflow API JSON", accept=".json", max=1, min=1),
                        dict(id="media", type="files", label="Mídias de entrada", accept="image,video,audio", max=8, min=0)]),

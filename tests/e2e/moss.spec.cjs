@@ -53,3 +53,21 @@ test("Imagem para 3D: formulário com motor, textura e tamanho dos pesos", async
   await expect(page.getByText("TRELLIS.2").first()).toBeVisible();
   await expect(page.getByText("Foto do objeto").first()).toBeVisible();
 });
+
+test("Editar região tem o motor MOSS com as mesmas caixas descritas; a máscara só vale no Qwen", async ({ page }) => {
+  await open(page, "#/apps/region");
+  await settle(page); await noErrorCard(page);
+  const engine = page.getByRole("button", { name: "Motor" });
+  await expect(engine).toContainText("Qwen 2.1");
+  await engine.click();
+  await page.getByRole("option", { name: /MOSS \(caixas descritas\)/ }).click();
+  await page.locator("input[type=file]").first().setInputFiles(path.join(__dirname, "fixtures", "portrait.png"));
+  await expect(page.locator(".blayer")).toBeVisible({ timeout: 15000 });
+  await page.locator("textarea").last().fill("a foto inteira com um cartaz novo");
+  await expect(page.getByText("Falta: pelo menos uma caixa")).toBeVisible();  // no mask escape hatch with MOSS
+  await engine.scrollIntoViewIfNeeded();
+  await engine.click();
+  await page.waitForTimeout(400);
+  await page.getByRole("option", { name: /Qwen 2\.1/ }).click({ force: true });
+  await expect(page.getByText("Falta: uma caixa ou uma máscara")).toBeVisible();
+});

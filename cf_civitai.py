@@ -677,7 +677,7 @@ def inventory(directory, preset, role):
 # ---------------------------------------------------------------- Studio browsing (cards as the site shows them)
 
 SORTS = {"downloads": "Most Downloaded", "rated": "Highest Rated", "newest": "Newest"}
-BASE_BADGES = {"qwen21": "QWEN 2.1", "krea2": "KR2", "krea2-turbo": "KR2", "flux2": "FLUX.2", "flux3": "FLUX.3",
+BASE_BADGES = {"qwen21": "QWEN 2.1", "qwen21-turbo": "QWEN 2.1", "krea2": "KR2", "krea2-turbo": "KR2", "flux2": "FLUX.2", "flux3": "FLUX.3",
                "z-image": "ZIMG", "z-image-turbo": "ZIMG"}
 
 

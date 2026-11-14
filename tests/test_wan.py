@@ -86,7 +86,7 @@ def test_pinned_weights_match_the_real_hugging_face_listing():
     seen = set()
     for key in wan.MODELS:
         for mode in (wan.TEXT_MODE, wan.IMAGE_MODE):
-            for folder, repo, filename, revision, size, sha in wan.files_for(key, mode):
+            for folder, repo, filename, revision, size, sha in wan.files_for(key, mode, fast=True):
                 if (repo, filename) in seen:
                     continue
                 seen.add((repo, filename))
@@ -173,3 +173,26 @@ def test_video_apps_expose_model_seconds_fps_size_and_variations():
         assert {o["value"] for o in fields["model"]["options"]} == set(wan.MODELS) | {"ltxv-2b"}
         assert "Personalizado" in {o["value"] for o in fields["size"]["options"]}
         assert fields["seconds"]["max"] == wan.SECONDS[1] and ("image" in fields) == (mode == wan.IMAGE_MODE)
+
+
+def test_fast_mode_adds_the_two_lightx2v_loras_with_the_official_4_step_recipe():
+    for mode, key in ((wan.TEXT_MODE, "t2v"), (wan.IMAGE_MODE, "i2v")):
+        g = wan.make_graph("a14b-q6", mode, "foto.png" if mode == wan.IMAGE_MODE else None, "p", "", "Horizontal · 832 × 480", 5, 16, 20, 3.5, 1, fast=True)
+        high, low = g["60"], g["61"]
+        assert high["class_type"] == low["class_type"] == "LoraLoaderModelOnly" and high["inputs"]["model"] == ["37", 0] and low["inputs"]["model"] == ["47", 0]
+        assert "high_noise" in high["inputs"]["lora_name"] and "low_noise" in low["inputs"]["lora_name"] and f"_{key}_" in high["inputs"]["lora_name"]
+        assert g["48"]["inputs"] == dict(model=["60", 0], shift=5) and g["49"]["inputs"] == dict(model=["61", 0], shift=5)
+        first, second = g["3"]["inputs"], g["4"]["inputs"]
+        assert (first["steps"], first["cfg"], first["end_at_step"], second["start_at_step"]) == (4, 1.0, 2, 2)  # the form's steps/cfg are ignored
+        assert second["model"] == ["49", 0] and first["model"] == ["48", 0]
+    slow = wan.make_graph("a14b-q6", wan.TEXT_MODE, None, "p", "", "Horizontal · 832 × 480", 5, 16, 20, 3.5, 1)
+    assert "60" not in slow and slow["48"]["inputs"]["shift"] == 8 and slow["3"]["inputs"]["steps"] == 20  # off by default: the old graph is unchanged
+
+
+def test_fast_mode_is_refused_on_the_5b_and_adds_the_loras_to_the_download(tmp_path):
+    with pytest.raises(ValueError, match="A14B"):
+        wan.make_graph("5b-q6", wan.TEXT_MODE, None, "p", "", "Horizontal · 832 × 480", 3, 24, 20, 5, 1, fast=True)
+    normal, fast = wan.download_gb("a14b-q6", wan.TEXT_MODE, tmp_path), wan.download_gb("a14b-q6", wan.TEXT_MODE, tmp_path, fast=True)
+    assert abs((fast[0] - normal[0]) - 2.45) < 0.1  # two 1.23 GB LoRAs
+    assert len(wan.files_for("a14b-q6", wan.IMAGE_MODE, fast=True)) == len(wan.files_for("a14b-q6", wan.IMAGE_MODE)) + 2
+    assert wan.files_for("5b-q6", wan.TEXT_MODE, fast=True) == wan.files_for("5b-q6", wan.TEXT_MODE)

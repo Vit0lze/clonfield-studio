@@ -96,13 +96,13 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 |---|---|---|---|---|---|---|
 | blog.comfy.org/p/wan22-animate-and-qwen-image-edit-2509 | Wan Animate 2 (template oficial `video_wan_animate2_distilled`, INT8 16,6 GB) + Wan 2.1 SCAIL-2 (`video_wan21_scail2_character_replacement_int8`) | apps Animar personagem e Substituir personagem (cf_templates.py), alternativas ao OpenJutsu | scail2, animate2 | video+image→video | TESTADO CPU | templates com subgrafos convertidos por `cf_ui2api.flatten`; o ComfyUI 0.44 real em CPU ACEITA os grafos (30–39 nós podados); pesos com revisão/SHA da API do HF. Modelos de 16,6 GB + codificador de 6,7 GB: apps travados em 24 GB de VRAM com o motivo à mostra; NADA gerado (BLOQUEADO_GPU) e a T4 de 15 GB provavelmente não roda |
 | docs.facefusion.io/usage/cli-arguments/face-selector | documentação | seleção de rosto (`--face-selector-*`) | swap | — | TESTADO CPU | opções usadas conferidas contra o `--help` real |
-| github.com/Gourieff/comfyui-reactor | ReActor (ComfyUI) | troca de rosto | swap | image+image→image | NÃO INICIADO | — |
+| github.com/Gourieff/comfyui-reactor | ReActor (ComfyUI) | troca de rosto | swap | image+image→image | ESTUDADO — DISPENSADO | troca de rosto já coberta pelo FaceFusion (app «Trocar rosto», troca real em CPU); README do ReActor não foi aberto, não foi duplicado |
 | github.com/PrunaAI | organização de modelos quantizados | — | — | — | NÃO INICIADO | — |
 | github.com/facefusion/facefusion | FaceFusion 3.9.2 (CLI headless-run, venv próprio, licença «other») | app Trocar rosto (cf_faceswap.py, prepare_facefusion.py) | swap, agente (com confirmação: risco médio) | image+image→image · image+video→video | TESTADO CPU | troca real em CPU com o programa real: mudou só a região do rosto (tests/test_faceswap.py); sem rosto no destino ou na origem o Studio diz o motivo; consentimento obrigatório. Vídeo, GPU e os outros modelos de troca NÃO testados |
 | huggingface.co/Alissonerdx/BFS-Best-Face-Swap | LoRAs BFS (MIT) para Qwen 2.1: cabeça v1.1 / v1.1 alternativa / corpo v1.0 | app Trocar cabeça ou corpo (BFS), com os prompts e a ordem de imagens do autor | bfs, agente (com confirmação) | image+image→image | CÓDIGO ESCRITO | prompts palavra por palavra dos docs; LoRAs no catálogo fixado e conferidos na API do HF; grafo com a cena primeiro e duas referências aceito pelo ComfyUI real (mesmo grafo do Qwen); consentimento obrigatório; geração BLOQUEADO_GPU
 | huggingface.co/Alissonerdx/BFS-Best-Face-Swap/blob/main/README.md | LoRAs BFS (Qwen 2.1 / LTX2) | troca de cabeça/corpo | swap | image+image→image | CÓDIGO ESCRITO | LoRAs catalogadas e classificáveis; sem app de swap |
 | huggingface.co/Alissonerdx/BFS-Best-Face-Swap/blob/main/docs/qwen-image-2.1-body.md | LoRAs BFS (Qwen 2.1 / LTX2) | troca de cabeça/corpo | swap | image+image→image | CÓDIGO ESCRITO | LoRAs catalogadas e classificáveis; sem app de swap |
-| huggingface.co/PrunaAI/P-Q-Image-2.1-Comfy | Qwen Image 2.1 quantizado | variante leve | create | — | NÃO INICIADO | — |
+| huggingface.co/PrunaAI/P-Q-Image-2.1-Comfy | Qwen Image 2.1 quantizado | variante leve | create | — | CÓDIGO ESCRITO | a variante rápida do Qwen 2.1 entregue é o modelo Turbo INT8 oficial do ComfyUI (8 passos); os LoRAs de passos reduzidos da Pruna (5/6/8 passos) seguem sem uso |
 
 ## Modelos e pipelines de vídeo, áudio e 3D
 
@@ -115,7 +115,7 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 | github.com/Comfy-Org/docs/blob/main/tutorials/video/minimax/minimax-h3-native.mdx | documentação H3 | — | app H3 | — | ESTUDADO — INVIÁVEL NA T4 | medido na API do HF (Comfy-Org/MiniMax-H3): o menor modelo de difusão é 16 GB (w6a8 podado) e o codificador Qwen3-VL 32B menor é 15,7 GB (nvfp4): ~32 GB de pesos só para começar, sem os VAEs (2,8–5,2 GB). Há ~50 templates oficiais (convertíveis com `cf_ui2api`); fica para uma GPU de ≥48 GB. Licença «other»
 | github.com/Comfy-Org/workflow_templates/blob/main/templates/video_minimax_h3_fun_controlnet_union.json | ComfyUI nativo | ControlNet Union do H3 (vídeo) | app H3 (futuro) | video+image→video | ESTUDADO — INVIÁVEL NA T4 | medido na API do HF (Comfy-Org/MiniMax-H3): o menor modelo de difusão é 16 GB (w6a8 podado) e o codificador Qwen3-VL 32B menor é 15,7 GB (nvfp4): ~32 GB de pesos só para começar, sem os VAEs (2,8–5,2 GB). Há ~50 templates oficiais (convertíveis com `cf_ui2api`); fica para uma GPU de ≥48 GB. Licença «other»
 | github.com/MiniMax-AI/awesome-minimax-h3-integration | MiniMax H3 | família de vídeo (FL2VA, Ref2VA, FastH3) | app H3 (futuro) | text/image/audio→video | ESTUDADO — INVIÁVEL NA T4 | medido na API do HF (Comfy-Org/MiniMax-H3): o menor modelo de difusão é 16 GB (w6a8 podado) e o codificador Qwen3-VL 32B menor é 15,7 GB (nvfp4): ~32 GB de pesos só para começar, sem os VAEs (2,8–5,2 GB). Há ~50 templates oficiais (convertíveis com `cf_ui2api`); fica para uma GPU de ≥48 GB. Licença «other»
-| github.com/ModelTC/LightX2V | LightX2V (aceleração) | inferência rápida de vídeo | text2video | — | NÃO INICIADO | — |
+| github.com/ModelTC/LightX2V | LightX2V (aceleração) | inferência rápida de vídeo | text2video | — | CÓDIGO ESCRITO | Wan A14B «Rápido»: LoRAs LightX2V de 4 passos no empacotamento do ComfyUI (Comfy-Org/Wan-2.2), receita do template oficial (4 passos, CFG 1, shift 5); grafos ACEITOS pelo ComfyUI 0.44 real; nada gerado em GPU |
 | github.com/Stability-AI/stable-audio-3 | Stable Audio 3 (ComfyUI nativo; Comfy-Org/stable-audio-3, licença «other») | app Áudio (cf_audio.py): SFX, música curta, faixas longas; prompt expandido pelo LLM local | áudio, agente, Fábrica (futuro) | text→audio | TESTADO CPU | os 9 grafos (3 modelos × 3 formatos) são ACEITOS pelo ComfyUI 0.44 real; grafo conferido contra o código do ComfyUI v0.44.0 (nós, entradas, tipo stable_audio), arquivos fixados conferidos na API do HF; player de áudio testado no navegador com um mp3 real; NENHUM áudio gerado (RAM/GPU): velocidade e qualidade não medidas |
 | github.com/barelymining/ComfyUI-MiniMax-H3-FastVideo | MiniMax H3 | família de vídeo (FL2VA, Ref2VA, FastH3) | app H3 (futuro) | text/image/audio→video | ESTUDADO — INVIÁVEL NA T4 | medido na API do HF (Comfy-Org/MiniMax-H3): o menor modelo de difusão é 16 GB (w6a8 podado) e o codificador Qwen3-VL 32B menor é 15,7 GB (nvfp4): ~32 GB de pesos só para começar, sem os VAEs (2,8–5,2 GB). Há ~50 templates oficiais (convertíveis com `cf_ui2api`); fica para uma GPU de ≥48 GB. Licença «other»
 | huggingface.co/Comfy-Org/MiniMax-H3 | MiniMax H3 | família de vídeo (FL2VA, Ref2VA, FastH3) | app H3 (futuro) | text/image/audio→video | ESTUDADO — INVIÁVEL NA T4 | medido na API do HF (Comfy-Org/MiniMax-H3): o menor modelo de difusão é 16 GB (w6a8 podado) e o codificador Qwen3-VL 32B menor é 15,7 GB (nvfp4): ~32 GB de pesos só para começar, sem os VAEs (2,8–5,2 GB). Há ~50 templates oficiais (convertíveis com `cf_ui2api`); fica para uma GPU de ≥48 GB. Licença «other»
@@ -124,7 +124,7 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 | huggingface.co/VideoRebirthAI/hyperflow-h3-flash | H3 flash | — | app H3 | — | ESTUDADO — INVIÁVEL NA T4 | medido na API do HF (Comfy-Org/MiniMax-H3): o menor modelo de difusão é 16 GB (w6a8 podado) e o codificador Qwen3-VL 32B menor é 15,7 GB (nvfp4): ~32 GB de pesos só para começar, sem os VAEs (2,8–5,2 GB). Há ~50 templates oficiais (convertíveis com `cf_ui2api`); fica para uma GPU de ≥48 GB. Licença «other»
 | huggingface.co/alibaba-pai/MiniMax-H3-Fun-Controlnet-Union-2.0 | MiniMax H3 | família de vídeo (FL2VA, Ref2VA, FastH3) | app H3 (futuro) | text/image/audio→video | ESTUDADO — INVIÁVEL NA T4 | medido na API do HF (Comfy-Org/MiniMax-H3): o menor modelo de difusão é 16 GB (w6a8 podado) e o codificador Qwen3-VL 32B menor é 15,7 GB (nvfp4): ~32 GB de pesos só para começar, sem os VAEs (2,8–5,2 GB). Há ~50 templates oficiais (convertíveis com `cf_ui2api`); fica para uma GPU de ≥48 GB. Licença «other»
 | huggingface.co/collections/FastVideo/fasth3-omni | FastH3 | — | app H3 | — | ESTUDADO — INVIÁVEL NA T4 | medido na API do HF (Comfy-Org/MiniMax-H3): o menor modelo de difusão é 16 GB (w6a8 podado) e o codificador Qwen3-VL 32B menor é 15,7 GB (nvfp4): ~32 GB de pesos só para começar, sem os VAEs (2,8–5,2 GB). Há ~50 templates oficiais (convertíveis com `cf_ui2api`); fica para uma GPU de ≥48 GB. Licença «other»
-| huggingface.co/lightx2v | pesos LightX2V | — | text2video | — | NÃO INICIADO | — |
+| huggingface.co/lightx2v | pesos LightX2V | — | text2video | — | CÓDIGO ESCRITO | Wan2.2-Distill/Lightning: usados via os mesmos LoRAs repacotados do ComfyUI; o LoRA «Qwen-Image-2.1-Lightning» (formato diffusers) NÃO foi usado: a receita oficial do ComfyUI é o modelo Turbo (ver Qwen 2.1 Turbo) |
 | ia.seenupdigital.com/noticias/criador-mostra-como-rodar-o-minimax-h3-mais-rapido-com-versoes-lora-e-prompts-ce302c | artigo | — | app H3 | — | ESTUDADO — INVIÁVEL NA T4 | medido na API do HF (Comfy-Org/MiniMax-H3): o menor modelo de difusão é 16 GB (w6a8 podado) e o codificador Qwen3-VL 32B menor é 15,7 GB (nvfp4): ~32 GB de pesos só para começar, sem os VAEs (2,8–5,2 GB). Há ~50 templates oficiais (convertíveis com `cf_ui2api`); fica para uma GPU de ≥48 GB. Licença «other»
 
 ## Modelos, otimizações e componentes de imagem
@@ -132,7 +132,7 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 | Fonte | Motor | Capacidade-alvo | Consumidores | Contrato I/O | Estado | Evidência / próxima ação |
 |---|---|---|---|---|---|---|
 | bfl.ai/models/flux-2-klein | FLUX.2 Klein 4B | modelo de imagem leve | create, edit | text/image→image | TESTADO GPU | única evidência de GPU: 512², 4 passos, 280 s com download (Colab antigo) |
-| github.com/Blueforcer/ComfyUI-DLSS5-Enhancer | pacote ComfyUI | realce/upscale | upscale (modo) | image→image | NÃO INICIADO | — |
+| github.com/Blueforcer/ComfyUI-DLSS5-Enhancer | pacote ComfyUI | realce/upscale | upscale (modo) | image→image | ESTUDADO — INVIÁVEL NA T4 | README lido: roda num worker nativo D3D12 (ReShade + RenoDX + NGX) só no Windows com GPU RTX; não existe no Colab/Linux |
 | github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_2_1_image_edit.json | ComfyUI nativo (template oficial) | grafo de edição Qwen 2.1 (modo do app Editar) | edit | image+text→image | TESTADO CPU | grafo do preset qwen21 validado contra /object_info (V7); GPU não medida |
 | github.com/Niko1221/Strata | projeto de imagem | comparação | — | — | NÃO INICIADO | — |
 | github.com/artfat-creator/ComfyUI-Artfat-MOSS-BBox | pacote ComfyUI (MIT) | não é necessário: o app usa só nós do núcleo; o pacote serviu de referência da receita de edição | moss | image+bbox→image | TESTADO CPU | código lido; receita reimplementada com nós do núcleo e validada no ComfyUI real |
@@ -146,13 +146,14 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 
 | Estado | Fontes |
 |---|---|
-| NÃO INICIADO | 39 |
+| NÃO INICIADO | 34 |
 | TESTADO CPU | 15 |
-| CÓDIGO ESCRITO | 14 |
-| ESTUDADO — INVIÁVEL NA T4 | 13 |
+| CÓDIGO ESCRITO | 17 |
+| ESTUDADO — INVIÁVEL NA T4 | 14 |
+| ESTUDADO — DISPENSADO | 1 |
 | baseline (não é capacidade) | 4 |
 | TESTADO API REAL | 3 |
 | TESTADO GPU | 3 |
 | BLOQUEADO_GPU | 2 |
 
-Total: 93. Próximas ondas de apps (ordem sugerida pelo que já tem motor e pode ser testado em CPU/API): swap de rosto (FaceFusion/ReActor), Qwen Expandir/Restaurar/Trocar roupa como modos do Editar, MOSS BBox (decisão app×modo pendente), Fábrica com cenas do ComfyUI, vídeo Wan GGUF (Lote 3), áudio e 3D.
+Total: 93. Decisões: MOSS fica como app «Caixas (MOSS)» E como motor em «Editar região»; OpenJutsu, SCAIL-2 e Animate 2 rodam com offload (aviso de lentidão, sem bloqueio). Próximas ondas (o que tem motor e dá para testar em CPU/API): workflows do Civitai convertidos (folha de personagem, ativos de personagem, ação/dança; dependem de pacotes de nós extras), Fábrica com cenas do ComfyUI, e o restante dos não iniciados (referências, comparações, vídeos de apoio).

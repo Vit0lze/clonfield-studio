@@ -36,7 +36,7 @@ def test_favourites_toggle_persist_and_validate(api):
 
 def test_lora_families_list_only_the_models_the_studio_can_run(api):
     families = {f["key"]: f for f in api.get("/clonfield/api/lora-families").json()}
-    assert {"qwen21", "flux2", "flux3", "krea2", "krea2-turbo", "z-image", "z-image-turbo"} == set(families)  # only runnable models; no SDXL/SD1.5
+    assert {"qwen21", "qwen21-turbo", "flux2", "flux3", "krea2", "krea2-turbo", "z-image", "z-image-turbo"} == set(families)  # only runnable models; no SDXL/SD1.5
     assert all({"title", "installed", "loras_installed"} <= set(f) for f in families.values())
     assert families["qwen21"]["installed"] is False  # nothing downloaded in the test sandbox
 

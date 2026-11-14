@@ -140,7 +140,7 @@ export function posterEl(id) { const el = poster(id); el.setAttribute("preserveA
 
 const APP_ART = { image: "app-image", video: "app-video", identity: "app-identity", upscale: "app-upscale" };
 const ART_BY_ID = { relight: "app-image", text2video: "model-wan", portrait: "app-identity", seedvr2: "model-flux" };
-const MODEL_ART = { qwen21: "model-qwen21", flux2: "model-flux2", flux3: "model-flux3", krea2: "model-krea2", "krea2-turbo": "model-krea2-turbo", "z-image": "model-zimage", "z-image-turbo": "model-zimage-turbo" };
+const MODEL_ART = { qwen21: "model-qwen21", "qwen21-turbo": "model-qwen21", flux2: "model-flux2", flux3: "model-flux3", krea2: "model-krea2", "krea2-turbo": "model-krea2-turbo", "z-image": "model-zimage", "z-image-turbo": "model-zimage-turbo" };
 export function artFor(kind, id, art) {
   const file = kind === "model" ? MODEL_ART[id] : (ART_BY_ID[id] || APP_ART[art]);
   if (!file) return posterEl(kind + id);

@@ -598,8 +598,10 @@ export async function appView(id, navigate) {
     for (const f of app.fields) {
       if (f.required && f.type === "switch" ? !values[f.id] : f.required && !String(values[f.id] ?? "").trim()) list.push(f.label);
       if (f.type === "lights" && values[f.id].length < (f.min || 0)) list.push("uma luz");
-      if (f.type === "boxes" && !f.detail && !values[f.id].length && !(values.mask || []).some(u => !u.pending)) list.push("uma caixa ou uma máscara");
-      if (f.type === "boxes" && f.detail && values.mode !== "edit_instruction" && !values[f.id].length) list.push("pelo menos uma caixa");
+      if (f.type === "boxes" && values.mode !== "edit_instruction") {
+        const maskAllowed = app.fields.some(x => x.id === "mask") && values.engine !== "moss";  // a drawn-over mask can replace the boxes, except for MOSS
+        if (!values[f.id].length && !(maskAllowed && (values.mask || []).some(u => !u.pending))) list.push(maskAllowed ? "uma caixa ou uma máscara" : "pelo menos uma caixa");
+      }
       if (f.type === "files") {
         const need = f.id === "refs" ? Math.min(f.min || 0, currentModel()?.refs ?? 9) : f.min || 0;
         const ready = values[f.id].filter(u => !u.pending).length;

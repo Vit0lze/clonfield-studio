@@ -31,7 +31,7 @@ test("Editar região: desenhar caixas sobre a imagem, remover, e o pedido leva a
   await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.5);
   await page.mouse.down(); await page.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.9, { steps: 6 }); await page.mouse.up();
   await expect(page.locator(".bbox")).toHaveCount(2);
-  await page.locator("textarea").first().fill("trocar por um céu de pôr do sol");
+  await page.locator("textarea").last().fill("trocar por um céu de pôr do sol");
   const posted = [];
   await page.route("**/clonfield/api/jobs", route => { if (route.request().method() === "POST") { posted.push(route.request().postDataJSON()); return route.abort(); } return route.continue(); });
   await page.getByRole("button", { name: /Gerar|Executar|Aplicar|Editar/ }).last().click();

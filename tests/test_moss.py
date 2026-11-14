@@ -112,3 +112,22 @@ def test_app_is_registered_with_a_detailed_box_field(monkeypatch):
     monkeypatch.setenv("CLONFIELD_FAKE_VRAM", "15")
     fields = {f["id"]: f for f in cf_apps.registry()["moss"].fields(cf_tiers.detect())}
     assert fields["boxes"]["type"] == "boxes" and fields["boxes"]["detail"] is True and {o["value"] for o in fields["mode"]["options"]} == set(moss.MODES)
+
+
+def test_region_app_can_hand_its_boxes_to_moss_and_refuses_a_mask_there(fake_run, tmp_path):
+    seen, Ctx = fake_run
+    photo = tmp_path / "r.png"
+    Image.new("RGB", (800, 600), (50, 90, 130)).save(photo)
+    with pytest.raises(cf_jobs.JobError, match="parou"):
+        cf_apps.run_region(Ctx(), dict(engine="moss", source=[str(photo)], boxes=BOXES, prompt="a rua com um cartaz novo", feather=8), cf_tiers.detect())
+    keep = seen["kwargs"]["prepare"].keywords
+    assert seen["graph"]["10"]["class_type"] == "MOSSImageLayoutPrompt" and Image.open(keep["image"]).size == Image.open(keep["mask"]).size
+    with pytest.raises(cf_jobs.JobError, match="máscara"):
+        cf_apps.run_region(Ctx(), dict(engine="moss", source=[str(photo)], mask=[str(photo)], boxes=BOXES, prompt="x"), cf_tiers.detect())
+
+
+def test_region_fields_offer_both_engines_with_detailed_boxes(monkeypatch):
+    monkeypatch.setenv("CLONFIELD_FAKE_VRAM", "15")
+    fields = {f["id"]: f for f in cf_apps.registry()["region"].fields(cf_tiers.detect())}
+    assert {o["value"] for o in fields["engine"]["options"]} == {"qwen", "moss"} and fields["engine"]["default"] == "qwen" and fields["boxes"]["detail"] is True
+    assert cf_apps.registry()["openjutsu"].describe(cf_tiers.detect())["slow"] and not cf_apps.registry()["openjutsu"].describe(cf_tiers.detect())["blocked"]
