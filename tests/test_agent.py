@@ -150,7 +150,7 @@ def test_live_agent_loop_executes_real_tools_from_the_real_server_and_terminates
     """Path: real server -> tool call -> real Toolbox/registry -> result back to the server -> loop ends. With a tiny stand-in the loop may stop at the
     step limit instead of answering; the quality of the answer is the 9B's job on the T4 and is NOT asserted here."""
     out = agent.run_agent(agent.OpenAICompatProvider(), world.tools(), "Quais capacidades do Studio servem para ampliar imagem? Só responda, não execute nada.", max_steps=4)
-    assert out["stop"] in ("resposta final", "limite de passos") and out["provider"] == "llama-server"
+    assert out["stop"] in ("resposta final", "limite de passos") and out["provider"] in ("llama-server", "colibri")
     assert out["steps"] >= 1 and all(t["tool"] in world.tools().by_name for t in out["trace"])
     assert any(t["ok"] for t in out["trace"]), out["trace"]  # at least one tool really ran and returned data
     assert len(world.manager.jobs) == 0  # nothing was executed for a question

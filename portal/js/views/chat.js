@@ -141,7 +141,7 @@ export async function chatView(navigate, sessionId) {
     };
 
     return h("div", { class: "path" },
-      h("p", { class: "path-label" }, plan.provider === "jev" ? "Caminho sugerido" : "Caminho (heurística local)", h("span", null, " · você aprova cada passo")),
+      h("p", { class: "path-label" }, plan.provider !== "local" ? "Caminho sugerido" : "Caminho (heurística local)", h("span", null, " · você aprova cada passo")),
       plan.note ? h("p", { class: "path-note" }, icon("alert", "sm"), plan.note) : null,
       plan.steps.length ? h("div", { class: "path-prompt-wrap" }, h("span", { class: "path-prompt-tag" }, "Prompt"), promptBox) : null,
       !plan.steps.length ? h("p", { class: "muted" }, "Nenhum app serve para isso com as mídias e a placa atuais. Anexe a mídia certa ou descreva de outro jeito.") : null,

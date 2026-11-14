@@ -1,5 +1,9 @@
-"""Conversation layer for the chat, 100% local: a Qwen3.5-9B model served by llama.cpp's `llama-server` (OpenAI-style API on
-127.0.0.1). Nothing is sent to any outside service.
+"""Conversation layer for the chat, 100% local: a model served on 127.0.0.1 by llama.cpp's `llama-server` (the default: abliterated
+Qwen3.5-9B) or by colibri (`coli serve`, an engine that streams big MoE models from RAM/disk), both through an OpenAI-style API.
+Nothing is sent to any outside service.
+
+Backend choice: CLONFIELD_LLM_BACKEND=llama|colibri forces one; without it llama-server is used, and colibri only when
+CLONFIELD_COLIBRI_URL is set (so a random service on port 8000 is never mistaken for a model).
 
 It only WRITES language: a short reply, a clarifying question and a cleaned-up prompt. It never picks the app and never starts
 anything. If no local server is running the chat keeps working without it (the agent and the heuristic router do not need it).
@@ -14,44 +18,86 @@ import time
 import requests
 
 DEFAULT_URL = "http://127.0.0.1:8080"
-_health = {"at": 0.0, "ok": False}
+COLIBRI_URL = "http://127.0.0.1:8000"
+_health = {"at": 0.0, "pick": None, "key": None}
+_served = {}
 
 
 class LLMError(Exception):
     pass
 
 
-def llama_url():
-    return (os.environ.get("CLONFIELD_LLAMA_URL") or DEFAULT_URL).rstrip("/")
+def candidates():
+    """[(backend, url)] in the order they are tried."""
+    forced = (os.environ.get("CLONFIELD_LLM_BACKEND") or "").strip().lower()
+    llama = ("llama", (os.environ.get("CLONFIELD_LLAMA_URL") or DEFAULT_URL).rstrip("/"))
+    colibri = ("colibri", (os.environ.get("CLONFIELD_COLIBRI_URL") or COLIBRI_URL).rstrip("/"))
+    if forced == "colibri":
+        return [colibri]
+    if forced == "llama":
+        return [llama]
+    return [llama] + ([colibri] if os.environ.get("CLONFIELD_COLIBRI_URL") else [])
+
+
+def pick():
+    """(backend, url) of the first local server that answers /health, or None. Cached for 5 s so the UI can ask often."""
+    now, key = time.monotonic(), tuple(candidates())
+    if now - _health["at"] < 5 and _health["key"] == key:
+        return _health["pick"]
+    found = None
+    for backend_name, url in key:
+        try:
+            if requests.get(url + "/health", timeout=1.5).status_code == 200:
+                found = (backend_name, url)
+                break
+        except requests.RequestException:
+            continue
+    _health.update(at=now, pick=found, key=key)
+    return found
 
 
 def available():
-    """True when a local llama-server answers /health. Cached for 5 s so the UI can ask often."""
-    now = time.monotonic()
-    if now - _health["at"] < 5:
-        return _health["ok"]
-    try:
-        ok = requests.get(llama_url() + "/health", timeout=1.5).status_code == 200
-    except requests.RequestException:
-        ok = False
-    _health.update(at=now, ok=ok)
-    return ok
+    return pick() is not None
+
+
+def backend():
+    """Name of the backend in use, or of the one that would be tried first when none answers."""
+    found = pick()
+    return found[0] if found else candidates()[0][0]
+
+
+def base_url():
+    found = pick()
+    return found[1] if found else candidates()[0][1]
+
+
+llama_url = base_url  # older name
 
 
 def models():
-    return [os.environ.get("CLONFIELD_LLM_MODEL") or "qwen3.5-local"]
+    if os.environ.get("CLONFIELD_LLM_MODEL"):
+        return [os.environ["CLONFIELD_LLM_MODEL"]]
+    found = pick()
+    if found and found[0] == "colibri":  # colibri names the model it serves; ask once
+        if found[1] not in _served:
+            try:
+                _served[found[1]] = requests.get(found[1] + "/v1/models", timeout=3).json()["data"][0]["id"]
+            except (requests.RequestException, KeyError, IndexError, ValueError):
+                return ["colibri"]
+        return [_served[found[1]]]
+    return ["qwen3.5-local"]
 
 
 def generate(system, user, timeout=180, attempts=2):
     """Final text from the local model, with any <think> block removed."""
     if not available():
-        raise LLMError("Nenhum modelo local está rodando (llama-server). Inicie-o na célula do Colab ou defina CLONFIELD_LLAMA_URL.")
+        raise LLMError("Nenhum modelo local está rodando (llama-server ou colibri). Inicie-o na célula do Colab ou defina CLONFIELD_LLAMA_URL / CLONFIELD_COLIBRI_URL.")
     body = {"model": models()[0], "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}], "temperature": 0.4, "max_tokens": 1200,
             "chat_template_kwargs": {"enable_thinking": False}}
     last = "sem resposta"
     for attempt in range(attempts):
         try:
-            response = requests.post(llama_url() + "/v1/chat/completions", json=body, timeout=timeout)
+            response = requests.post(base_url() + "/v1/chat/completions", json=body, timeout=timeout)
         except requests.RequestException as exc:
             last = type(exc).__name__
             time.sleep(2)

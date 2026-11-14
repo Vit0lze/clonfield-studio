@@ -370,7 +370,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         return JSONResponse({"favorite": now})
 
     async def llm_info(request):
-        return JSONResponse(dict(available=cf_llm.available(), model=cf_llm.models()[0], backend="llama-server (local)", url=cf_llm.llama_url(), keys=cf_env.status(), agent=cf_env.flag("agent"), jev=cf_env.flag("jev")))
+        return JSONResponse(dict(available=cf_llm.available(), model=cf_llm.models()[0], backend=("colibri" if cf_llm.backend() == "colibri" else "llama-server") + " (local)", url=cf_llm.base_url(), keys=cf_env.status(), agent=cf_env.flag("agent"), jev=cf_env.flag("jev")))
 
     async def sessions_message(request):
         session = session_or_404(request.path_params["id"])
@@ -397,8 +397,8 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             registry = cf_apps.registry()
             conversation = False
             try:
-                if not cf_env.flag("jev"):
-                    raise RuntimeError("")  # JEV is an optional router behind CLONFIELD_JEV; without it the local heuristic suggests one step
+                if not (cf_env.flag("jev") or cf_router.local_systemone()):
+                    raise RuntimeError("")  # typed routing runs on the local colibri server, or on JEV behind CLONFIELD_JEV; otherwise the local heuristic suggests one step
                 plan = await run_in_threadpool(cf_router.plan, text, cf_chat.kinds(session), registry, tier)
                 note = ""
                 conversation = bool(plan.get("conversation"))
@@ -406,7 +406,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
                 routed = await run_in_threadpool(cf_router.route, text, cf_chat.kinds(session), registry, tier, None, cf_router.local_provider)
                 best = next((c for c in routed["candidates"] if c["router"]["available"]), None)
                 plan = dict(provider="local", steps=[dict(app=best["app"], title=best["title"], probability=best["probability"])] if best else [], complete=bool(best))
-                note = f"O Jev não respondeu ({str(exc)[:80]}); usei a heurística local, que só sugere um passo." if str(exc) else "Sem agente neste ambiente: a heurística local sugere um passo."
+                note = f"O roteador tipado não respondeu ({str(exc)[:80]}); usei a heurística local, que só sugere um passo." if str(exc) else "Sem agente neste ambiente: a heurística local sugere um passo."
             steps = []
             for step in plan["steps"]:
                 if not step.get("app"):
@@ -420,7 +420,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
                 steps.append(dict(app=step["app"], title=step["title"], probability=step.get("probability"), missing=missing))
             plan_id = None
             if steps and not conversation:
-                plan_id = cf_chat.add_message(session, "assistant", plan=dict(provider=plan.get("provider", "jev"), steps=steps, text=text, prompt=text, note=note))["id"]
+                plan_id = cf_chat.add_message(session, "assistant", plan=dict(provider=plan.get("provider", "local"), steps=steps, text=text, prompt=text, note=note))["id"]
             reply = cf_chat.add_message(session, "assistant", text="", pending=cf_llm.available(), kind="text")
             if not cf_llm.available():
                 reply["text"] = ("" if steps else "Entendi, mas o modelo local do chat não está rodando neste ambiente, então só consigo sugerir passos quando o pedido for uma tarefa.")

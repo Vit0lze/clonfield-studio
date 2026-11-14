@@ -49,10 +49,11 @@ class AgentError(Exception):
 class OpenAICompatProvider:
     """llama.cpp llama-server (or any OpenAI-compatible endpoint) with native tool calls. Meant for Qwen3.5-9B GGUF on the T4."""
 
-    name = "llama-server"
-
     def __init__(self, base_url=None, model="qwen", timeout=300):
-        self.base = (base_url or cf_llm.llama_url()).rstrip("/")
+        self.base = (base_url or cf_llm.base_url()).rstrip("/")
+        self.name = "colibri" if (not base_url and cf_llm.backend() == "colibri") else "llama-server"
+        if self.name == "colibri" and model == "qwen":
+            model = cf_llm.models()[0]  # colibri answers to the id of the model it serves
         self.model, self.timeout = model, timeout
         self.models = [model]
 

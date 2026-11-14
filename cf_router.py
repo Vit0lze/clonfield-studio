@@ -84,11 +84,28 @@ def jev_token():
     return cf_env.secret("jev")
 
 
-def jev_provider(request, media, registry=None):
-    """One Choice question over all capabilities. Raises on any failure so the caller can fall back explicitly."""
+def systemone_target():
+    """(url, headers, label) of the typed-decision endpoint: the local colibri server when it is the active backend (same request and reply as
+    TypeSafe's Jev, nothing leaves the machine), else Jev with a token. Raises RuntimeError when neither is available."""
+    import cf_llm
+    found = cf_llm.pick()
+    if found and found[0] == "colibri":
+        return found[1] + "/v1/systemone", {}, "colibri"
     token = jev_token()
     if not token:
         raise RuntimeError("sem token do Jev")
+    return JEV_ENDPOINT, {"Authorization": f"Bearer {token}"}, "jev"
+
+
+def local_systemone():
+    import cf_llm
+    found = cf_llm.pick()
+    return bool(found and found[0] == "colibri")
+
+
+def jev_provider(request, media, registry=None):
+    """One Choice question over all capabilities. Raises on any failure so the caller can fall back explicitly."""
+    url, headers, _label = systemone_target()
     criteria = {}
     for app_id, (needs, keywords, _risk) in CAPABILITIES.items():
         title = registry[app_id].tagline if registry and app_id in registry else app_id
@@ -97,7 +114,7 @@ def jev_provider(request, media, registry=None):
     body = {"state": {"request": request, "attached_media_kinds": sorted(media)}, "model": JEV_MODEL,
             "questions": {"app": {"type": "choice", "criteria": criteria,
                                   "instructions": "Which Studio app should handle this request next? Respect required attachments."}}}
-    response = requests.post(JEV_ENDPOINT, json=body, headers={"Authorization": f"Bearer {token}"}, timeout=20)
+    response = requests.post(url, json=body, headers=headers, timeout=20 if _label == "jev" else 120)
     if response.status_code in (401, 403):
         raise RuntimeError("Jev recusou o token")
     response.raise_for_status()
@@ -118,7 +135,7 @@ def route(request, media, registry, tier, installed_nodes=None, provider=None):
     used = "local"
     if provider is None:
         try:
-            probs, used = jev_provider(request, media, registry), "jev"
+            probs, used = jev_provider(request, media, registry), systemone_target()[2]
         except (RuntimeError, requests.RequestException, KeyError, ValueError, TypeError) as exc:
             fallback = str(exc)[:160]
             probs = local_provider(request, media)
@@ -156,9 +173,7 @@ TASK_AT = 0.4  # below this (and no media attached) the message is conversation,
 
 def jev_step(request, media, done, registry, ask_task=False):
     """One call, two typed questions: which app next (Choice) and is the request already fulfilled (Noul)."""
-    token = jev_token()
-    if not token:
-        raise RuntimeError("sem token do Jev")
+    url, headers, _label = systemone_target()
     criteria = {}
     for app_id, (needs, _k, _r) in CAPABILITIES.items():
         need = f" Requires attached: {', '.join(sorted(needs))}." if needs else ""
@@ -170,7 +185,7 @@ def jev_step(request, media, done, registry, ask_task=False):
                         "instructions": "Which Studio app should run NEXT to move this request forward? Do not repeat steps already done. Respect required attachments."},
                 "finished": {"type": "noul", "instructions": "Is every part of the request already fulfilled by the steps already done?"},
                 **({"task": {"type": "noul", "instructions": "Is the user asking the Studio to create, edit, transform or process an image, video or audio (a job to run)? Answer false for greetings, thanks, or questions about the tool itself."}} if ask_task else {})}}
-    response = requests.post(JEV_ENDPOINT, json=body, headers={"Authorization": f"Bearer {token}"}, timeout=25)
+    response = requests.post(url, json=body, headers=headers, timeout=25 if _label == "jev" else 120)
     if response.status_code in (401, 403):
         raise RuntimeError("Jev recusou o token")
     response.raise_for_status()
@@ -189,7 +204,7 @@ def plan(request, media, registry, tier):
     for _ in range(MAX_STEPS):
         probs, finished, task = jev_step(request, media, done, registry, ask_task=not done)
         if task is not None and task < TASK_AT:
-            return dict(request=request, media=sorted(media), provider="jev", steps=[], complete=False, conversation=True, task_p=round(task, 3))
+            return dict(request=request, media=sorted(media), provider=systemone_target()[2], steps=[], complete=False, conversation=True, task_p=round(task, 3))
         if done and finished >= FINISHED_AT:
             break
         options = []
@@ -212,5 +227,5 @@ def plan(request, media, registry, tier):
                           rerouted=(top[0] != app_id), jev_top=top[0]))
         done.append(app_id)
         media = media | {PRODUCES.get(app_id, "image" if CAPABILITIES[app_id][0] <= {"image"} else "video")}
-    return dict(request=request, media=sorted(set(media or ())), provider="jev", steps=steps,
+    return dict(request=request, media=sorted(set(media or ())), provider=systemone_target()[2], steps=steps,
                 complete=bool(steps) and all(s["app"] for s in steps), conversation=False)
