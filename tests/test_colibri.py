@@ -131,3 +131,13 @@ def test_install_engine_import_model_and_serve_for_real(tmp_path):
     finally:
         cf_colibri.stop(process)
     assert "CLONFIELD_COLIBRI_URL" not in os.environ
+
+
+@LIVE
+def test_live_long_answers_are_not_eaten_by_reasoning(colibri):
+    """colibri reads `enable_thinking` at the top level of the request. Sent only in chat_template_kwargs, a 2B model spends its whole
+    token budget in reasoning_content and returns an empty reply on any long task (found with the storyboard plan)."""
+    import cf_storyboard
+    reply = cf_llm.generate(cf_storyboard.SYSTEM, cf_storyboard.build_request("Marina perde o último ônibus numa noite de chuva e volta a pé com um amigo.", 3, ["Marina"]), timeout=300)
+    shots = cf_storyboard.parse_plan(reply, 3, ["Marina"])
+    assert 2 <= len(shots) <= 3 and all(s["prompt"] and s["title"] for s in shots)  # a real 2B reply, parsed; its quality is not asserted

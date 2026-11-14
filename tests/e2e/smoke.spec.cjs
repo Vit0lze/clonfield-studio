@@ -1,7 +1,7 @@
 const { test } = require("@playwright/test");
 const { open, settle, noErrorCard, expect, SIZES } = require("./helpers.cjs");
 
-const ROUTES = ["#/", "#/chat", "#/apps", "#/apps/create", "#/apps/edit", "#/apps/upscale", "#/apps/text2video", "#/apps/animate", "#/apps/outpaint", "#/apps/bfs", "#/apps/scail2", "#/apps/animate2", "#/apps/moss", "#/apps/image3d", "#/apps/audio", "#/apps/faceswap", "#/apps/factory", "#/apps/restore", "#/apps/outfit", "#/library", "#/history", "#/jobs", "#/system", "#/capabilities", "#/cast", "#/apps/compare_models", "#/apps/character_sheet", "#/apps/coverage", "#/apps/flf2v"];
+const ROUTES = ["#/", "#/chat", "#/apps", "#/apps/create", "#/apps/edit", "#/apps/upscale", "#/apps/text2video", "#/apps/animate", "#/apps/outpaint", "#/apps/bfs", "#/apps/scail2", "#/apps/animate2", "#/apps/moss", "#/apps/image3d", "#/apps/audio", "#/apps/faceswap", "#/apps/factory", "#/apps/restore", "#/apps/outfit", "#/library", "#/history", "#/jobs", "#/system", "#/capabilities", "#/cast", "#/apps/compare_models", "#/apps/character_sheet", "#/apps/coverage", "#/apps/flf2v", "#/apps/storyboard"];
 
 for (const size of SIZES) {
   for (const route of ROUTES) {

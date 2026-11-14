@@ -94,6 +94,8 @@ def generate(system, user, timeout=180, attempts=2):
         raise LLMError("Nenhum modelo local está rodando (llama-server ou colibri). Inicie-o na célula do Colab ou defina CLONFIELD_LLAMA_URL / CLONFIELD_COLIBRI_URL.")
     body = {"model": models()[0], "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}], "temperature": 0.4, "max_tokens": 1200,
             "chat_template_kwargs": {"enable_thinking": False}}
+    if backend() == "colibri":
+        body["enable_thinking"] = False  # colibri reads the extension at the top level; without it a 2B model spends its whole budget in reasoning_content
     last = "sem resposta"
     for attempt in range(attempts):
         try:

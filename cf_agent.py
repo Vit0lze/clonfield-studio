@@ -75,6 +75,8 @@ class OpenAICompatProvider:
     def step(self, system, messages, tools):
         body = {"model": self.model, "messages": self.wire(system, messages), "temperature": 0.2, "max_tokens": 1500, "chat_template_kwargs": {"enable_thinking": False},
                 "tools": [{"type": "function", "function": dict(name=t["name"], description=t["description"], parameters=t["parameters"])} for t in tools]}
+        if self.name == "colibri":
+            body["enable_thinking"] = False  # colibri's extension is top-level; chat_template_kwargs is llama.cpp's
         try:
             response = requests.post(f"{self.base}/v1/chat/completions", json=body, timeout=self.timeout)
             response.raise_for_status()

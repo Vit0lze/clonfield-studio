@@ -35,3 +35,18 @@ test("Cobertura de cena: envia a cena e o pedido leva modelo e quadro", async ({
   expect((posted[0].params || posted[0])).toMatchObject({ model: "qwen21", size: "Horizontal · 1152 × 768" });
   expect(problems.filter(p => !/net::ERR_FAILED/.test(p)), problems.join("\n")).toEqual([]);
 });
+
+test("Storyboard: a história, o número de planos e a Direção vão no pedido", async ({ page }) => {
+  const problems = await open(page, "#/apps/storyboard");
+  await settle(page); await noErrorCard(page);
+  await page.locator("textarea").first().fill("Marina perde o ônibus e volta a pé até o amanhecer.");
+  await expect(page.getByLabel(/Montar também o animatic/)).toBeChecked();
+  const posted = [];
+  await page.route("**/clonfield/api/jobs", route => { if (route.request().method() === "POST") { posted.push(route.request().postDataJSON()); return route.abort(); } return route.continue(); });
+  const run = page.getByRole("button", { name: /Gerar|Executar|Aplicar|Criar/ }).last();
+  await expect(run).toBeEnabled();
+  await run.click();
+  await expect.poll(() => posted.length).toBeGreaterThan(0);
+  expect((posted[0].params || posted[0])).toMatchObject({ shots: 4, aspect: "16:9", animatic: true, dir_genre: "auto" });
+  expect(problems.filter(p => !/net::ERR_FAILED/.test(p)), problems.join("\n")).toEqual([]);
+});

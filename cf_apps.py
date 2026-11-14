@@ -22,6 +22,7 @@ import cf_character as character
 import cf_compare as compare
 import cf_director as director
 import cf_loop as loopmeter
+import cf_storyboard as storyboard
 import cf_openjutsu as openjutsu
 import cf_refine as refine
 import cf_3d as image3d
@@ -597,6 +598,46 @@ def run_character_sheet(ctx, p, tier):
 
 def run_coverage(ctx, p, tier):
     return run_view_sheet(ctx, p, character.COVERAGE, character.KEEP_SCENE, character.SCENE_SIZES, "cobertura", 3)
+
+
+def run_storyboard(ctx, p, tier):
+    """The local chat model plans the shots; each shot is a normal «Criar imagem» job (cast mentions, direction and the chosen model apply)."""
+    import cf_llm
+    story = (p.get("story") or "").strip()
+    count = int(p.get("shots") or 4)
+    if not cf_llm.available():
+        raise JobError("O storyboard usa o modelo local do chat para planejar os planos (llama-server ou colibri). Inicie-o na célula do Colab.")
+    names = [item["name"] for item in cast.load(ENV["base"])]
+    ctx.progress(0.02, desc="Planejando os planos com o modelo local")
+    try:
+        shots = storyboard.plan(story, count, names)
+    except (ValueError, cf_llm.LLMError) as exc:
+        raise JobError(str(exc)) from None
+    seed = int(p.get("seed", -1))
+    seed = random.randrange(2**31) if seed < 0 else seed
+    made = []
+    for index, shot in enumerate(shots):
+        ctx.check()
+        ctx.progress((index + 0.1) / (len(shots) + 1), desc=f"Plano {index + 1}/{len(shots)} · {shot['title']}")
+        job = {k: v for k, v in p.items() if k.startswith("dir_")}
+        if shot["framing"] and job.get("dir_framing", "auto") == "auto":  # an explicit framing in the form wins over the planner's
+            job["dir_framing"] = shot["framing"]
+        job.update(model=p.get("model") or "qwen21", prompt=shot["prompt"], aspect=p.get("aspect") or "16:9", quality="standard", variations=1, seed=seed + index, refs=[])
+        out = run_image(ctx, job, tier)
+        if not out:
+            raise JobError(f"O plano {index + 1} não gerou imagem.")
+        made.append((shot["title"], out[0]))
+    ctx.progress(0.96, desc="Montando a folha e o animatic")
+    sheet_path = finish.output_path(ctx.out_dir, "storyboard", ".png")
+    character.sheet(made, columns=3 if len(made) > 4 else len(made)).save(sheet_path)
+    results = [sheet_path]
+    if p.get("animatic", True):
+        try:
+            results.append(storyboard.animatic([path for _, path in made], finish.output_path(ctx.out_dir, "animatic", ".mp4"), float(p.get("seconds") or 2)))
+        except ValueError as exc:
+            ctx.job.update(message=str(exc))
+    ctx.job.update(message="Planos: " + " · ".join(f"{i}. {title}" for i, (title, _) in enumerate(made, 1)))
+    return [*results, *[path for _, path in made]]
 
 
 def run_region(ctx, p, tier):
@@ -1244,6 +1285,16 @@ def build_registry():
                        dict(id="seed", type="number", label="Seed (igual em todas as vistas)", default=-1, advanced=True)],
             offload=True, min_vram=16,
             note="Cada vista é uma edição do mesmo personagem com o Qwen 2.1; a fidelidade entre vistas não foi medida em GPU, revise o resultado."),
+        App("storyboard", "Storyboard", "Imagem", "Conte uma história: o modelo local planeja 2 a 6 planos, cada um vira imagem, e sai uma folha e um animatic.", "image", run_storyboard,
+            lambda t: [dict(id="story", type="textarea", label="A história", default="", required=True, rows=5, help="Use @nome para chamar personagens do Elenco."),
+                       dict(id="shots", type="seg", label="Planos", default=4, options=[opt(n, str(n), "") for n in range(storyboard.MIN_SHOTS, storyboard.MAX_SHOTS + 1)]),
+                       dict(id="model", type="chips", label="Modelo de imagem", default="qwen21" if t.vram_gb >= 16 else "flux2", options=[opt(k, MODEL_INFO[k]["name"], MODEL_INFO[k]["tagline"]) for k in IMAGE_MODELS]),
+                       dict(id="aspect", type="chips", label="Enquadramento", default="16:9", options=[opt(a, a, "") for a in ("16:9", "9:16", "1:1")]),
+                       dict(id="animatic", type="switch", label="Montar também o animatic (vídeo mudo)", default=True),
+                       dict(id="seconds", type="slider", label="Segundos por plano no animatic", default=2, min=1, max=6, step=0.5, advanced=True),
+                       dict(id="seed", type="number", label="Seed", default=-1, advanced=True),
+                       *director_fields()],
+            note="Precisa do modelo local do chat para planejar. A qualidade do plano depende desse modelo e não foi medida."),
         App("coverage", "Cobertura de cena", "Imagem", "Uma cena vira 9 planos do mesmo momento: geral, aberto, médio, close, detalhe, sobre o ombro, baixo, alto e zenital.", "image", run_coverage,
             lambda t: [dict(id="image", type="files", label="Imagem da cena", accept="image", max=1, min=1, help="A imagem é encaixada no quadro sem cortar; cada plano é uma edição dela."),
                        dict(id="notes", type="textarea", label="Detalhes a preservar (opcional)", default="", rows=2),

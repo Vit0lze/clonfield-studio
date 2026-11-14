@@ -20,6 +20,7 @@ CAPABILITIES = {
     "character_sheet": ({"image"}, "folha de personagem turnaround angulos expressoes personagem character sheet model sheet views", "low"),
     "coverage": ({"image"}, "cobertura de cena planos nove angulos camera plano geral close coverage shots", "low"),
     "flf2v": ({"image"}, "entre dois quadros transicao loop sem emenda quadro final primeiro ultimo first last frame transition seamless loop", "low"),
+    "storyboard": (set(), "storyboard roteiro historia planos quadrinhos animatic sequencia cenas story shots", "low"),
     "edit": ({"image"}, "editar mudar trocar alterar tirar remover adicionar edit change replace remove add modify", "low"),
     "relight": ({"image"}, "luz iluminacao iluminar sombra relight lighting light shadow", "low"),
     "portrait": ({"image"}, "rosto identidade pessoa retrato pose face identity portrait person same", "low"),
