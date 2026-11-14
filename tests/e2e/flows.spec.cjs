@@ -1,5 +1,6 @@
 const { test } = require("@playwright/test");
 const path = require("node:path");
+const fs = require("node:fs");
 const { open, settle, noErrorCard, expect } = require("./helpers.cjs");
 
 const PORTRAIT = path.join(__dirname, "fixtures", "portrait.png");
@@ -59,6 +60,43 @@ test("Fluxos: apresentação de imagens vira um vídeo de verdade e as conferên
   await expect(page.locator(".flow-steps li[data-step]")).toHaveCount(5, { timeout: 15000 });
   await page.locator('input[data-option="not_blank"]').uncheck();
   await expect(page.locator(".flow-steps .bad")).toContainText(/escolha entre/);
+  expect(problems.filter(p => !/favicon/i.test(p))).toEqual([]);
+});
+
+test("Meus fluxos: um fluxo salvo aparece, roda com outro arquivo pela tela e pode ser apagado", async ({ page }) => {
+  const problems = await open(page, "#/flows");
+  await settle(page); await noErrorCard(page);
+  await expect(page.locator(".flow-hint")).toContainText("Meus fluxos");
+  // what the agent's save_flow does, through the same endpoint: upload one picture, save its graph with one exposed parameter
+  const saved = await page.evaluate(async b64 => {
+    const auth = { Authorization: "Bearer testpw-e2e" };
+    const form = new FormData();
+    form.append("files", new Blob([Uint8Array.from(atob(b64), c => c.charCodeAt(0))], { type: "image/png" }), "retrato.png");
+    const [up] = await (await fetch("/clonfield/api/upload", { method: "POST", headers: auth, body: form })).json();
+    const graph = { nodes: [{ id: "warm", label: "Dar o look", cap: "look", inputs: { image: { media: up.id } }, params: { look: "Cinema quente", strength: 60 } },
+                            { id: "caption", label: "Escrever a legenda", cap: "caption", inputs: { image: { from: "warm.image" } }, params: { text: "plano um" } }] };
+    const res = await fetch("/clonfield/api/recipes", { method: "POST", headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ graph, title: "Look com legenda", tagline: "Look e legenda", expose: [{ node: "warm", name: "look", label: "Look" }, { node: "caption", name: "text", label: "Legenda" }] }) });
+    return { status: res.status, body: await res.json() };
+  }, fs.readFileSync(PORTRAIT).toString("base64"));
+  expect(saved.status).toBe(201);
+  await page.reload(); await settle(page); await noErrorCard(page);
+  await expect(page.locator(".flow-hint")).toHaveCount(0);
+  const card = page.locator('.flow-card[data-recipe="meu_look_com_legenda"]');
+  await expect(card).toContainText("seu fluxo");
+  await card.click(); await settle(page); await noErrorCard(page);
+  await page.locator('input[type=file][aria-label="Imagem"]').setInputFiles(PORTRAIT);
+  await expect(page.locator(".flow-steps li[data-step]")).toHaveCount(2, { timeout: 15000 });
+  await page.getByLabel("Legenda").fill("outro retrato");
+  await page.getByLabel("Look", { exact: true }).selectOption({ label: "Preto e branco" });
+  await page.getByRole("button", { name: "Rodar" }).click();
+  await expect(page.locator('.flow-job[data-status="concluído"]')).toHaveCount(1, { timeout: 60000 });
+  await expect(page.locator(".flow-job img")).toHaveCount(1);
+  page.once("dialog", d => d.accept());
+  await page.locator('[data-action="delete-flow"]').click();
+  await expect(page).toHaveURL(/#\/flows$/);
+  await settle(page);
+  await expect(page.locator('.flow-card[data-recipe="meu_look_com_legenda"]')).toHaveCount(0);
   expect(problems.filter(p => !/favicon/i.test(p))).toEqual([]);
 });
 

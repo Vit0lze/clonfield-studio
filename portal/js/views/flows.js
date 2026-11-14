@@ -20,12 +20,13 @@ export async function flowsView(id, navigate) {
   function list() {
     const groups = [...new Set(recipes.map(r => r.group))];
     root.append(h("div", { class: "section-head" }, h("div", null, h("h2", null, "Fluxos"), h("p", null, "Receitas com vários passos: cada passo roda uma vez por item, e só o que mudou é refeito."))));
+    if (!recipes.some(r => r.custom)) root.append(h("p", { class: "muted flow-hint" }, "Peça ao agente do chat para montar um fluxo e guardá-lo: ele aparece aqui, em «Meus fluxos», pronto para rodar com outros arquivos."));
     for (const group of groups) {
       root.append(h("h3", { class: "flow-group" }, group), h("div", { class: "flow-grid" }, recipes.filter(r => r.group === group).map(r =>
         h("a", { class: "flow-card", href: `#/flows/${r.id}`, "data-recipe": r.id },
           h("div", { class: "flow-top" }, h("strong", null, r.title), h("span", { class: `sr-chip ${r.lane}` }, r.lane === "gpu" ? "GPU" : "CPU")),
           h("p", { class: "muted" }, r.tagline),
-          h("div", { class: "flow-meta" }, h("span", { class: "sr-chip" }, `${r.steps} passos`), h("span", { class: `sr-chip ${STATE_CLASS[r.state] || ""}`, title: r.evidence }, r.state))))));
+          h("div", { class: "flow-meta" }, r.custom ? h("span", { class: "sr-chip" }, "seu fluxo") : null, h("span", { class: "sr-chip" }, `${r.steps} passos`), h("span", { class: `sr-chip ${STATE_CLASS[r.state] || ""}`, title: r.evidence }, r.state))))));
     }
   }
 
@@ -128,6 +129,11 @@ export async function flowsView(id, navigate) {
       } catch (error) { toast(error.message, "err"); } finally { run.disabled = false; }
     }
 
+    async function removeFlow() {
+      if (!confirm(`Apagar o fluxo «${rec.title}»? Os resultados já gerados ficam na Biblioteca.`)) return;
+      try { await api.del(`/recipes/${rec.id}`); toast("Fluxo apagado."); navigate("#/flows"); } catch (error) { toast(error.message, "err"); }
+    }
+
     function watch(job) {
       const bar = h("div", { class: "light" }, h("i"));
       const line = h("p", { class: "stage-line" }, job.desc || "Na fila");
@@ -162,7 +168,8 @@ export async function flowsView(id, navigate) {
 
     root.append(h("div", { class: "section-head" }, h("div", null, h("a", { class: "muted", href: "#/flows" }, "← Fluxos"), h("h2", null, rec.title), h("p", null, rec.tagline))),
       h("div", { class: "flow-layout" }, h("section", null, controls, h("div", { class: "row flow-actions" }, add, run), queueBox, note),
-        h("section", null, h("h3", null, "Passos"), steps, h("span", { class: `sr-chip ${STATE_CLASS[rec.state] || ""}`, title: rec.evidence }, rec.state))),
+        h("section", null, h("h3", null, "Passos"), steps, h("span", { class: `sr-chip ${STATE_CLASS[rec.state] || ""}`, title: rec.evidence }, rec.state),
+          rec.custom ? h("p", null, h("button", { class: "btn sm", type: "button", "data-action": "delete-flow", onclick: removeFlow }, icon("trash", "sm"), "Apagar este fluxo")) : null)),
       jobsBox);
     refresh();
   }

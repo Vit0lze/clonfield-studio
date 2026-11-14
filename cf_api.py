@@ -33,6 +33,7 @@ import cf_agent
 import cf_capabilities
 import cf_chat
 import cf_dag
+import cf_myflows
 import cf_recipes
 import cf_contracts
 import cf_cast
@@ -330,7 +331,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
 
     def recipe_graphs(recipe_id, body):
         """-> (recipe, [(vars, graph, report)]) for one form or a `batch` of forms. Raises KeyError / ValueError with a plain reason."""
-        recipe = cf_recipes.get(recipe_id)
+        recipe = cf_recipes.get(recipe_id, base)
         sets = body.get("batch") if isinstance(body.get("batch"), list) else [body.get("vars") or {}]
         if not 1 <= len(sets) <= cf_recipes.MAX_BATCH:
             raise ValueError(f"A fila aceita de 1 a {cf_recipes.MAX_BATCH} execuções por vez.")
@@ -348,7 +349,22 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         return recipe, out
 
     async def recipes_list(request):
-        return JSONResponse(cf_recipes.catalog(), headers={"Cache-Control": "no-store"})
+        return JSONResponse(cf_recipes.catalog(base), headers={"Cache-Control": "no-store"})
+
+    async def recipe_save(request):
+        body = await request.json()
+        try:
+            saved = cf_myflows.save(base, capability_registry(), body.get("graph") or {}, body.get("title"), body.get("tagline", ""), body.get("expose") or [], upload_media, tier)
+        except (ValueError, KeyError, TypeError) as exc:
+            return JSONResponse({"detail": str(exc)}, 400)
+        return JSONResponse(saved, 201)
+
+    async def recipe_delete(request):
+        try:
+            cf_myflows.delete(base, request.path_params["id"])
+        except KeyError:
+            return JSONResponse({"detail": "Só fluxos salvos por você podem ser apagados."}, 404)
+        return JSONResponse({"ok": True})
 
     async def recipe_preview(request):
         try:
@@ -873,6 +889,8 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/dag/run", guard(dag_run), methods=["POST"]),
         Route(f"{PREFIX}/dag/runs/{{id}}", guard(dag_run_get)),
         Route(f"{PREFIX}/recipes", guard(recipes_list)),
+        Route(f"{PREFIX}/recipes", guard(recipe_save), methods=["POST"]),
+        Route(f"{PREFIX}/recipes/{{id}}", guard(recipe_delete), methods=["DELETE"]),
         Route(f"{PREFIX}/recipes/{{id}}/preview", guard(recipe_preview), methods=["POST"]),
         Route(f"{PREFIX}/recipes/{{id}}/run", guard(recipe_run), methods=["POST"]),
         Route(f"{PREFIX}/library/categories", guard(library_categories)),

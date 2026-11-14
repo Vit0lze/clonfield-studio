@@ -264,16 +264,25 @@ RECIPES = {r.id: r for r in [
 ]}
 
 
-def get(recipe_id):
-    if recipe_id not in RECIPES:
+def _all(base=None):
+    """Built-in recipes plus the flows saved under `base` (cf_myflows)."""
+    if base is None:
+        return RECIPES
+    import cf_myflows
+    return {**RECIPES, **cf_myflows.load(base)}
+
+
+def get(recipe_id, base=None):
+    found = _all(base)
+    if recipe_id not in found:
         raise KeyError(recipe_id)
-    return RECIPES[recipe_id]
+    return found[recipe_id]
 
 
-def catalog():
-    return [r.public() for r in RECIPES.values()]
+def catalog(base=None):
+    return [dict(r.public(), custom=r.id not in RECIPES) for r in _all(base).values()]
 
 
-def graph_for(recipe_id, raw):
-    recipe = get(recipe_id)
+def graph_for(recipe_id, raw, base=None):
+    recipe = get(recipe_id, base)
     return recipe.build(resolve(recipe, raw))

@@ -33,7 +33,7 @@ Regras:
 - Descubra o que existe com list_capabilities (filtre por texto, por tipo de entrada com accepts, por saída com produces) e inspect_capability. Nunca invente o id de uma capacidade, de uma mídia ou de um parâmetro.
 - As mídias do usuário vêm de list_media; use o campo id delas em {"media": "<id>"}.
 - Monte um grafo JSON: {"nodes":[{"id":"a","cap":"<capacidade>","inputs":{"<entrada>":{"media":"<id>"} ou {"from":"<no>.<saida>"}},"params":{...}}]}. Passos podem se repetir (por exemplo duas ampliações) e podem usar a saída de qualquer passo anterior.
-- Para encadear passos (por exemplo gerar imagem, ampliar e animar em vídeo, escolhendo o modelo de cada passo) prefira compose_chain: ele liga o resultado de um passo ao seguinte e devolve o grafo pronto; com run=sim já executa. Escolha parâmetros reais olhando inspect_capability (modelo, qualidade, duração, seed). Para listas (vários cenários, quadros de um vídeo) um passo pode rodar uma vez por item ("each"), receber um texto de um passo anterior ("bind") ou rodar só se uma medição passar ("when"). Se uma receita de list_recipes cobre o pedido, use run_recipe. Para mudar um fluxo já montado (trocar um parâmetro, inserir uma ampliação, tirar um passo) use edit_graph em vez de reescrever o grafo; listas podem ser cortadas (take_images), unidas (merge_images) e filtradas por qualidade (keep_passing); imagens viram vídeo com slideshow e clipes viram loop com video_fx.
+- Para encadear passos (por exemplo gerar imagem, ampliar e animar em vídeo, escolhendo o modelo de cada passo) prefira compose_chain: ele liga o resultado de um passo ao seguinte e devolve o grafo pronto; com run=sim já executa. Escolha parâmetros reais olhando inspect_capability (modelo, qualidade, duração, seed). Para listas (vários cenários, quadros de um vídeo) um passo pode rodar uma vez por item ("each"), receber um texto de um passo anterior ("bind") ou rodar só se uma medição passar ("when"). Se uma receita de list_recipes cobre o pedido (inclusive as de «Meus fluxos»), use run_recipe. Quando um fluxo montado por você funcionou e o usuário quer reaproveitá-lo, guarde com save_flow. Para mudar um fluxo já montado (trocar um parâmetro, inserir uma ampliação, tirar um passo) use edit_graph em vez de reescrever o grafo; listas podem ser cortadas (take_images), unidas (merge_images) e filtradas por qualidade (keep_passing); imagens viram vídeo com slideshow e clipes viram loop com video_fx.
 - Antes de executar, rode validate_graph. Se houver erros, corrija o grafo usando os motivos devolvidos e valide de novo.
 - Execute com execute_graph. Depois confira o resultado com inspect_artifact; se a conferência técnica falhar, ajuste e execute de novo.
 - Apps de GPU e passos de risco alto: se execute_graph responder needs_confirmation, pare e peça ao usuário para confirmar; não tente contornar.
@@ -134,6 +134,9 @@ class Toolbox:
                  parameters=schema(stages_json=S("lista JSON de passos: [{\"cap\":\"app.create\",\"params\":{...}},{\"cap\":\"upscale\"},{\"cap\":\"app.animate\",\"params\":{\"model\":\"5b-q6\"}}]", True), run=S("sim para executar já; padrão não")), fn=self.compose_chain),
             dict(name="edit_graph", description="Revisa um grafo já montado sem reescrevê-lo. ops_json é uma lista de operações: {\"op\":\"set_param\",\"node\",\"name\",\"value\"}, set_params, remove (os passos seguintes passam a ler o que o removido lia), insert_after ({\"node\",\"cap\",\"params\"?,\"id\"?,\"output\"?}: o novo passo entra depois e assume os consumidores), replace_cap, set_each, set_when, set_bind. Devolve o grafo novo já validado; com run=sim executa.",
                  parameters=schema(graph_json=S("o grafo atual como texto JSON", True), ops_json=S("lista JSON de operações", True), run=S("sim para executar já; padrão não")), fn=self.edit_graph),
+            dict(name="save_flow", description="Guarda um grafo que deu certo como fluxo reutilizável em «Meus fluxos»: os arquivos viram campos do formulário e os parâmetros listados em expose_json viram campos editáveis. Depois ele roda com run_recipe e aparece na tela Fluxos. Só salve quando o usuário pedir ou concordar.",
+                 parameters=schema(graph_json=S("o grafo como texto JSON", True), title=S("nome do fluxo (3 a 60 caracteres)", True), tagline=S("uma frase do que ele faz"),
+                                   expose_json=S("lista JSON de parâmetros editáveis: [{\"node\":\"id\",\"name\":\"parâmetro\",\"label\":\"rótulo\"}]")), fn=self.save_flow),
             dict(name="list_recipes", description="Receitas prontas: fluxos de vários passos (lote de imagens, matriz de cenários, storyboard em filme…) com o formulário de cada uma. Prefira uma receita a montar o grafo à mão quando ela cobre o pedido.",
                  parameters=schema(), fn=self.list_recipes),
             dict(name="run_recipe", description="Executa uma receita. vars_json é o formulário como objeto JSON (ids de mídia de list_media nos campos de arquivo); uma LISTA de objetos enfileira uma execução por item. Receitas de GPU devolvem job_id.",
@@ -237,11 +240,21 @@ class Toolbox:
             out["execution"] = self.execute_graph(json.dumps(graph))
         return out
 
+    def save_flow(self, graph_json, title, tagline="", expose_json=None):
+        import cf_myflows
+        try:
+            expose = json.loads(expose_json) if isinstance(expose_json, str) and expose_json.strip() else (expose_json or [])
+        except ValueError as exc:
+            raise ValueError(f"expose_json não é JSON válido: {exc}") from None
+        saved = cf_myflows.save(self.env.base, self.registry, self.graph(graph_json), title, tagline, expose, self.env.resolve_media, self.env.tier)
+        return dict(saved=True, id=saved["id"], title=saved["title"], replaced=saved["replaced"], form=[dict(id=i["id"], kind=i["kind"], label=i.get("label")) for i in saved["inputs"]],
+                    how="rode com run_recipe usando este id; ele também aparece na tela Fluxos, em «Meus fluxos»")
+
     def list_recipes(self):
         import cf_recipes
         return dict(recipes=[dict(id=r["id"], title=r["title"], what=r["tagline"], lane=r["lane"], state=r["state"], steps=r["steps"],
                                   inputs=[dict(id=i["id"], kind=i["kind"], label=i.get("label"), options=i.get("options"), default=i.get("default")) for i in r["inputs"]])
-                             for r in cf_recipes.catalog()])
+                             for r in cf_recipes.catalog(self.env.base)])
 
     def run_recipe(self, recipe, vars_json):
         import cf_recipes
@@ -253,7 +266,7 @@ class Toolbox:
         if not 1 <= len(sets) <= cf_recipes.MAX_BATCH:
             raise ValueError(f"a fila aceita de 1 a {cf_recipes.MAX_BATCH} execuções")
         try:
-            chosen = cf_recipes.get(recipe)
+            chosen = cf_recipes.get(recipe, self.env.base)
         except KeyError:
             raise ValueError(f"receita «{recipe}» não existe. Use list_recipes.") from None
         runs = []
