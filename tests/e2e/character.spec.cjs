@@ -50,3 +50,20 @@ test("Storyboard: a história, o número de planos e a Direção vão no pedido"
   expect((posted[0].params || posted[0])).toMatchObject({ shots: 4, aspect: "16:9", animatic: true, dir_genre: "auto" });
   expect(problems.filter(p => !/net::ERR_FAILED/.test(p)), problems.join("\n")).toEqual([]);
 });
+
+test("Remover fundo: envia a imagem, escolhe o fundo e o pedido leva as escolhas", async ({ page }) => {
+  const problems = await open(page, "#/apps/removebg");
+  await settle(page); await noErrorCard(page);
+  await page.locator("input[type=file]").first().setInputFiles(path.join(__dirname, "fixtures", "portrait.png"));
+  await expect(page.getByText("Falta:")).toHaveCount(0, { timeout: 15000 });
+  await page.getByRole("button", { name: "Fundo" }).click();
+  await page.getByRole("option", { name: /Verde/ }).click({ force: true });
+  const posted = [];
+  await page.route("**/clonfield/api/jobs", route => { if (route.request().method() === "POST") { posted.push(route.request().postDataJSON()); return route.abort(); } return route.continue(); });
+  const run = page.getByRole("button", { name: /Gerar|Executar|Aplicar|Criar|Remover/ }).last();
+  await expect(run).toBeEnabled();
+  await run.click();
+  await expect.poll(() => posted.length).toBeGreaterThan(0);
+  expect((posted[0].params || posted[0])).toMatchObject({ background: "Verde (chroma)", model: "u2net", crop: false });
+  expect(problems.filter(p => !/net::ERR_FAILED/.test(p)), problems.join("\n")).toEqual([]);
+});

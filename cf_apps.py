@@ -17,6 +17,7 @@ import cf_jobs
 import cf_civitai
 import cf_loras
 import cf_model_lab as lab
+import cf_bgremove as bgremove
 import cf_cast as cast
 import cf_character as character
 import cf_compare as compare
@@ -964,6 +965,28 @@ def run_look(ctx, p, tier):
     return [path]
 
 
+BG_COLORS = {"Transparente": None, "Branco": (255, 255, 255), "Preto": (0, 0, 0), "Cinza": (128, 128, 128), "Verde (chroma)": (0, 177, 64)}
+
+
+def run_removebg(ctx, p, tier):
+    """U²-Net on the CPU: a transparent PNG, or the subject over a flat colour."""
+    key = p.get("model") or bgremove.DEFAULT
+    color = p.get("background", "Transparente")
+    if color not in BG_COLORS:
+        raise JobError("Escolha um fundo da lista.")
+    try:
+        ctx.progress(0.05, desc="Preparando o modelo de recorte")
+        path = bgremove.ensure(ENV["base"], key, ctx.progress)
+        ctx.progress(0.4, desc="Recortando")
+        with Image.open(p["image"][0]) as opened:
+            result = bgremove.remove(opened, path, BG_COLORS[color], bool(p.get("crop")), int(p.get("cutoff") or 0))
+    except (ValueError, OSError, download.DownloadError) as exc:
+        raise JobError(str(exc)) from None
+    destination = finish.output_path(ctx.out_dir, "sem-fundo", ".png")
+    result.save(destination)
+    return [destination]
+
+
 def run_frame(ctx, p, tier):
     path, _ = finish.image_edit(p["image"][0], finish.FRAME, None, 0, p["ratio"], p.get("fit", "Preencher"),
                                 p.get("format", "PNG"), ctx.out_dir, tuple(p.get("focus") or (0.5, 0.5)))
@@ -1446,6 +1469,13 @@ def build_registry():
                        dict(id="voice", type="switch", label="Narração", default=True,
                             help="Kokoro (CPU, inglês e outros) + Whisper alinham a fala às legendas. Baixa ~270 MB na primeira vez. Desligada, o vídeo sai mudo.")],
             lane="cpu", note="Motor: Content Factory (MIT). Renderizador Remotion tem licença própria."),
+        App("removebg", "Remover fundo", "Melhorar", "Recorta o assunto: PNG transparente ou sobre uma cor lisa. Roda na CPU.", "finish", run_removebg,
+            lambda t: [dict(id="image", type="files", label="Imagem", accept="image", max=1, min=1),
+                       dict(id="background", type="chips", label="Fundo", default="Transparente", options=[opt(k, k) for k in BG_COLORS]),
+                       dict(id="crop", type="switch", label="Aparar ao redor do assunto", default=False),
+                       dict(id="model", type="chips", label="Modelo", default=bgremove.DEFAULT, options=[opt(k, v["label"], f"{v['size'] / 1e6:.0f} MB") for k, v in bgremove.MODELS.items()], advanced=True),
+                       dict(id="cutoff", type="slider", label="Borda dura (0 = suave)", default=0, min=0, max=200, step=5, advanced=True)],
+            lane="cpu", note="U²-Net (Apache-2.0), baixado uma vez e conferido por SHA-256. A qualidade em cabelo, vidro e estruturas finas é a do modelo."),
         App("look", "Cor e contraste", "Melhorar", "Looks prontos com intensidade ajustável.", "finish", run_look,
             lambda t: [dict(id="image", type="files", label="Imagem", accept="image", max=1, min=1),
                        dict(id="look", type="chips", label="Look", default=finish.LOOKS[0], options=[opt(v, v) for v in finish.LOOKS]),
