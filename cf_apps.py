@@ -20,6 +20,7 @@ import cf_model_lab as lab
 import cf_openjutsu as openjutsu
 import cf_refine as refine
 import cf_3d as image3d
+import cf_ltxv as ltxv
 import cf_templates as templates
 import cf_moss as moss
 import cf_audio as audio
@@ -493,10 +494,36 @@ def run_region(ctx, p, tier):
     return [destination]
 
 
+def run_ltxv(ctx, p, tier):
+    import requests
+    image = (p.get("image") or [None])[0]
+    mode = "image" if p["mode"] == wan.IMAGE_MODE else "text"
+    width, height = wan.SIZES.get(p.get("size"), (768, 512)) if p.get("size") != "Personalizado" else (int(p.get("width") or 768), int(p.get("height") or 512))
+    width, height = round(width / 32) * 32, round(height / 32) * 32  # LTX wants multiples of 32; the Wan presets are multiples of 16
+    count = max(1, min(4, int(p.get("variations", 1))))
+    seed = int(p.get("seed", -1))
+    outputs = []
+    try:
+        with requests.Session() as session:
+            session.trust_env = False
+            info = session.get(f"{workflows.SERVER}/object_info", timeout=60).json()
+        graphs = [ltxv.build(info, mode, p["prompt"], float(p.get("seconds", 4)), int(p.get("fps") or 24), width, height, int(p.get("steps") or 30), float(p.get("cfg") or 3.0),
+                             -1 if seed < 0 else seed + i, negative=p.get("negative") or ltxv.NEGATIVE) for i in range(count)]
+    except (ValueError, requests.RequestException) as exc:
+        raise JobError(str(exc)) from None
+    for index, graph in enumerate(graphs):
+        ctx.check()
+        job = workflows.run(graph, ctx.out_dir, scaled(ctx, index, count), prepare=partial(ltxv.prepare, image=image), title=f"{p['mode']} · LTX-Video 2B", control=ctx.control, family="ltxv", stall=2400)
+        outputs.extend(collect_job(ctx, job))
+    return outputs
+
+
 def run_wan(ctx, p, tier):
     mode = p["mode"]
     image = (p.get("image") or [None])[0]
     model_key = p.get("model") or wan.DEFAULT_MODEL
+    if model_key == "ltxv-2b":
+        return run_ltxv(ctx, p, tier)
     spec = wan.MODELS.get(model_key)
     if spec is None:
         raise JobError("Escolha um modelo de vídeo da lista.")
@@ -990,6 +1017,7 @@ def build_registry():
         for key, spec in wan.MODELS.items():
             total, _missing = wan.download_gb(key, mode)
             out.append(opt(key, spec["label"], f"~{total:g} GB de pesos" + (f" · {spec['note']}" if spec["note"] else "")))
+        out.append(opt("ltxv-2b", "LTX-Video 2B · v0.9.5 (cabe na T4)", f"~{ltxv.download_gb()[0]:g} GB de pesos · pede prompt longo e descritivo"))
         return out
 
     def wan_fields(mode, with_image):

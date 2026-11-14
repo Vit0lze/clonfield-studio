@@ -168,3 +168,11 @@ def test_the_official_stable_audio_template_with_its_reprompt_subgraph_converts_
     assert len(graph) > 15
     errors = ok(comfy, graph)
     assert errors == [], explain(errors)
+
+
+@pytest.mark.parametrize("mode", ["text", "image"])
+def test_ltx_video_graphs_are_accepted(comfy, mode):
+    import cf_ltxv
+    graph = cf_ltxv.build(comfy["info"], mode, "A red fox moving gracefully through a snowy forest at dawn, its russet coat vivid against the white landscape.", seconds=4, fps=24)
+    errors = ok(comfy, graph)
+    assert errors == [], explain(errors)

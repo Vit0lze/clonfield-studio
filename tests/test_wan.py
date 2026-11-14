@@ -170,6 +170,6 @@ def test_video_apps_expose_model_seconds_fps_size_and_variations():
         fields = {f["id"]: f for f in cf_apps.registry()[app_id].fields(tier)}
         assert fields["mode"]["default"] == mode
         assert {"model", "size", "seconds", "fps", "width", "height", "steps", "cfg", "seed", "variations"} <= set(fields)
-        assert {o["value"] for o in fields["model"]["options"]} == set(wan.MODELS)
+        assert {o["value"] for o in fields["model"]["options"]} == set(wan.MODELS) | {"ltxv-2b"}
         assert "Personalizado" in {o["value"] for o in fields["size"]["options"]}
         assert fields["seconds"]["max"] == wan.SECONDS[1] and ("image" in fields) == (mode == wan.IMAGE_MODE)

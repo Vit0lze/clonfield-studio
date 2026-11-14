@@ -119,7 +119,7 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 | github.com/Stability-AI/stable-audio-3 | Stable Audio 3 (ComfyUI nativo; Comfy-Org/stable-audio-3, licença «other») | app Áudio (cf_audio.py): SFX, música curta, faixas longas; prompt expandido pelo LLM local | áudio, agente, Fábrica (futuro) | text→audio | TESTADO CPU | os 9 grafos (3 modelos × 3 formatos) são ACEITOS pelo ComfyUI 0.44 real; grafo conferido contra o código do ComfyUI v0.44.0 (nós, entradas, tipo stable_audio), arquivos fixados conferidos na API do HF; player de áudio testado no navegador com um mp3 real; NENHUM áudio gerado (RAM/GPU): velocidade e qualidade não medidas |
 | github.com/barelymining/ComfyUI-MiniMax-H3-FastVideo | MiniMax H3 | família de vídeo (FL2VA, Ref2VA, FastH3) | app H3 (futuro) | text/image/audio→video | NÃO INICIADO | — |
 | huggingface.co/Comfy-Org/MiniMax-H3 | MiniMax H3 | família de vídeo (FL2VA, Ref2VA, FastH3) | app H3 (futuro) | text/image/audio→video | NÃO INICIADO | — |
-| huggingface.co/Lightricks/LTX-Video | LTX-Video | vídeo alternativo | text2video | text/image→video | NÃO INICIADO | LTX parcial no V7 |
+| huggingface.co/Lightricks/LTX-Video | LTX-Video 2B v0.9.5 (templates oficiais ltxv_text_to_video / ltxv_image_to_video, convertidos por cf_ui2api) | opção «LTX-Video 2B» nos apps de vídeo (cf_ltxv.py), o único modelo de vídeo pequeno o bastante para a T4 | text2video, animate | text/image→video | TESTADO CPU | 2 grafos aceitos pelo ComfyUI 0.44 real; pesos (6,3 GB + codificador T5 fp8 de 5,2 GB, NÃO o fp16 do template) com revisão/SHA da API do HF; licença do modelo «other»; nada gerado (BLOQUEADO_GPU) |
 | huggingface.co/MiniMaxAI/MiniMax-H3 | MiniMax H3 | família de vídeo (FL2VA, Ref2VA, FastH3) | app H3 (futuro) | text/image/audio→video | NÃO INICIADO | — |
 | huggingface.co/VideoRebirthAI/hyperflow-h3-flash | H3 flash | — | app H3 | — | NÃO INICIADO | — |
 | huggingface.co/alibaba-pai/MiniMax-H3-Fun-Controlnet-Union-2.0 | MiniMax H3 | família de vídeo (FL2VA, Ref2VA, FastH3) | app H3 (futuro) | text/image/audio→video | NÃO INICIADO | — |
@@ -146,9 +146,9 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 
 | Estado | Fontes |
 |---|---|
-| NÃO INICIADO | 53 |
+| NÃO INICIADO | 52 |
+| TESTADO CPU | 15 |
 | CÓDIGO ESCRITO | 14 |
-| TESTADO CPU | 14 |
 | baseline (não é capacidade) | 4 |
 | TESTADO API REAL | 3 |
 | TESTADO GPU | 3 |
