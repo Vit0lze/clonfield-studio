@@ -131,7 +131,7 @@ def route(request, media, registry, tier, installed_nodes=None, provider=None):
         if app is None:
             continue
         reasons = []
-        if app.min_vram and tier.vram_gb < app.min_vram:
+        if app.blocked_for(tier):
             reasons.append(f"precisa de ~{app.min_vram} GB de VRAM; a placa tem {tier.vram_gb:.0f} GB")
         needs = CAPABILITIES[app_id][0]
         if needs and not needs <= media:
@@ -198,7 +198,7 @@ def plan(request, media, registry, tier):
                 continue  # a plan never repeats an app
             app = registry[app_id]
             needs = CAPABILITIES[app_id][0]
-            ok = (not (app.min_vram and tier.vram_gb < app.min_vram)) and needs <= media
+            ok = (not app.blocked_for(tier)) and needs <= media
             options.append((app_id, p, ok))
         pick = next(((a, p) for a, p, ok in options if ok), None)
         if pick is None:

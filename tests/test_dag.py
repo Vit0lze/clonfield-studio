@@ -90,7 +90,7 @@ def test_cycle_and_not_enough_vram_are_refused_with_the_reason(world, tmp_path):
     cyc = {"nodes": [{"id": "x", "cap": "upscale", "inputs": {"image": {"from": "y.image"}}}, {"id": "y", "cap": "upscale", "inputs": {"image": {"from": "x.image"}}}]}
     assert "cycle" in {e["code"] for e in dag.validate(cyc, registry, tier, env.resolve_media)["errors"]}
     small = SimpleNamespace(vram_gb=4)
-    heavy = next(c for c in registry.items.values() if c.requires["vram_gb"] > 4)
+    heavy = next(c for c in registry.items.values() if c.requires["vram_gb"] > 4 and not c.requires.get("offload"))
     graph = {"nodes": [{"id": "n", "cap": heavy.id, "inputs": {p.name: {"media": "img-a"} for p in heavy.inputs if p.required and p.type == "image"}}]}
     result = dag.validate(graph, registry, small, env.resolve_media)
     assert any(e["code"] == "resource" and "VRAM" in e["message"] for e in result["errors"]), result["errors"]

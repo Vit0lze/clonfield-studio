@@ -131,7 +131,10 @@ def validate(graph, registry, tier=None, resolve_media=None):
                                                              + (" (use uma capacidade que converta antes)" if have in caps.MEDIA else "")))
         req = cap.requires
         if tier is not None and req.get("vram_gb") and tier.vram_gb < req["vram_gb"]:
-            errors.append(error(nid, "resource", f"{nid}: {cap.id} precisa de ~{req['vram_gb']} GB de VRAM; a placa tem {tier.vram_gb:.0f} GB"))
+            if req.get("offload"):
+                resources.setdefault("slow", []).append(nid)  # runs by streaming weights to RAM/disk: allowed, but reported
+            else:
+                errors.append(error(nid, "resource", f"{nid}: {cap.id} precisa de ~{req['vram_gb']} GB de VRAM; a placa tem {tier.vram_gb:.0f} GB"))
         resources["vram_gb"] = max(resources["vram_gb"], req.get("vram_gb", 0))
         resources["ram_gb"] = max(resources["ram_gb"], req.get("ram_gb", 0))
         resources["disk_gb"] += req.get("disk_gb", 0)

@@ -254,7 +254,7 @@ def app_capability(app, tier):
     lane = "gpu" if app.lane == "gpu" else "cpu"
     state = APP_GPU_STATE if lane == "gpu" else dict(state="TESTADO CPU", evidence="app de CPU executado nos testes de V6/V7")
     return Capability(f"app.{app.id}", app.title, "1.0", "app", app.tagline, "cf_apps", "ver a nota do app", (app.id,), tuple(inputs),
-                      (Port("result", out_type),), params, (), dict(vram_gb=app.min_vram, ram_gb=3 if lane == "cpu" else 8, disk_gb=0, lane=lane),
+                      (Port("result", out_type),), params, (), dict(vram_gb=app.min_vram, ram_gb=3 if lane == "cpu" else 8, disk_gb=0, lane=lane, offload=bool(app.offload)),
                       state, RISKY.get(app.id, "low"), None)
 
 

@@ -441,7 +441,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         app = registry.get(str(body.get("app", "")))
         if app is None:
             return JSONResponse({"detail": "App desconhecido."}, 404)
-        if app.min_vram and tier.vram_gb < app.min_vram:
+        if app.blocked_for(tier):
             return JSONResponse({"detail": app.describe(tier)["blocked_reason"]}, 409)
         text = str(body.get("text", "")).strip()[:2000]
         try:
@@ -677,7 +677,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         app = cf_apps.registry().get(body.get("app"))
         if app is None:
             return JSONResponse({"detail": "App desconhecido."}, 404)
-        if app.min_vram and tier.vram_gb < app.min_vram:
+        if app.blocked_for(tier):
             return JSONResponse({"detail": app.describe(tier)["blocked_reason"]}, 409)
         params = body.get("params") or {}
         resolved = resolve_files(app, params)

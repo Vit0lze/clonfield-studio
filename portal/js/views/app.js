@@ -406,7 +406,8 @@ export async function appView(id, navigate) {
   function idle() {
     clear(stage).append(h("div", { class: "idle" }, illustration("idle"), h("h3", null, app.title),
       h("p", { class: "muted" }, app.note || (setField ? "Descreva abaixo e toque em Gerar. O resultado aparece aqui, e você pode enviá-lo para outro app." : "Ajuste à esquerda e gere. O resultado aparece aqui, e você pode enviá-lo para outro app.")),
-      app.blocked ? h("p", { class: "advice" }, icon("alert", "sm"), app.blocked_reason) : null));
+      app.blocked ? h("p", { class: "advice" }, icon("alert", "sm"), app.blocked_reason) : null,
+      app.slow ? h("p", { class: "advice" }, icon("alert", "sm"), app.slow_reason) : null));
   }
   function running(job) {
     const started = Date.now() - Math.max(0, (job.started ? Date.now() / 1000 - job.started : 0)) * 1000;

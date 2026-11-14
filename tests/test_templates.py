@@ -54,7 +54,14 @@ def test_apps_are_gated_by_vram_and_the_agent_needs_confirmation_for_the_swap(mo
     reg = cf_apps.registry()
     for key in t.TEMPLATES:
         d = reg[key].describe(tier)
-        assert d["blocked"] and "24" in d["blocked_reason"]  # a 15 GB card is told why, not left to fail
+        # a 15 GB card is NOT refused: ComfyUI streams the weights to RAM/disk, so it runs slowly; the user is told so up front
+        assert not d["blocked"] and d["slow"] and "24" in d["slow_reason"] and "mais lento" in d["slow_reason"]
+    assert reg["openjutsu"].describe(tier)["blocked"]  # no offload path for the 96 GB class: still a hard stop
+    import cf_dag
+    check = cf_dag.validate({"nodes": [{"id": "a", "cap": "app.scail2", "inputs": {}}]}, caps.Registry(reg, tier), tier=tier)
+    assert not [e for e in check["errors"] if e["code"] == "resource"]  # missing inputs are reported, the VRAM floor is not
+    assert check["resources"].get("slow") == ["a"]
     assert caps.Registry(reg, tier).get("app.scail2").risk == "medium"
     monkeypatch.setenv("CLONFIELD_FAKE_VRAM", "40")
-    assert not reg["scail2"].describe(cf_tiers.detect())["blocked"]
+    d = reg["scail2"].describe(cf_tiers.detect())
+    assert not d["blocked"] and not d["slow"]

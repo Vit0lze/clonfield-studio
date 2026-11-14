@@ -993,16 +993,25 @@ def sizes_options(sizes):
 
 
 class App:
-    def __init__(self, id, title, group, tagline, art, runner, fields, lane="gpu", min_vram=0, note="", hidden=False):
+    def __init__(self, id, title, group, tagline, art, runner, fields, lane="gpu", min_vram=0, note="", hidden=False, offload=False):
         self.id, self.title, self.group, self.tagline, self.art = id, title, group, tagline, art
         self.runner, self.fields, self.lane, self.min_vram, self.note, self.hidden = runner, fields, lane, min_vram, note, hidden
+        self.offload = offload  # True: ComfyUI streams the weights between VRAM and RAM/disk, so a smaller card runs it slowly instead of failing
+
+    def short(self, tier):
+        return bool(self.min_vram and tier.vram_gb < self.min_vram)
+
+    def blocked_for(self, tier):
+        """Hard stop: the card is below the app's floor and the app has no offload path."""
+        return self.short(tier) and not self.offload
 
     def describe(self, tier):
-        blocked = self.min_vram and tier.vram_gb < self.min_vram
+        blocked, slow = self.blocked_for(tier), self.offload and self.short(tier)
         return {"id": self.id, "title": self.title, "group": self.group, "tagline": self.tagline, "art": self.art,
                 "lane": self.lane, "min_vram": self.min_vram, "note": self.note,
-                "blocked": bool(blocked),
+                "blocked": bool(blocked), "slow": bool(slow),
                 "blocked_reason": (f"Precisa de uma placa com ~{self.min_vram} GB; a sua tem {tier.vram_gb:.0f} GB." if blocked else ""),
+                "slow_reason": (f"Pensado para ~{self.min_vram} GB de VRAM; na sua placa ({tier.vram_gb:.0f} GB) o ComfyUI move os pesos para a RAM e o disco: funciona, mas é bem mais lento e pede RAM livre." if slow else ""),
                 "fields": self.fields(tier)}
 
 
@@ -1079,7 +1088,7 @@ def build_registry():
                           dict(id="image", type="files", label="Foto do personagem", accept="image", max=1, min=1),
                           dict(id="prompt", type="textarea", label="Descrição (opcional)", default="", rows=3, help="Vazio mantém o texto do exemplo oficial do template."),
                           dict(id="seed", type="number", label="Seed", default=-1, advanced=True)]),
-              min_vram=spec["min_vram"], note="Workflow oficial do ComfyUI (MIT), convertido com o /object_info do worker. Modelo de 16,6 GB + codificador de 6,7 GB: precisa de uma GPU grande; grafo validado, nada gerado.")
+              min_vram=spec["min_vram"], offload=True, note="Workflow oficial do ComfyUI (MIT), convertido com o /object_info do worker. Modelo de 16,6 GB + codificador de 6,7 GB: precisa de uma GPU grande; grafo validado, nada gerado.")
           for key, spec in templates.TEMPLATES.items()],
         App("moss", "Caixas (MOSS)", "Imagem", "Desenhe caixas e escreva o que vai em cada uma: gere a cena inteira ou redesenhe só aquelas áreas.", "image", run_moss,
             lambda t: [dict(id="mode", type="chips", label="O que fazer", default="generate", options=[opt(k, v, "") for k, v in moss.MODES.items()]),
