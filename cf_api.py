@@ -317,10 +317,12 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         force = [str(f) for f in body.get("force") or []]
         title = "Grafo · " + ", ".join(n["cap"] for n in graph["nodes"])[:60]
 
-        def runner(ctx):
-            return cf_dag.final_files(cf_dag.execute(graph, registry, env, ctx, force=force))
+        run_id = uuid.uuid4().hex[:12]
 
-        job = manager.submit("dag", title, {}, report["resources"]["lane"], runner)
+        def runner(ctx):
+            return cf_dag.final_files(cf_dag.execute(graph, registry, env, ctx, run_id=run_id, force=force))
+
+        job = manager.submit("dag", title, {"run": run_id}, report["resources"]["lane"], runner)
         return JSONResponse(public_job(job), 202)
 
     async def dag_run_get(request):
@@ -328,6 +330,33 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             return JSONResponse(cf_dag.load_run(dag_env(upload_media), request.path_params["id"]))
         except (OSError, ValueError):
             return JSONResponse({"detail": "Execução não encontrada."}, 404)
+
+    async def dag_run_revise(request):
+        """Re-run a finished (or failed) run: optional edit ops on its graph, optional nodes to force; everything unchanged comes from the cache."""
+        env, registry = dag_env(upload_media), capability_registry()
+        try:
+            previous = cf_dag.load_run(env, request.path_params["id"])
+        except (OSError, ValueError):
+            return JSONResponse({"detail": "Execução não encontrada."}, 404)
+        body = await request.json()
+        try:
+            graph = cf_dag.edit(previous["graph"], body["ops"], registry) if body.get("ops") else previous["graph"]
+            force = [str(f) for f in (body.get("force") or [])]
+            unknown = [f for f in force if f not in {n["id"] for n in graph["nodes"]}]
+            if unknown:
+                raise ValueError(f"o passo «{unknown[0]}» não existe neste fluxo")
+            report = cf_dag.validate(graph, registry, tier, upload_media)
+            if not report["ok"]:
+                raise ValueError("; ".join(e["message"] for e in report["errors"][:3]))
+        except (ValueError, TypeError) as exc:
+            return JSONResponse({"detail": str(exc)}, 400)
+        run_id = uuid.uuid4().hex[:12]
+
+        def runner(ctx):
+            return cf_dag.final_files(cf_dag.execute(graph, registry, env, ctx, run_id=run_id, force=force))
+        title = str(body.get("title") or "Execução refeita")[:80]
+        job = manager.submit("dag", title, {"run": run_id, "revises": previous["id"]}, report["resources"]["lane"], runner)
+        return JSONResponse(public_job(job), 202)
 
     def recipe_graphs(recipe_id, body):
         """-> (recipe, [(vars, graph, report)]) for one form or a `batch` of forms. Raises KeyError / ValueError with a plain reason."""
@@ -888,6 +917,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/dag/validate", guard(dag_validate), methods=["POST"]),
         Route(f"{PREFIX}/dag/run", guard(dag_run), methods=["POST"]),
         Route(f"{PREFIX}/dag/runs/{{id}}", guard(dag_run_get)),
+        Route(f"{PREFIX}/dag/runs/{{id}}/revise", guard(dag_run_revise), methods=["POST"]),
         Route(f"{PREFIX}/recipes", guard(recipes_list)),
         Route(f"{PREFIX}/recipes", guard(recipe_save), methods=["POST"]),
         Route(f"{PREFIX}/recipes/{{id}}", guard(recipe_delete), methods=["DELETE"]),

@@ -33,7 +33,15 @@ test("Fluxos: receitas listadas, passos mostrados, fila de duas execuções roda
   await expect(steps).toHaveCount(4);
   await expect(page.locator(".flow-job").first().locator('.flow-timeline li[data-step="look"]')).toContainText("2 itens");
   await expect(page.locator(".flow-job").first().locator('.flow-timeline li[data-state="concluído"], .flow-timeline li[data-state="em cache"]')).toHaveCount(4);
-  const first = page.locator(".flow-job").first().locator("img");
+  // redo from one step: a new job whose timeline shows the earlier steps coming from the cache
+  const jobsBefore = await page.locator(".flow-job").count();
+  await page.locator('.flow-job[data-job]').nth(1).locator('.flow-timeline li[data-step="sheet"] [data-action="redo"]').click();
+  await expect(page.locator(".flow-job")).toHaveCount(jobsBefore + 1);
+  const redone = page.locator(".flow-job").first();
+  await expect(redone.locator('.flow-timeline li[data-step="sheet"]')).toHaveAttribute("data-state", "concluído", { timeout: 60000 });
+  await expect(redone.locator('.flow-timeline li[data-step="look"]')).toHaveAttribute("data-state", "em cache");
+  await expect(redone).toContainText("refeito");
+  const first = page.locator(".flow-job").nth(1).locator("img");
   await expect(first).toHaveCount(2);  // the sheet and the sharpest picture
   await expect(first.first()).toHaveJSProperty("complete", true);
   expect(await first.first().evaluate(img => img.naturalWidth)).toBeGreaterThan(50);

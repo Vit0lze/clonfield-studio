@@ -130,3 +130,27 @@ def test_api_saves_lists_runs_and_deletes_a_flow_over_http(api):
         assert api.delete(f"{BASE}/recipes/{rid}").status_code == 200
     assert api.delete(f"{BASE}/recipes/{rid}").status_code == 404
     assert rid not in {r["id"] for r in api.get(f"{BASE}/recipes").json()}
+
+
+def test_api_revises_a_finished_run_from_one_step(api):
+    first = up(api, 3)
+    graph = {"nodes": [dict(id="warm", label="Dar o look", cap="look", inputs={"image": {"media": first}}, params=dict(look="Cinema quente")),
+                       dict(id="cap", label="Legenda", cap="caption", inputs={"image": {"from": "warm.image"}}, params=dict(text="um"))]}
+    plain = api.post(f"{BASE}/dag/run", json=dict(graph=graph)).json()
+    assert wait_job(api, plain["id"])["run"]  # a plain graph job exposes its run record too
+    saved = api.post(f"{BASE}/recipes", json=dict(graph=graph, title="Para refazer", expose=[dict(node="cap", name="text", label="Legenda")]))
+    rid = saved.json()["id"]
+    try:
+        original = wait_job(api, api.post(f"{BASE}/recipes/{rid}/run", json=dict(vars=dict(entrada_1=first, p_cap_text="um"))).json()["jobs"][0]["id"])
+        record = api.get(f"{BASE}/dag/runs/{original['run']}").json()
+        assert record["status"] == "concluído"
+        redo = api.post(f"{BASE}/dag/runs/{original['run']}/revise", json=dict(ops=[dict(op="set_param", node="cap", name="text", value="dois")], title="Para refazer · refeito"))
+        assert redo.status_code == 202
+        redone = wait_job(api, redo.json()["id"])
+        assert redone["status"] == "concluído" and redone["run"] != original["run"]
+        after = api.get(f"{BASE}/dag/runs/{redone['run']}").json()
+        assert after["nodes"]["warm"]["status"] == "em cache" and after["nodes"]["cap"]["status"] == "concluído"  # the look was not redone
+        assert api.post(f"{BASE}/dag/runs/{original['run']}/revise", json=dict(force=["fantasma"])).status_code == 400
+        assert api.post(f"{BASE}/dag/runs/naoexiste/revise", json={}).status_code == 404
+    finally:
+        api.delete(f"{BASE}/recipes/{rid}")

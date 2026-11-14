@@ -134,17 +134,28 @@ export async function flowsView(id, navigate) {
       try { await api.del(`/recipes/${rec.id}`); toast("Fluxo apagado."); navigate("#/flows"); } catch (error) { toast(error.message, "err"); }
     }
 
+    async function redo(job, stepId) {
+      try {
+        const next = await api.post(`/dag/runs/${job.run}/revise`, { force: [stepId], title: `${job.title.replace(/ · refeito$/, "")} · refeito` });
+        watch(next);
+        toast("Refazendo deste passo; o que não mudou vem do cache.");
+      } catch (error) { toast(error.message, "err"); }
+    }
+
     function watch(job) {
       const bar = h("div", { class: "light" }, h("i"));
       const line = h("p", { class: "stage-line" }, job.desc || "Na fila");
       const out = h("div", { class: "flow-out" });
       const timeline = h("ol", { class: "flow-timeline", "aria-label": "Andamento por passo" });
       const card = h("article", { class: "flow-job", "data-job": job.id }, h("strong", null, job.title), bar, line, timeline, out);
-      let reading = false;
+      let seq = 0;
       const readRun = async j => {
-        if (!j.run || reading) return;
-        reading = true;
-        try { paintTimeline(timeline, await api.get(`/dag/runs/${j.run}`)); } catch { /* the record appears once the first step starts */ } finally { reading = false; }
+        if (!j.run) return;
+        const mine = ++seq;  // only the newest read paints, so a slow early read can never hide the Refazer buttons of the final one
+        try {
+          const run = await api.get(`/dag/runs/${j.run}`);
+          if (mine === seq) paintTimeline(timeline, run, isFinal(j.status) ? id => redo(j, id) : null);
+        } catch { /* the record appears once the first step starts */ }
       };
       jobsBox.prepend(card);
       const paint = j => {
@@ -178,7 +189,7 @@ export async function flowsView(id, navigate) {
 const RUN_LABEL = { pendente: "espera", executando: "rodando", "concluído": "feito", "em cache": "em cache", ignorado: "ignorado", falhou: "falhou", cancelado: "cancelado" };
 
 // One line per step of the run record: what it is, its state, how many items, how many came from the cache.
-export function paintTimeline(list, run) {
+export function paintTimeline(list, run, redo) {
   const labels = Object.fromEntries((run.graph?.nodes || []).map(n => [n.id, n.label || n.id]));
   clear(list).append(...(run.order || []).map(id => {
     const n = run.nodes?.[id] || {};
@@ -187,6 +198,7 @@ export function paintTimeline(list, run) {
       : n.items ? `${n.items} itens${n.cached_items ? ` · ${n.cached_items} em cache` : ""}`
       : n.status === "falhou" ? (n.error || "falhou") : "";
     return h("li", { "data-step": id, "data-state": state }, h("span", { class: "tl-name" }, labels[id] || id),
-      h("span", { class: `sr-chip tl-${state.replace(/\s+/g, "-")}` }, RUN_LABEL[state] || state), detail ? h("small", { class: "muted" }, detail) : null);
+      h("span", { class: `sr-chip tl-${state.replace(/\s+/g, "-")}` }, RUN_LABEL[state] || state), detail ? h("small", { class: "muted" }, detail) : null,
+      redo && state !== "ignorado" ? h("button", { class: "btn sm", type: "button", "data-action": "redo", "aria-label": `Refazer a partir de «${labels[id] || id}»`, onclick: () => redo(id) }, icon("refresh", "sm"), "Refazer") : null);
   }));
 }

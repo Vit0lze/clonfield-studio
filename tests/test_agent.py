@@ -279,3 +279,25 @@ def test_edit_graph_refuses_what_it_cannot_do(world):
     # removing the first step: the second one reads the media the first read
     gone = tools.edit_graph(json.dumps(base), json.dumps([dict(op="remove", node=a)]))
     assert gone["ok"] and gone["graph"]["nodes"][0]["inputs"]["image"] == {"media": "m-foto"}
+
+
+def test_revise_run_recomputes_only_what_changed_and_reports_the_run_id(world):
+    tools = world.tools()
+    graph = tools.compose_chain(json.dumps([
+        dict(cap="video_frames", inputs=dict(video="m-clipe"), params=dict(every_s=0.25, max=3)),
+        dict(cap="look", params=dict(look="Frio suave")),
+        dict(cap="contact_sheet", params=dict(columns=3)),
+    ]))["graph"]
+    frames, look, sheet = (n["id"] for n in graph["nodes"])
+    first = tools.execute_graph(json.dumps(graph))
+    assert first["status"] == "concluído" and first["run_id"] and sorted(first["recomputed"]) == sorted([frames, look, sheet])
+    again = tools.revise_run(first["run_id"])  # nothing changed: everything from the cache
+    assert again["status"] == "concluído" and again["recomputed"] == [] and sorted(again["cached"]) == sorted([frames, look, sheet]) and again["run_id"] != first["run_id"]
+    edited = tools.revise_run(first["run_id"], json.dumps([dict(op="set_param", node=sheet, name="columns", value=2)]))
+    assert edited["recomputed"] == [sheet] and sorted(edited["cached"]) == sorted([frames, look])  # only the sheet and what hangs below it
+    forced = tools.revise_run(first["run_id"], None, look)
+    assert sorted(forced["recomputed"]) == sorted([look, sheet]) and forced["cached"] == [frames]  # the forced step and its descendants
+    with pytest.raises(ValueError, match="execução desconhecida"):
+        tools.revise_run("naoexiste")
+    with pytest.raises(ValueError, match="não existe no grafo"):
+        tools.revise_run(first["run_id"], json.dumps([dict(op="remove", node="fantasma")]))
