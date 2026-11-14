@@ -777,3 +777,31 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
 .cast-body p { margin: 0; font-size: 13px; }
 .cast-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; align-items: center; }
 .cast-chips .btn { padding: 2px 10px; }
+
+/* Fluxos: recipes, queue and per-job progress */
+.flow-group { margin: 22px 0 10px; font-size: 14px; color: var(--muted, #8b8b94); font-weight: 600; }
+.flow-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); }
+.flow-card { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--line, #2a2a30); border-radius: 12px; text-decoration: none; color: inherit; background: var(--panel, transparent); align-content: start; }
+.flow-card:hover { border-color: rgba(226, 52, 63, .5); }
+.flow-card p { margin: 0; font-size: 13px; }
+.flow-top { display: flex; justify-content: space-between; gap: 8px; align-items: start; }
+.flow-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+.sr-chip.gpu { border-color: rgba(226, 150, 52, .5); color: #e6a64a; }
+.sr-chip.ok { border-color: rgba(60, 180, 120, .5); color: #4cc38a; }
+.flow-layout { display: grid; gap: 22px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) { .flow-layout { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); } }
+.flow-form { display: grid; gap: 12px; max-width: 560px; }
+.flow-form .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.flow-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.flow-steps { margin: 8px 0 12px; padding-left: 20px; display: grid; gap: 6px; }
+.flow-steps li { display: list-item; }
+.flow-steps li span { margin-right: 8px; }
+.flow-steps .bad { color: #e5636d; list-style: none; margin-left: -20px; }
+.flow-queue { display: grid; gap: 6px; margin-top: 10px; max-width: 360px; }
+.flow-q { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--line, #2a2a30); border-radius: 8px; font-size: 13px; }
+.flow-jobs { display: grid; gap: 12px; margin-top: 22px; }
+.flow-job { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line, #2a2a30); border-radius: 12px; }
+.flow-job[data-status="falhou"] { border-color: rgba(229, 99, 109, .6); }
+.flow-out { display: flex; gap: 10px; flex-wrap: wrap; }
+.flow-out img, .flow-out video { max-height: 180px; max-width: 100%; border-radius: 8px; }
+.flow-note { margin: 8px 0 0; }

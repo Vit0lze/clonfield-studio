@@ -33,6 +33,7 @@ import cf_agent
 import cf_capabilities
 import cf_chat
 import cf_dag
+import cf_recipes
 import cf_contracts
 import cf_cast
 import cf_env
@@ -323,6 +324,54 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             return JSONResponse(cf_dag.load_run(dag_env(upload_media), request.path_params["id"]))
         except (OSError, ValueError):
             return JSONResponse({"detail": "Execução não encontrada."}, 404)
+
+    def recipe_graphs(recipe_id, body):
+        """-> (recipe, [(vars, graph, report)]) for one form or a `batch` of forms. Raises KeyError / ValueError with a plain reason."""
+        recipe = cf_recipes.get(recipe_id)
+        sets = body.get("batch") if isinstance(body.get("batch"), list) else [body.get("vars") or {}]
+        if not 1 <= len(sets) <= cf_recipes.MAX_BATCH:
+            raise ValueError(f"A fila aceita de 1 a {cf_recipes.MAX_BATCH} execuções por vez.")
+        registry, out = capability_registry(), []
+        for index, raw in enumerate(sets, 1):
+            try:
+                values = cf_recipes.resolve(recipe, raw)
+            except ValueError as exc:
+                raise ValueError((f"Execução {index}: " if len(sets) > 1 else "") + str(exc)) from None
+            graph = recipe.build(values)
+            report = cf_dag.validate(graph, registry, tier, upload_media)
+            if not report["ok"]:
+                raise ValueError((f"Execução {index}: " if len(sets) > 1 else "") + "; ".join(e["message"] for e in report["errors"][:3]))
+            out.append((values, graph, report))
+        return recipe, out
+
+    async def recipes_list(request):
+        return JSONResponse(cf_recipes.catalog(), headers={"Cache-Control": "no-store"})
+
+    async def recipe_preview(request):
+        try:
+            recipe, built = recipe_graphs(request.path_params["id"], await request.json())
+        except KeyError:
+            return JSONResponse({"detail": "Receita desconhecida."}, 404)
+        except ValueError as exc:  # a half-filled form is not a server error: say what is missing and keep the status 200
+            return JSONResponse(dict(ok=False, detail=str(exc)))
+        values, graph, report = built[0]
+        steps = [dict(id=n["id"], label=n.get("label") or n["cap"], cap=n["cap"], each=n.get("each"), when=bool(n.get("when"))) for n in graph["nodes"]]
+        return JSONResponse(dict(ok=True, recipe=recipe.id, runs=len(built), steps=steps, resources=report["resources"], order=report["order"]))
+
+    async def recipe_run(request):
+        try:
+            recipe, built = recipe_graphs(request.path_params["id"], await request.json())
+        except KeyError:
+            return JSONResponse({"detail": "Receita desconhecida."}, 404)
+        except ValueError as exc:
+            return JSONResponse({"detail": str(exc)}, 400)
+        registry, env, jobs = capability_registry(), dag_env(upload_media), []
+        for index, (values, graph, report) in enumerate(built, 1):
+            def runner(ctx, graph=graph):
+                return cf_dag.final_files(cf_dag.execute(graph, registry, env, ctx))
+            title = recipe.title + (f" · {index}/{len(built)}" if len(built) > 1 else "")
+            jobs.append(public_job(manager.submit("dag", title, {"recipe": recipe.id}, report["resources"]["lane"], runner)))
+        return JSONResponse(dict(recipe=recipe.id, jobs=jobs), 202)
 
     def adopt_results(session_id, files, job):
         """Copy files a graph produced into the conversation's uploads and attach them to it, like a single-app step does."""
@@ -818,6 +867,9 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/dag/validate", guard(dag_validate), methods=["POST"]),
         Route(f"{PREFIX}/dag/run", guard(dag_run), methods=["POST"]),
         Route(f"{PREFIX}/dag/runs/{{id}}", guard(dag_run_get)),
+        Route(f"{PREFIX}/recipes", guard(recipes_list)),
+        Route(f"{PREFIX}/recipes/{{id}}/preview", guard(recipe_preview), methods=["POST"]),
+        Route(f"{PREFIX}/recipes/{{id}}/run", guard(recipe_run), methods=["POST"]),
         Route(f"{PREFIX}/library/categories", guard(library_categories)),
         Route(f"{PREFIX}/library", guard(library_items)),
         Route(f"{PREFIX}/components/recipe-file", guard(recipe_file_install), methods=["POST"]),

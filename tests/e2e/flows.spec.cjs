@@ -1,0 +1,45 @@
+const { test } = require("@playwright/test");
+const path = require("node:path");
+const { open, settle, noErrorCard, expect } = require("./helpers.cjs");
+
+const PORTRAIT = path.join(__dirname, "fixtures", "portrait.png");
+
+test("Fluxos: receitas listadas, passos mostrados, fila de duas execuções roda de verdade", async ({ page }) => {
+  const problems = await open(page, "#/flows");
+  await settle(page); await noErrorCard(page);
+  await expect(page.locator(".flow-card")).toHaveCount(10);
+  await expect(page.locator('.flow-card[data-recipe="loop_de_imagem"]')).toContainText("BLOQUEADO_GPU");
+  await page.locator('.flow-card[data-recipe="polir_lote"]').click();
+  await settle(page); await noErrorCard(page);
+  // the steps are named before anything runs; with no pictures yet the preview says what is missing
+  await expect(page.locator(".flow-steps .bad")).toContainText(/envie de 1 a 16/);
+  await expect(page.getByRole("button", { name: "Rodar" })).toBeDisabled();
+
+  await page.locator('input[type=file][aria-label="Imagens"]').setInputFiles([PORTRAIT, PORTRAIT]);
+  await expect(page.locator(".flow-steps li[data-step]")).toHaveCount(4, { timeout: 15000 });
+  await expect(page.locator('.flow-steps li[data-step="look"]')).toContainText("um por item");
+  await expect(page.getByRole("button", { name: "Colocar na fila" })).toBeEnabled();
+
+  await page.getByRole("button", { name: "Colocar na fila" }).click();
+  await page.getByLabel("Look", { exact: true }).selectOption({ label: "Preto e branco" });
+  await page.getByRole("button", { name: "Colocar na fila" }).click();
+  await expect(page.locator(".flow-q")).toHaveCount(2);
+  await page.getByRole("button", { name: "Rodar a fila (2)" }).click();
+  await expect(page.locator(".flow-job")).toHaveCount(2);
+  await expect(page.locator('.flow-job[data-status="concluído"]')).toHaveCount(2, { timeout: 90000 });
+  const first = page.locator(".flow-job").first().locator("img");
+  await expect(first).toHaveCount(2);  // the sheet and the sharpest picture
+  await expect(first.first()).toHaveJSProperty("complete", true);
+  expect(await first.first().evaluate(img => img.naturalWidth)).toBeGreaterThan(50);
+  expect(problems.filter(p => !/favicon/i.test(p))).toEqual([]);
+});
+
+test("Fluxos: formulário de GPU mostra o estado honesto e as linhas viram passos", async ({ page }) => {
+  await open(page, "#/flows/storyboard_em_filme");
+  await settle(page); await noErrorCard(page);
+  await expect(page.locator(".flow-steps li[data-step]")).toHaveCount(5, { timeout: 15000 });
+  await expect(page.locator(".flow-steps li[data-step=\"still\"]")).toContainText("um por item");
+  await expect(page.locator("section .sr-chip", { hasText: "BLOQUEADO_GPU" })).toBeVisible();
+  await page.locator("textarea").fill("só um plano");
+  await expect(page.locator(".flow-steps .bad")).toContainText(/use de 2 a 6 linhas/);
+});

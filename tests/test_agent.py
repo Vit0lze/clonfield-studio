@@ -182,3 +182,19 @@ def test_list_cast_gives_the_agent_the_names_to_mention(world):
     assert out["count"] == 1 and out["cast"][0] == dict(name="Marina", mention="@Marina", description="mulher ruiva", has_image=False)
     assert "list_cast" in world.tools().by_name
     cf_cast.remove(world.env.base, cf_cast.load(world.env.base)[0]["id"])
+
+
+def test_agent_lists_and_runs_recipes_as_a_queue(world):
+    tools = world.tools()
+    listed = tools.list_recipes()["recipes"]
+    assert {"polir_lote", "storyboard_em_filme"} <= {r["id"] for r in listed}
+    one = tools.run_recipe("looks_lado_a_lado", json.dumps(dict(image="m-foto", strength=80)))
+    assert len(one["runs"]) == 1 and one["runs"][0].get("status") != "invalid", one
+    queue = tools.run_recipe("looks_lado_a_lado", json.dumps([dict(image="m-foto", strength=40), dict(image="m-foto", strength=90)]))
+    assert len(queue["runs"]) == 2
+    with pytest.raises(ValueError, match="não existe"):
+        tools.run_recipe("nada", "{}")
+    with pytest.raises(ValueError, match="envie uma imagem"):
+        tools.run_recipe("looks_lado_a_lado", json.dumps(dict(strength=50)))
+    with pytest.raises(ValueError, match="1 a 12"):
+        tools.run_recipe("looks_lado_a_lado", json.dumps([dict(image="m-foto", strength=50)] * 13))

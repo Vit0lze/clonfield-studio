@@ -129,6 +129,10 @@ class Toolbox:
                  parameters=schema(role=S("Difusão|Checkpoint|Encoder|VAE|Upscaler|LoRA", True), family=S("modelo da receita: qwen21|flux2|flux3|krea2|z-image", True), query=S("termo de busca"), source=S("local|civitai|huggingface (padrão local)")), fn=self.search_models),
             dict(name="list_cast", description="Personagens salvos no Elenco (nome e descrição). Num pedido de imagem ou vídeo, escreva @nome no prompt: o Studio troca pela descrição e usa a imagem do personagem como referência.",
                  parameters=schema(), fn=self.list_cast),
+            dict(name="list_recipes", description="Receitas prontas: fluxos de vários passos (lote de imagens, matriz de cenários, storyboard em filme…) com o formulário de cada uma. Prefira uma receita a montar o grafo à mão quando ela cobre o pedido.",
+                 parameters=schema(), fn=self.list_recipes),
+            dict(name="run_recipe", description="Executa uma receita. vars_json é o formulário como objeto JSON (ids de mídia de list_media nos campos de arquivo); uma LISTA de objetos enfileira uma execução por item. Receitas de GPU devolvem job_id.",
+                 parameters=schema(recipe=S("id da receita", True), vars_json=S("formulário em JSON: {...} ou [{...}, {...}]", True)), fn=self.run_recipe),
             dict(name="system_info", description="Placa, VRAM e RAM livres (do ComfyUI, se estiver no ar) e espaço em disco desta máquina. Só lê. Use antes de escolher um modelo grande.",
                  parameters=schema(), fn=self.system_info),
             dict(name="free_memory", description="Descarrega os modelos do ComfyUI da VRAM e da RAM. O próximo job recarrega os pesos (fica mais lento). Use para abrir espaço antes de um modelo grande.",
@@ -203,6 +207,34 @@ class Toolbox:
         import cf_cast
         items = cf_cast.load(self.env.base)
         return dict(count=len(items), cast=[dict(name=i["name"], mention=f"@{i['name']}", description=i.get("description", ""), has_image=bool(i.get("image"))) for i in items])
+
+    def list_recipes(self):
+        import cf_recipes
+        return dict(recipes=[dict(id=r["id"], title=r["title"], what=r["tagline"], lane=r["lane"], state=r["state"], steps=r["steps"],
+                                  inputs=[dict(id=i["id"], kind=i["kind"], label=i.get("label"), options=i.get("options"), default=i.get("default")) for i in r["inputs"]])
+                             for r in cf_recipes.catalog()])
+
+    def run_recipe(self, recipe, vars_json):
+        import cf_recipes
+        try:
+            wanted = json.loads(vars_json) if isinstance(vars_json, str) else vars_json
+        except ValueError as exc:
+            raise ValueError(f"vars_json não é JSON válido: {exc}") from None
+        sets = wanted if isinstance(wanted, list) else [wanted]
+        if not 1 <= len(sets) <= cf_recipes.MAX_BATCH:
+            raise ValueError(f"a fila aceita de 1 a {cf_recipes.MAX_BATCH} execuções")
+        try:
+            chosen = cf_recipes.get(recipe)
+        except KeyError:
+            raise ValueError(f"receita «{recipe}» não existe. Use list_recipes.") from None
+        runs = []
+        for raw in sets:
+            graph = chosen.build(cf_recipes.resolve(chosen, raw))
+            result = self.execute_graph(json.dumps(graph))
+            runs.append(result)
+            if result.get("status") in ("invalid", "needs_confirmation"):
+                break
+        return dict(recipe=recipe, runs=runs)
 
     def system_info(self):
         import shutil

@@ -13,12 +13,13 @@ import { systemView } from "./views/system.js";
 import { chatView } from "./views/chat.js";
 import { capabilitiesView } from "./views/capabilities.js";
 import { castView } from "./views/cast.js";
+import { flowsView } from "./views/flows.js";
 import { loadFavs } from "./favs.js";
 import { installPalette } from "./palette.js";
 
 const root = document.getElementById("root");
 const NAV = [["", "Início", "home"], ["chat", "Chat", "comment"], ["apps", "Apps", "apps"], ["library", "Biblioteca", "cube"], ["history", "Histórico", "clock"], ["system", "Sistema", "cpu"]];
-const TITLES = { "": "Início", chat: "Chat", capabilities: "Capacidades", cast: "Elenco", apps: "Apps", library: "Biblioteca", models: "Modelos", history: "Histórico", jobs: "Fila", system: "Sistema" };
+const TITLES = { "": "Início", chat: "Chat", capabilities: "Capacidades", cast: "Elenco", flows: "Fluxos", apps: "Apps", library: "Biblioteca", models: "Modelos", history: "Histórico", jobs: "Fila", system: "Sistema" };
 let page = null, shell = null, token = 0, poll = null, offline = null;
 
 const navigate = hash => { location.hash = hash.replace(/^#/, ""); };
@@ -63,7 +64,7 @@ async function route() {
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   const [head = "", arg] = parts;
   shell.rail.querySelectorAll("a.nav").forEach(a => a.removeAttribute("aria-current"));
-  const section = head === "loras" || head === "models" ? "library" : head === "jobs" ? "" : head === "capabilities" || head === "cast" ? "apps" : head;
+  const section = head === "loras" || head === "models" ? "library" : head === "jobs" ? "" : head === "capabilities" || head === "cast" || head === "flows" ? "apps" : head;
   shell.rail.querySelector(`a.nav[data-path="${section}"]`)?.setAttribute("aria-current", "page");
   shell.title.textContent = TITLES[head] || (head === "apps" && arg ? "App" : "");
   page?.destroy?.();
@@ -82,6 +83,7 @@ async function route() {
     else if (head === "chat") next = await chatView(navigate, arg);
     else if (head === "capabilities") next = await capabilitiesView(arg);
     else if (head === "cast") next = await castView();
+    else if (head === "flows") next = await flowsView(arg, navigate);
     else next = await homeView(navigate);
     if (mine !== token) return next.destroy?.();
     page = next;

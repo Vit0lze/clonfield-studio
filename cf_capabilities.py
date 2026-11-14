@@ -165,11 +165,209 @@ def run_resolution_plan(env, ctx, inputs, params, workdir):
     return {"plan": art("json", value=plan)}
 
 
+# ---- list-making and list-folding steps (fan-out sources and fan-in joins for the DAG)
+MAX_LIST = 32
+
+
+def _items(inputs, name):
+    got = inputs.get(name)
+    return got if isinstance(got, list) else ([got] if got else [])
+
+
+def run_video_frames(env, ctx, inputs, params, workdir):
+    import cf_finish
+    path = inputs["video"]["path"]
+    every = float(params.get("every_s", 1))
+    limit = int(params.get("max", 8))
+    duration = cf_finish.video_duration(path)
+    times = [round(i * every, 3) for i in range(limit) if i * every < duration - 0.05] or [0.0]
+    out = []
+    for i, moment in enumerate(times, 1):
+        target = Path(workdir) / f"frame-{i:02d}.png"
+        cf_finish.extract_frame(path, moment, target)
+        out.append(art("image", target, dict(second=moment)))
+    return {"frames": out}
+
+
+def expand_matrix(template, axes, limit):
+    """Cartesian product of the axes filled into the template -> [(text, {axis: value})]. Raises ValueError on a bad template/axis."""
+    import itertools
+    names = list(axes)
+    used = set(re.findall(r"\{(\w+)\}", template))
+    if not used:
+        raise ValueError("O modelo de frase precisa de pelo menos um {eixo}, por exemplo «um {sujeito} em {lugar}».")
+    unknown = used - set(names)
+    if unknown:
+        raise ValueError(f"O modelo usa {{{sorted(unknown)[0]}}}, que não está nos eixos ({', '.join(names) or 'nenhum'}).")
+    for name in names:
+        if not isinstance(axes[name], list) or not axes[name]:
+            raise ValueError(f"O eixo «{name}» precisa de uma lista com pelo menos um valor.")
+    names = [n for n in names if n in used]
+    total = 1
+    for name in names:
+        total *= len(axes[name])
+    if total > limit:
+        raise ValueError(f"A matriz tem {total} combinações; o limite por passo é {limit}. Reduza os valores de algum eixo.")
+    rows = []
+    for combo in itertools.product(*(axes[n] for n in names)):
+        picked = dict(zip(names, map(str, combo)))
+        rows.append((re.sub(r"\{(\w+)\}", lambda m: picked[m.group(1)], template), picked))
+    return rows
+
+
+def run_scenario_matrix(env, ctx, inputs, params, workdir):
+    rows = expand_matrix(str(params.get("template") or ""), params.get("axes") or {}, MAX_LIST)
+    return {"texts": [art("text", value=text) for text, _ in rows], "table": art("json", value=[dict(text=t, **p) for t, p in rows])}
+
+
+def run_text_list(env, ctx, inputs, params, workdir):
+    lines = [x.strip() for x in re.split(r"[\n;]+", str(params.get("text") or "")) if x.strip()]
+    if not lines:
+        raise ValueError("Escreva pelo menos uma linha de texto.")
+    if len(lines) > MAX_LIST:
+        raise ValueError(f"A lista tem {len(lines)} linhas; o limite por passo é {MAX_LIST}.")
+    return {"texts": [art("text", value=x) for x in lines]}
+
+
+def run_contact_sheet(env, ctx, inputs, params, workdir):
+    import cf_character
+    images = _items(inputs, "images")
+    labels = list(params.get("labels") or [])
+    pics = [((labels[i] if i < len(labels) else f"{i + 1}"), a["path"]) for i, a in enumerate(images)]
+    sheet = cf_character.sheet(pics, int(params.get("columns", 4)))
+    target = Path(workdir) / "folha.png"
+    sheet.save(target)
+    return {"image": art("image", target)}
+
+
+def score_image(path, by):
+    import numpy as np
+    from PIL import Image
+
+    import cf_refine
+    with Image.open(path) as opened:
+        gray = cf_refine.luma(opened)
+    if by == "contrast":
+        return float(gray.std())
+    if by == "exposure":
+        return float(-abs(float(gray.mean()) - 128.0))
+    return cf_refine.laplacian_variance(np.asarray(gray))
+
+
+def run_pick_best(env, ctx, inputs, params, workdir):
+    by = params.get("by", "sharp")
+    images = _items(inputs, "images")
+    scored = sorted(((score_image(a["path"], by), i) for i, a in enumerate(images)), reverse=True)
+    best = images[scored[0][1]]
+    report = dict(by=by, best_index=scored[0][1], ranking=[dict(index=i, score=round(v, 3)) for v, i in scored])
+    target = Path(workdir) / f"melhor{Path(best['path']).suffix}"
+    shutil_copy(best["path"], target)
+    return {"image": art("image", target), "report": art("json", value=report)}
+
+
+def shutil_copy(src, dst):
+    import shutil
+    shutil.copyfile(src, dst)
+
+
+def run_video_join(env, ctx, inputs, params, workdir):
+    import cf_finish
+    clips = [a["path"] for a in _items(inputs, "videos")]
+    path, note = cf_finish.video_sequence(clips, "", params.get("ratio", "Paisagem · 16:9"), params.get("fit", "Preencher"), bool(params.get("mute", True)), workdir)
+    return {"video": art("video", path, note)}
+
+
+def run_loop_check(env, ctx, inputs, params, workdir):
+    import cf_loop
+    measured = cf_loop.seam(inputs["video"]["path"])
+    measured["passed"] = measured["verdict"] in ("sem emenda visível", "emenda leve") and measured["ratio"] <= float(params.get("max_ratio", cf_loop.OK))
+    return {"video": art("video", inputs["video"]["path"]), "report": art("json", value=measured)}
+
+
+def run_caption(env, ctx, inputs, params, workdir):
+    from PIL import Image, ImageDraw, ImageFont, ImageOps
+    text = str(params.get("text") or "").strip()
+    if not text:
+        raise ValueError("Escreva o texto da legenda.")
+    with Image.open(_image_in(inputs)["path"]) as opened:
+        image = ImageOps.exif_transpose(opened).convert("RGB")
+    size = max(14, round(image.height * float(params.get("size", 5)) / 100))
+    try:
+        font = ImageFont.load_default(size)
+    except TypeError:
+        font = ImageFont.load_default()
+    draw = ImageDraw.Draw(image, "RGBA")
+    words, lines, line = text.split(), [], ""
+    for word in words:
+        trial = f"{line} {word}".strip()
+        if draw.textlength(trial, font=font) <= image.width * 0.92 or not line:
+            line = trial
+        else:
+            lines.append(line)
+            line = word
+    lines.append(line)
+    pad = round(size * 0.5)
+    box = len(lines) * round(size * 1.25) + 2 * pad
+    top = params.get("position", "baixo") == "cima"
+    y0 = 0 if top else image.height - box
+    draw.rectangle((0, y0, image.width, y0 + box), fill=(0, 0, 0, 150))
+    for i, row in enumerate(lines):
+        draw.text((image.width / 2, y0 + pad + i * round(size * 1.25)), row, fill=(255, 255, 255), font=font, anchor="mt")
+    target = Path(workdir) / "legenda.png"
+    image.save(target)
+    return {"image": art("image", target)}
+
+
+def run_split_grid(env, ctx, inputs, params, workdir):
+    from PIL import Image, ImageOps
+    cols, rows = int(params.get("columns", 2)), int(params.get("rows", 2))
+    with Image.open(_image_in(inputs)["path"]) as opened:
+        image = ImageOps.exif_transpose(opened).convert("RGB")
+    out = []
+    for r in range(rows):
+        for c in range(cols):
+            box = (c * image.width // cols, r * image.height // rows, (c + 1) * image.width // cols, (r + 1) * image.height // rows)
+            target = Path(workdir) / f"parte-{r * cols + c + 1:02d}.png"
+            image.crop(box).save(target)
+            out.append(art("image", target))
+    return {"tiles": out}
+
+
+def run_direction(env, ctx, inputs, params, workdir):
+    import cf_director
+    prompt = str(inputs["text"]["value"] if inputs.get("text") else params.get("prompt", ""))
+    chosen = {cf_director.field_id(a): params.get(cf_director.field_id(a), cf_director.AUTO) for a in cf_director.AXES}
+    return {"text": art("text", value=cf_director.apply(prompt, chosen))}
+
+
+def run_cast_expand(env, ctx, inputs, params, workdir):
+    import cf_cast
+    prompt = str(inputs["text"]["value"] if inputs.get("text") else params.get("prompt", ""))
+    out = cf_cast.expand(env["base"], prompt, int(params.get("ref_slots", 0)))
+    return {"text": art("text", value=out["prompt"]), "info": art("json", value=out)}
+
+
 def _params_upscale():
     import cf_upscale
     return {"mode": dict(type="enum", default="Lanczos (rápido, sem IA)", options=["Lanczos (rápido, sem IA)", *cf_upscale.MODELS]),
             "scale": dict(type="number", default=2, min=1, max=4), "tile": dict(type="number", default=128, min=64, max=512),
             "sharpen": dict(type="number", default=0, min=0, max=200)}
+
+
+
+def cf_director_axes():
+    import cf_director
+    return list(cf_director.AXES)
+
+
+def cf_director_field(axis):
+    import cf_director
+    return cf_director.field_id(axis)
+
+
+def cf_director_options(axis):
+    import cf_director
+    return [v for v, _ in cf_director.options(axis)]
 
 
 def native():
@@ -213,6 +411,41 @@ def native():
                    ("plan",), (), (Port("plan", "json"),),
                    {"aspect": dict(type="string", default="1:1"), "quality": dict(type="enum", default="high", options=["standard", "high", "very_high", "ultra"]),
                     "gen_factor": dict(type="number", default=1.0, min=0.25, max=1.0)}, (), cpu, tested, "low", run_resolution_plan),
+
+        Capability("video_frames", "Quadros de um vídeo", "1.0", "step", "Tira um quadro a cada N segundos: vira uma lista para rodar um passo por quadro.", "cf_finish (ffmpeg)", "MIT", ("extract_frames",),
+                   (Port("video", "video"),), (Port("frames", "image", many=True),),
+                   {"every_s": dict(type="number", default=1, min=0.1, max=60), "max": dict(type="number", default=8, min=1, max=MAX_LIST)}, (), cpu, tested, "low", run_video_frames),
+        Capability("scenario_matrix", "Matriz de cenários", "1.0", "step", "Combina eixos (sujeito × lugar × hora…) num modelo de frase e devolve uma lista de pedidos.", "cf_capabilities", "MIT", ("combine",),
+                   (), (Port("texts", "text", many=True), Port("table", "json")),
+                   {"template": dict(type="string", default="", required=True), "axes": dict(type="dict", default={})}, (), cpu, tested, "low", run_scenario_matrix),
+        Capability("text_list", "Lista de textos", "1.0", "step", "Uma linha por pedido (ou separados por «;»): a fila de prompts de um fluxo.", "cf_capabilities", "MIT", ("list",),
+                   (), (Port("texts", "text", many=True),), {"text": dict(type="string", default="", required=True)}, (), cpu, tested, "low", run_text_list),
+        Capability("contact_sheet", "Folha de contatos", "1.0", "step", "Junta uma lista de imagens numa grade com rótulos.", "cf_character", "MIT", ("grid",),
+                   (Port("images", "image", many=True),), (Port("image", "image"),),
+                   {"columns": dict(type="number", default=4, min=1, max=8), "labels": dict(type="list", default=[])}, (), cpu, tested, "low", run_contact_sheet),
+        Capability("pick_best", "Escolher a melhor", "1.0", "step", "Entre várias imagens, fica com a de maior nitidez, contraste ou melhor exposição (medida técnica, não estética).", "cf_refine", "MIT", ("select",),
+                   (Port("images", "image", many=True),), (Port("image", "image"), Port("report", "json")),
+                   {"by": dict(type="enum", default="sharp", options=["sharp", "contrast", "exposure"])}, (), cpu, tested, "low", run_pick_best),
+        Capability("video_join", "Juntar vídeos", "1.0", "step", "Emenda de 2 a 8 clipes numa sequência (ffmpeg).", "cf_finish (ffmpeg)", "MIT", ("concat",),
+                   (Port("videos", "video", many=True),), (Port("video", "video"),),
+                   {"ratio": dict(type="enum", default="Paisagem · 16:9", options=list(cf_finish.SEQUENCE_SIZES)), "fit": dict(type="enum", default="Preencher", options=["Preencher", "Manter imagem inteira"]),
+                    "mute": dict(type="bool", default=True)}, (), cpu, tested, "low", run_video_join),
+        Capability("loop_check", "Medir emenda do loop", "1.0", "step", "Mede o salto do último para o primeiro quadro contra o passo normal; `report.passed` serve de condição.", "cf_loop", "MIT", ("judge",),
+                   (Port("video", "video"),), (Port("video", "video"), Port("report", "json")),
+                   {"max_ratio": dict(type="number", default=3.0, min=1, max=20)}, (), cpu, tested, "low", run_loop_check),
+        Capability("caption", "Legenda na imagem", "1.0", "step", "Escreve um texto numa faixa no topo ou na base.", "cf_capabilities", "MIT", ("overlay",),
+                   (Port("image", "image"),), (Port("image", "image"),),
+                   {"text": dict(type="string", default="", required=True), "position": dict(type="enum", default="baixo", options=["baixo", "cima"]),
+                    "size": dict(type="number", default=5, min=2, max=15)}, (), cpu, tested, "low", run_caption),
+        Capability("split_grid", "Fatiar em partes", "1.0", "step", "Corta a imagem em colunas × linhas iguais (o inverso da folha de contatos).", "cf_capabilities", "MIT", ("tile",),
+                   (Port("image", "image"),), (Port("tiles", "image", many=True),),
+                   {"columns": dict(type="number", default=2, min=1, max=6), "rows": dict(type="number", default=2, min=1, max=6)}, (), cpu, tested, "low", run_split_grid),
+        Capability("direction", "Direção de cinema", "1.0", "action", "Acrescenta gênero, câmera, luz e movimento (vocabulário de cinema) ao texto.", "cf_director (OpenField, MIT)", "MIT", ("compile",),
+                   (Port("text", "text", required=False),), (Port("text", "text"),),
+                   {"prompt": dict(type="string", default=""), **{cf_director_field(a): dict(type="enum", default="auto", options=cf_director_options(a)) for a in cf_director_axes()}}, (), cpu, tested, "low", run_direction),
+        Capability("cast_expand", "Expandir @nomes do Elenco", "1.0", "action", "Troca @nome pela descrição do personagem e devolve as fotos de referência.", "cf_cast", "MIT", ("expand",),
+                   (Port("text", "text", required=False),), (Port("text", "text"), Port("info", "json")),
+                   {"prompt": dict(type="string", default=""), "ref_slots": dict(type="number", default=0, min=0, max=4)}, (), cpu, tested, "low", run_cast_expand),
     ]
 
 
@@ -339,6 +572,10 @@ def check_params(cap, params):
             problems.append(f"«{name}» precisa ser uma lista")
         elif kind == "list" and spec.get("options") and any(v not in spec["options"] for v in value):
             problems.append(f"«{name}» tem valor fora das opções ({', '.join(spec['options'])})")
+        elif kind == "dict" and not isinstance(value, dict):
+            problems.append(f"«{name}» precisa ser um objeto {{nome: valores}}")
+        elif kind == "string" and not isinstance(value, str):
+            problems.append(f"«{name}» precisa ser texto")
         elif kind == "bool" and not isinstance(value, bool):
             problems.append(f"«{name}» precisa ser verdadeiro ou falso")
     return problems

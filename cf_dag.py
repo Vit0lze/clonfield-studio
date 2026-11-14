@@ -8,6 +8,14 @@ A graph is {"nodes": [{"id", "cap", "inputs": {port: {"media": id} | {"from": "n
     partial re-run, and also resume: after a cancel or a crash the same graph reuses everything that finished.
   * Every run writes a provenance record: which capability version ran, with which inputs/params, which nodes were cached.
 Outputs live under <out_dir>/dag/cache/<hash>/ so the job manager can publish them like any other result.
+
+Control flow (all optional, all explained by validate()):
+  * `"each": "<input or bound param>"` runs the node ONCE PER ITEM of a list (a queue of items). Every item has its own cache entry, so
+    changing one item recomputes that item only. Its outputs become lists, which feed `many` ports or another `each` node.
+  * a capability output marked `many` (frames of a video, the cells of a scenario matrix) is a list source for `each`.
+  * `"bind": {param: "node.port"}` takes a node parameter from an upstream text/json output (`{"from": ..., "path": "a.b"}` digs into json).
+  * `"when": {"from": "node.port", "path": "passed", "equals": true}` runs the node only if the condition holds; otherwise the node is
+    «ignorado», and so is every node that needs its output. Nothing is faked for a skipped branch.
 """
 
 import hashlib
@@ -62,6 +70,49 @@ def parse_ref(ref):
     return node, port
 
 
+def bind_ref(ref):
+    """A bind entry is "node.port" or {"from": "node.port", "path": "a.b"} -> (ref, path)."""
+    if isinstance(ref, dict):
+        return str(ref.get("from", "")), str(ref.get("path") or "")
+    return str(ref), ""
+
+
+def sources_of(node):
+    """Every "node.port" this node reads: inputs, bound params and the `when` condition (they all order the run)."""
+    out = []
+    for value in (node.get("inputs") or {}).values():
+        for src in value if isinstance(value, list) else [value]:
+            if isinstance(src, dict) and "from" in src:
+                out.append(src["from"])
+    out += [bind_ref(ref)[0] for ref in (node.get("bind") or {}).values()]
+    when = node.get("when")
+    if isinstance(when, dict) and when.get("from"):
+        out.append(when["from"])
+    return out
+
+
+def dig(value, path):
+    for part in [p for p in str(path).split(".") if p]:
+        if isinstance(value, list) and part.isdigit() and int(part) < len(value):
+            value = value[int(part)]
+        elif isinstance(value, dict) and part in value:
+            value = value[part]
+        else:
+            raise ValueError(f"o caminho «{path}» não existe no valor ({part!r} faltando)")
+    return value
+
+
+def condition_holds(when, value):
+    got = dig(value, when.get("path") or "")
+    if "equals" in when:
+        return got == when["equals"]
+    if "gte" in when:
+        return isinstance(got, (int, float)) and got >= when["gte"]
+    if "lte" in when:
+        return isinstance(got, (int, float)) and got <= when["lte"]
+    return bool(got)
+
+
 def validate(graph, registry, tier=None, resolve_media=None):
     """-> dict(ok, errors, order, resources). `resolve_media(id)` returns {"type", "path"} or None."""
     errors, nodes = [], {}
@@ -78,19 +129,62 @@ def validate(graph, registry, tier=None, resolve_media=None):
         errors.append(error(None, "empty", "o grafo não tem nós"))
     edges = defaultdict(set)
     resources = dict(vram_gb=0, ram_gb=0, disk_gb=0.0, lanes=set(), risk="low")
+
+    def source_output(nid, ref, what):
+        """The (capability, output port, is_list) behind a "node.port" reference, or None after recording why not."""
+        other, out_name = parse_ref(ref)
+        if other not in nodes:
+            errors.append(error(nid, "unknown_source", f"{nid}: a origem «{ref}» não existe"))
+            return None
+        try:
+            other_cap = registry.get(nodes[other].get("cap"))
+        except KeyError:
+            return None
+        out = next((o for o in other_cap.outputs if o.name == out_name), None)
+        if out is None:
+            errors.append(error(nid, "unknown_output", f"{nid}: «{other}» ({other_cap.id}) não produz «{out_name}» (produz: {', '.join(o.name for o in other_cap.outputs)})"))
+            return None
+        edges[other].add(nid)
+        return other_cap, out, bool(out.many or nodes[other].get("each"))
+
     for nid, node in nodes.items():
         try:
             cap = registry.get(node.get("cap"))
         except KeyError:
             errors.append(error(nid, "unknown_capability", f"«{node.get('cap')}» não existe no catálogo de capacidades"))
             continue
-        for problem in caps.check_params(cap, node.get("params") or {}):
+        bound = node.get("bind") or {}
+        for problem in caps.check_params(cap, {k: v for k, v in (node.get("params") or {}).items() if k not in bound}):
             errors.append(error(nid, "bad_param", f"{nid}: {problem}"))
         given = node.get("inputs") or {}
         ports = {p.name: p for p in cap.inputs}
+        each = node.get("each")
+        if each is not None and each not in ports and each not in bound:
+            errors.append(error(nid, "bad_each", f"{nid}: «each» aponta para «{each}», que não é uma entrada nem um parâmetro ligado de {cap.id}"))
         for name in given:
             if name not in ports:
                 errors.append(error(nid, "unknown_input", f"{nid}: «{name}» não é uma entrada de {cap.id} (entradas: {', '.join(ports) or 'nenhuma'})"))
+        for name, ref in bound.items():
+            if name not in cap.params:
+                errors.append(error(nid, "bad_bind", f"{nid}: «{name}» não é um parâmetro de {cap.id} (aceita: {', '.join(cap.params) or 'nenhum'})"))
+            elif name in (node.get("params") or {}):
+                errors.append(error(nid, "bind_conflict", f"{nid}: «{name}» está em params e em bind ao mesmo tempo"))
+            found = source_output(nid, bind_ref(ref)[0], "bind")
+            if found is None:
+                continue
+            _, out, listy = found
+            if out.type not in ("text", "json"):
+                errors.append(error(nid, "bad_bind", f"{nid}: «{name}» só pode vir de uma saída de texto ou json, não de {out.type}"))
+            if listy and each != name:
+                errors.append(error(nid, "list_to_single", f"{nid}: «{name}» recebe uma lista; use \"each\": \"{name}\" para rodar uma vez por item"))
+        when = node.get("when")
+        if when is not None:
+            if not isinstance(when, dict) or not when.get("from"):
+                errors.append(error(nid, "bad_when", f"{nid}: «when» precisa de {{\"from\": \"no.saida\", \"equals\"|\"gte\"|\"lte\": valor}}"))
+            else:
+                found = source_output(nid, when["from"], "when")
+                if found is not None and found[1].type not in ("json", "text"):
+                    errors.append(error(nid, "bad_when", f"{nid}: a condição lê json ou texto, não {found[1].type}"))
         for port in cap.inputs:
             sources = given.get(port.name)
             if sources is None:
@@ -98,25 +192,15 @@ def validate(graph, registry, tier=None, resolve_media=None):
                     errors.append(error(nid, "missing_input", f"{nid}: falta a entrada «{port.name}» ({port.type}) de {cap.id}"))
                 continue
             sources = sources if isinstance(sources, list) else [sources]
-            if len(sources) > 1 and not port.many:
+            if len(sources) > 1 and not port.many and each != port.name:
                 errors.append(error(nid, "too_many", f"{nid}: «{port.name}» aceita só uma origem"))
             for src in sources:
-                have = None
+                have, listy = None, False
                 if isinstance(src, dict) and "from" in src:
-                    other, out_name = parse_ref(src["from"])
-                    if other not in nodes:
-                        errors.append(error(nid, "unknown_source", f"{nid}: a origem «{src['from']}» não existe"))
+                    found = source_output(nid, src["from"], "input")
+                    if found is None:
                         continue
-                    edges[other].add(nid)
-                    try:
-                        other_cap = registry.get(nodes[other].get("cap"))
-                    except KeyError:
-                        continue
-                    out = next((o for o in other_cap.outputs if o.name == out_name), None)
-                    if out is None:
-                        errors.append(error(nid, "unknown_output", f"{nid}: «{other}» ({other_cap.id}) não produz «{out_name}» (produz: {', '.join(o.name for o in other_cap.outputs)})"))
-                        continue
-                    have = out.type
+                    have, listy = found[1].type, found[2]
                 elif isinstance(src, dict) and "media" in src:
                     found = resolve_media(src["media"]) if resolve_media else None
                     if not found:
@@ -129,6 +213,8 @@ def validate(graph, registry, tier=None, resolve_media=None):
                 if have != port.type:
                     errors.append(error(nid, "type_mismatch", f"{nid}: «{port.name}» de {cap.id} espera {port.type}, mas recebe {have}"
                                                              + (" (use uma capacidade que converta antes)" if have in caps.MEDIA else "")))
+                if listy and not port.many and each != port.name:
+                    errors.append(error(nid, "list_to_single", f"{nid}: «{port.name}» de {cap.id} recebe uma lista; use \"each\": \"{port.name}\" para rodar uma vez por item, ou um passo que junte a lista"))
         req = cap.requires
         if tier is not None and req.get("vram_gb") and tier.vram_gb < req["vram_gb"]:
             if req.get("offload"):
@@ -170,10 +256,8 @@ def toposort(nodes, edges):
 def descendants(graph, start):
     kids = defaultdict(set)
     for node in graph["nodes"]:
-        for sources in (node.get("inputs") or {}).values():
-            for src in sources if isinstance(sources, list) else [sources]:
-                if isinstance(src, dict) and "from" in src:
-                    kids[parse_ref(src["from"])[0]].add(node["id"])
+        for ref in sources_of(node):
+            kids[parse_ref(ref)[0]].add(node["id"])
     seen, stack = set(), [start]
     while stack:
         for k in kids.get(stack.pop(), ()):
@@ -202,9 +286,14 @@ class Env:
         return path
 
 
-def node_hash(cap, node, input_hashes):
-    payload = json.dumps(dict(cap=cap.id, version=cap.version, params=node.get("params") or {}, inputs=input_hashes), sort_keys=True, default=str)
+def node_hash(cap, params, input_hashes):
+    payload = json.dumps(dict(cap=cap.id, version=cap.version, params=params, inputs=input_hashes), sort_keys=True, default=str)
     return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _decode(root, a):
+    art = dict(type=a["type"], value=a.get("value"), path=str(root / a["file"]) if a.get("file") else None)
+    return None if art["path"] and not Path(art["path"]).is_file() else art
 
 
 def load_cached(env, digest):
@@ -216,12 +305,28 @@ def load_cached(env, digest):
         root = env.cache / digest / "out"
         outputs = {}
         for name, a in data["outputs"].items():
-            outputs[name] = dict(type=a["type"], value=a.get("value"), path=str(root / a["file"]) if a.get("file") else None)
-            if outputs[name]["path"] and not Path(outputs[name]["path"]).is_file():
-                return None
+            if "items" in a:
+                items = [_decode(root, i) for i in a["items"]]
+                if any(i is None for i in items):
+                    return None
+                outputs[name] = items
+            else:
+                outputs[name] = _decode(root, a)
+                if outputs[name] is None:
+                    return None
         return outputs
     except (OSError, ValueError, KeyError):
         return None
+
+
+def _encode(a, staging, stem):
+    entry = dict(type=a["type"], value=a.get("value"))
+    if a.get("path"):
+        src = Path(a["path"])
+        target = staging / "out" / f"{stem}{src.suffix}"
+        shutil.copyfile(src, target)
+        entry["file"] = target.name
+    return entry
 
 
 def store(env, digest, cap, outputs, seconds):
@@ -230,13 +335,10 @@ def store(env, digest, cap, outputs, seconds):
     (staging / "out").mkdir(parents=True)
     meta = {}
     for name, a in outputs.items():
-        entry = dict(type=a["type"], value=a.get("value"))
-        if a.get("path"):
-            src = Path(a["path"])
-            target = staging / "out" / f"{name}{src.suffix}"
-            shutil.copyfile(src, target)
-            entry["file"] = target.name
-        meta[name] = entry
+        if isinstance(a, list):
+            meta[name] = dict(items=[_encode(item, staging, f"{name}-{i + 1}") for i, item in enumerate(a)])
+        else:
+            meta[name] = _encode(a, staging, name)
     (staging / "meta.json").write_text(json.dumps(dict(capability=cap.id, version=cap.version, seconds=round(seconds, 3), outputs=meta), ensure_ascii=False), encoding="utf-8")
     shutil.rmtree(final, ignore_errors=True)
     staging.replace(final)  # atomic: a cancelled node never leaves a half-written cache entry
@@ -254,6 +356,19 @@ def load_run(env, run_id):
     return json.loads((env.runs / f"{run_id}.json").read_text(encoding="utf-8"))
 
 
+def _summary(a):
+    if isinstance(a, list):
+        return [_summary(i) for i in a]
+    return dict(type=a["type"], path=a.get("path"), value=a.get("value"), sha256=artifact_hash(a))
+
+
+def _as_list(x):
+    return x if isinstance(x, list) else [x]
+
+
+MAX_ITEMS = 64  # one node never fans out past this: a queue that long is a batch, not a graph
+
+
 def execute(graph, registry, env, ctx, run_id=None, force=(), check=None):
     """Run the graph. `force` node ids (and their descendants) ignore the cache. Returns the run record.
     Raises DagInvalid before running anything; raises whatever ctx.check() raises on cancel (the run record says where it stopped)."""
@@ -267,11 +382,9 @@ def execute(graph, registry, env, ctx, run_id=None, force=(), check=None):
     run = dict(id=run_id or uuid.uuid4().hex[:12], created=time.time(), status="executando", order=report["order"], resources={**report["resources"]},
                nodes={nid: dict(status="pendente", capability=nodes[nid]["cap"], version=registry.get(nodes[nid]["cap"]).version) for nid in report["order"]},
                graph=graph)
-    resumed = None
     if run_id:
         try:
-            resumed = load_run(env, run_id)
-            run["created"] = resumed.get("created", run["created"])
+            run["created"] = load_run(env, run_id).get("created", run["created"])
             run["resumed"] = True
         except (OSError, ValueError):
             pass
@@ -281,7 +394,34 @@ def execute(graph, registry, env, ctx, run_id=None, force=(), check=None):
         for index, nid in enumerate(report["order"]):
             ctx.check()
             node, cap = nodes[nid], registry.get(nodes[nid]["cap"])
-            gathered, hashes = {}, {}
+            rec = run["nodes"][nid]
+            skip, gathered, hashes, bound, listy_bound = None, {}, {}, {}, set()
+            when = node.get("when")
+            if when:
+                other, out_name = parse_ref(when["from"])
+                if values.get(other) is None:
+                    skip = f"«{other}» foi ignorado"
+                else:
+                    source = values[other][out_name]
+                    if isinstance(source, list):
+                        raise ValueError(f"{nid}: a condição lê uma lista; use um passo que reduza a lista a um valor")
+                    try:
+                        if not condition_holds(when, source.get("value")):
+                            skip = "condição não atendida"
+                    except ValueError as exc:
+                        raise ValueError(f"{nid}: condição: {exc}") from None
+            for name, ref in (node.get("bind") or {}).items():
+                text, path = bind_ref(ref)
+                other, out_name = parse_ref(text)
+                if values.get(other) is None:
+                    skip = skip or f"«{other}» foi ignorado"
+                    continue
+                source = values[other][out_name]
+                if isinstance(source, list):
+                    bound[name] = [dig(i.get("value"), path) for i in source]
+                    listy_bound.add(name)
+                else:
+                    bound[name] = dig(source.get("value"), path)
             for port in cap.inputs:
                 sources = (node.get("inputs") or {}).get(port.name)
                 if sources is None:
@@ -290,34 +430,82 @@ def execute(graph, registry, env, ctx, run_id=None, force=(), check=None):
                 for src in sources if isinstance(sources, list) else [sources]:
                     if "from" in src:
                         other, out_name = parse_ref(src["from"])
-                        items.append(values[other][out_name])
+                        if values.get(other) is None:
+                            if port.required:
+                                skip = skip or f"«{other}» foi ignorado"
+                            continue
+                        items.extend(_as_list(values[other][out_name]))
                     else:
                         found = env.resolve_media(src["media"])
                         items.append(dict(type=found["type"], path=found["path"], value=None))
-                gathered[port.name] = items if port.many else items[0]
+                if len(items) > MAX_ITEMS:
+                    raise ValueError(f"{nid}: «{port.name}» tem {len(items)} itens; o máximo por passo é {MAX_ITEMS}")
+                gathered[port.name] = items if (port.many or node.get("each") == port.name) else (items[0] if items else None)
                 hashes[port.name] = [artifact_hash(a) for a in items]
-            digest = node_hash(cap, node, hashes)
-            rec = run["nodes"][nid]
-            rec.update(hash=digest, inputs={k: v for k, v in hashes.items()}, params=node.get("params") or {})
-            cached = None if nid in forced else load_cached(env, digest)
-            if cached is not None:
-                rec.update(status="em cache", started=time.time(), finished=time.time())
-                values[nid] = cached
-            else:
-                rec.update(status="executando", started=time.time())
+            if skip:
+                rec.update(status="ignorado", reason=skip, started=time.time(), finished=time.time())
+                values[nid] = None
                 write_run(env, run)
-                ctx.progress(index / total, desc=f"{cap.title} ({index + 1}/{len(report['order'])})")
-                runner = cap.run or app_runner(registry, cap)
+                continue
+            each = node.get("each")
+            params0 = {**(node.get("params") or {}), **{k: v for k, v in bound.items() if k not in listy_bound}}
+            if each is None:
+                plan = [(gathered, params0, hashes)]
+            else:
+                if each in gathered:
+                    entries = _as_list(gathered[each]) if gathered[each] is not None else []
+                else:
+                    entries = bound[each]
+                if len(entries) > MAX_ITEMS:
+                    raise ValueError(f"{nid}: «each» tem {len(entries)} itens; o máximo por passo é {MAX_ITEMS}")
+                plan = []
+                for i, entry in enumerate(entries):
+                    g, p, h = dict(gathered), dict(params0), dict(hashes)
+                    if each in gathered:
+                        port = next(pt for pt in cap.inputs if pt.name == each)
+                        g[each] = [entry] if port.many else entry
+                        h[each] = [hashes[each][i]]
+                    else:
+                        p[each] = entry
+                    plan.append((g, p, h))
+            missing = [pt.name for pt in cap.inputs if pt.required and each is None and gathered.get(pt.name) in (None, [])]
+            if missing:
+                raise ValueError(f"{nid}: a entrada «{missing[0]}» ficou vazia")
+            for _g, p, _h in plan:
+                problems = caps.check_params(cap, p)
+                if problems:
+                    raise ValueError(f"{nid}: " + "; ".join(problems))
+            digests = [node_hash(cap, p, h) for _g, p, h in plan]
+            rec.update(hash=digests[0] if each is None else hashlib.sha256("|".join(digests).encode()).hexdigest(), inputs=hashes, params=params0)
+            if each is not None:
+                rec.update(each=each, items=len(plan))
+            runner = cap.run or app_runner(registry, cap)
+            results, cached_count = [], 0
+            rec.update(status="executando", started=time.time())
+            write_run(env, run)
+            for k, ((g, p, _h), digest) in enumerate(zip(plan, digests)):
+                ctx.check()
+                cached = None if nid in forced else load_cached(env, digest)
+                if cached is not None:
+                    cached_count += 1
+                    results.append(cached)
+                    continue
+                label = f"{cap.title} ({index + 1}/{len(report['order'])})" + (f" · item {k + 1}/{len(plan)}" if each is not None else "")
+                ctx.progress((index + k / max(1, len(plan))) / total, desc=label)
                 work = env.cache / f".work-{digest[:12]}-{uuid.uuid4().hex[:6]}"
                 work.mkdir(parents=True)
                 started = time.monotonic()
                 try:
-                    produced = runner(env_dict(env), ctx, gathered, node.get("params") or {}, work)
-                    values[nid] = store(env, digest, cap, produced, time.monotonic() - started)
+                    produced = runner(env_dict(env), ctx, g, p, work)
+                    results.append(store(env, digest, cap, produced, time.monotonic() - started))
                 finally:
                     shutil.rmtree(work, ignore_errors=True)
-                rec.update(status="concluído", finished=time.time())
-            rec["outputs"] = {name: dict(type=a["type"], path=a.get("path"), value=a.get("value"), sha256=artifact_hash(a)) for name, a in values[nid].items()}
+            if each is None:
+                values[nid] = results[0]
+            else:
+                values[nid] = {o.name: [x for r in results for x in _as_list(r[o.name])] for o in cap.outputs}
+            rec.update(status="em cache" if cached_count == len(plan) else "concluído", finished=time.time(), cached_items=cached_count)
+            rec["outputs"] = {name: _summary(a) for name, a in values[nid].items()}
             write_run(env, run)
         run["status"] = "concluído"
     except BaseException as exc:
@@ -332,13 +520,14 @@ def execute(graph, registry, env, ctx, run_id=None, force=(), check=None):
     run["finished"] = time.time()
     run["recomputed"] = [n for n, r in run["nodes"].items() if r["status"] == "concluído"]
     run["cached"] = [n for n, r in run["nodes"].items() if r["status"] == "em cache"]
-    run["final"] = {nid: run["nodes"][nid]["outputs"] for nid in sinks(graph)}
+    run["skipped"] = [n for n, r in run["nodes"].items() if r["status"] == "ignorado"]
+    run["final"] = {nid: run["nodes"][nid]["outputs"] for nid in sinks(graph) if run["nodes"][nid].get("outputs")}
     write_run(env, run)
     return run
 
 
 def sinks(graph):
-    used = {parse_ref(s["from"])[0] for n in graph["nodes"] for v in (n.get("inputs") or {}).values() for s in (v if isinstance(v, list) else [v]) if "from" in s}
+    used = {parse_ref(ref)[0] for n in graph["nodes"] for ref in sources_of(n)}
     return [n["id"] for n in graph["nodes"] if n["id"] not in used]
 
 
@@ -347,8 +536,12 @@ def env_dict(env):
 
 
 def final_files(run):
-    """Paths to publish as the job's results: file outputs of the sink nodes."""
-    return [Path(o["path"]) for outputs in run["final"].values() for o in outputs.values() if o.get("path")]
+    """Paths to publish as the job's results: file outputs of the sink nodes (lists included)."""
+    out = []
+    for outputs in run["final"].values():
+        for o in outputs.values():
+            out += [Path(x["path"]) for x in _as_list(o) if x.get("path")]
+    return out
 
 
 class AppCtx:
