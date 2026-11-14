@@ -196,3 +196,57 @@ def test_fast_mode_is_refused_on_the_5b_and_adds_the_loras_to_the_download(tmp_p
     assert abs((fast[0] - normal[0]) - 2.45) < 0.1  # two 1.23 GB LoRAs
     assert len(wan.files_for("a14b-q6", wan.IMAGE_MODE, fast=True)) == len(wan.files_for("a14b-q6", wan.IMAGE_MODE)) + 2
     assert wan.files_for("5b-q6", wan.TEXT_MODE, fast=True) == wan.files_for("5b-q6", wan.TEXT_MODE)
+
+
+def test_first_last_frame_graph_feeds_both_pictures_to_the_wan_flf_node_and_keeps_the_two_samplers():
+    g = wan.make_graph("a14b-q6", wan.FLF_MODE, "inicio.png", "um gato vira um leão", "", "Horizontal · 832 × 480", 5, 16, 20, 3.5, 1, end_image="fim.png")
+    node = g["55"]
+    assert node["class_type"] == "WanFirstLastFrameToVideo" and node["inputs"]["start_image"] == ["56", 0] and node["inputs"]["end_image"] == ["59", 0]
+    assert g["56"]["class_type"] == g["59"]["class_type"] == "LoadImage" and g["56"]["inputs"]["image"] != g["59"]["inputs"]["image"]
+    assert g["3"]["inputs"]["positive"] == ["55", 0] and g["3"]["inputs"]["negative"] == ["55", 1] and g["3"]["inputs"]["latent_image"] == ["55", 2]
+    assert g["4"]["inputs"]["latent_image"] == ["3", 0] and node["inputs"]["length"] % 4 == 1
+    assert [f[2] for f in wan.files_for("a14b-q6", wan.FLF_MODE)] == [f[2] for f in wan.files_for("a14b-q6", wan.IMAGE_MODE)]  # the I2V pair, as the official template uses
+    fast = wan.make_graph("a14b-q6", wan.FLF_MODE, "i.png", "p", "", "Horizontal · 832 × 480", 5, 16, 20, 3.5, 1, fast=True, end_image="f.png")
+    assert "_i2v_" in fast["60"]["inputs"]["lora_name"] and fast["3"]["inputs"]["steps"] == 4
+
+
+def test_first_last_frame_needs_a14b_a_start_and_an_end():
+    with pytest.raises(ValueError, match="A14B"):
+        wan.make_graph("5b-q6", wan.FLF_MODE, "i.png", "p", "", "Horizontal · 832 × 480", 3, 24, 20, 5, 1, end_image="f.png")
+    with pytest.raises(ValueError, match="quadro final"):
+        wan.make_graph("a14b-q6", wan.FLF_MODE, "i.png", "p", "", "Horizontal · 832 × 480", 5, 16, 20, 3.5, 1)
+    with pytest.raises(ValueError, match="foto"):
+        wan.make_graph("a14b-q6", wan.FLF_MODE, None, "p", "", "Horizontal · 832 × 480", 5, 16, 20, 3.5, 1, end_image="f.png")
+
+
+def test_flf_app_forces_the_a14b_models_and_a_loop_reuses_the_first_picture(monkeypatch, tmp_path):
+    import cf_jobs
+    import cf_tiers
+    monkeypatch.setenv("CLONFIELD_FAKE_VRAM", "15")
+    app = cf_apps.registry()["flf2v"]
+    fields = {f["id"]: f for f in app.fields(cf_tiers.detect())}
+    assert {o["value"] for o in fields["model"]["options"]} == {"a14b-q6"} and fields["model"]["default"] == "a14b-q6" and fields["loop"]["type"] == "switch" and fields["end_image"]["min"] == 0
+    seen = {}
+
+    def run(graph, out_dir, progress, **kwargs):
+        seen["graph"], seen["prepare"] = graph, kwargs["prepare"]
+        raise cf_jobs.JobError("parou antes do ComfyUI", "falhou")
+    monkeypatch.setattr(cf_apps.workflows, "run", run)
+
+    class Ctx:
+        control = None
+        out_dir = tmp_path
+        class job: id = "j"
+        def progress(self, *a, **k): pass
+        def check(self): pass
+    job = dict(mode=wan.FLF_MODE, model="a14b-q6", prompt="loop", size="Horizontal · 512 × 288 (rápido)", seconds=2, steps=20, seed=3, image=["/x/a.png"])
+    with pytest.raises(cf_jobs.JobError, match="parou"):
+        cf_apps.run_wan(Ctx(), dict(job, loop=True), cf_tiers.detect())
+    assert seen["prepare"].keywords["end_image"] == "/x/a.png"  # the loop's last frame is the first picture
+    with pytest.raises(cf_jobs.JobError, match="parou"):
+        cf_apps.run_wan(Ctx(), dict(job, end_image=["/x/b.png"]), cf_tiers.detect())
+    assert seen["prepare"].keywords["end_image"] == "/x/b.png"
+    with pytest.raises(cf_jobs.JobError, match="quadro final"):
+        cf_apps.run_wan(Ctx(), job, cf_tiers.detect())
+    with pytest.raises(cf_jobs.JobError, match="A14B"):
+        cf_apps.run_wan(Ctx(), dict(job, model="ltxv-2b", loop=True), cf_tiers.detect())

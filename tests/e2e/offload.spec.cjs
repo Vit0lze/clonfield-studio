@@ -33,3 +33,20 @@ test("vídeo: o interruptor Rápido (LightX2V 4 passos) vai no pedido", async ({
   await expect.poll(() => posted.length).toBeGreaterThan(0);
   expect((posted[0].params || posted[0]).fast).toBe(true);
 });
+
+test("Entre dois quadros: só modelos A14B, interruptor de loop e o pedido leva o loop", async ({ page }) => {
+  const problems = await open(page, "#/apps/flf2v");
+  await settle(page); await noErrorCard(page);
+  await expect(page.getByRole("button", { name: "Modelo" })).toContainText("A14B");
+  await page.locator("input[type=file]").first().setInputFiles(require("node:path").join(__dirname, "fixtures", "portrait.png"));
+  await page.locator("textarea").first().fill("o gato dá uma volta e fecha o ciclo");
+  await page.getByLabel(/Loop sem emenda/).check();
+  const posted = [];
+  await page.route("**/clonfield/api/jobs", route => { if (route.request().method() === "POST") { posted.push(route.request().postDataJSON()); return route.abort(); } return route.continue(); });
+  const run = page.getByRole("button", { name: /Gerar|Executar|Aplicar|Criar/ }).last();
+  await expect(run).toBeEnabled({ timeout: 15000 });
+  await run.click();
+  await expect.poll(() => posted.length).toBeGreaterThan(0);
+  expect((posted[0].params || posted[0])).toMatchObject({ mode: "Entre dois quadros", loop: true, model: "a14b-q6" });
+  expect(problems.filter(p => !/net::ERR_FAILED/.test(p)), problems.join("\n")).toEqual([]);
+});

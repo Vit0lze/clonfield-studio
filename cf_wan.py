@@ -20,6 +20,7 @@ from cf_seedvr2 import upload_input
 
 TEXT_MODE = "Texto em vídeo"
 IMAGE_MODE = "Foto em movimento"
+FLF_MODE = "Entre dois quadros"  # first and last frame given: a transition, or a seamless loop when both are the same picture
 
 WAN22 = ("Comfy-Org/Wan-2.2", "ee6f4a4073")
 WAN21 = ("Comfy-Org/Wan-2.1", "123acf1cc7")
@@ -109,7 +110,7 @@ def resolve_size(size, width, height, align, kind, vram_gb, frames):
     return width, height
 
 
-def make_graph(model_key, mode, image, prompt, negative, size, seconds, fps, steps, cfg, seed, width=None, height=None, vram_gb=15, fast=False):
+def make_graph(model_key, mode, image, prompt, negative, size, seconds, fps, steps, cfg, seed, width=None, height=None, vram_gb=15, fast=False, end_image=None):
     """`fast`: A14B with the LightX2V 4-step LoRAs (4 steps, CFG 1, shift 5), ignoring `steps` and `cfg`."""
     if model_key not in MODELS:
         raise ValueError("Escolha um modelo de vídeo da lista.")
@@ -118,11 +119,15 @@ def make_graph(model_key, mode, image, prompt, negative, size, seconds, fps, ste
         raise ValueError("O modo rápido (LightX2V, 4 passos) só existe para os modelos A14B.")
     if fast:
         steps, cfg = FAST_STEPS, FAST_CFG
-    if mode not in (TEXT_MODE, IMAGE_MODE):
-        raise ValueError("Escolha texto em vídeo ou foto em movimento.")
+    if mode not in (TEXT_MODE, IMAGE_MODE, FLF_MODE):
+        raise ValueError("Escolha texto em vídeo, foto em movimento ou entre dois quadros.")
+    if mode == FLF_MODE and spec["kind"] != "a14b":
+        raise ValueError("«Entre dois quadros» usa os modelos A14B (os 5B não têm quadro final).")
+    if mode == FLF_MODE and not end_image:
+        raise ValueError("Envie o quadro final ou ligue o loop sem emenda.")
     if not prompt or not prompt.strip():
         raise ValueError("Descreva a cena ou o movimento.")
-    if mode == IMAGE_MODE and not image:
+    if mode in (IMAGE_MODE, FLF_MODE) and not image:
         raise ValueError("Envie uma foto para animar.")
     if not SECONDS[0] <= float(seconds) <= SECONDS[1] or int(fps) != float(fps) or not FPS[0] <= int(fps) <= FPS[1]:
         raise ValueError(f"Use de {SECONDS[0]:g} a {SECONDS[1]:g} segundos e de {FPS[0]} a {FPS[1]} quadros por segundo.")
@@ -171,6 +176,12 @@ def make_graph(model_key, mode, image, prompt, negative, size, seconds, fps, ste
         if mode == TEXT_MODE:
             graph["55"] = node("EmptyHunyuanLatentVideo", width=width, height=height, length=frames, batch_size=1)
             positive, negative_ref, start = ["6", 0], ["7", 0], ["55", 0]
+        elif mode == FLF_MODE:
+            graph["56"] = node("LoadImage", image="entrada.png")
+            graph["59"] = node("LoadImage", image="quadro-final.png")
+            graph["55"] = node("WanFirstLastFrameToVideo", positive=["6", 0], negative=["7", 0], vae=["39", 0], width=width, height=height, length=frames,
+                               batch_size=1, start_image=["56", 0], end_image=["59", 0])
+            positive, negative_ref, start = ["55", 0], ["55", 1], ["55", 2]
         else:
             graph["56"] = node("LoadImage", image="entrada.png")
             graph["55"] = node("WanImageToVideo", positive=["6", 0], negative=["7", 0], vae=["39", 0], width=width, height=height, length=frames,
@@ -195,7 +206,7 @@ def downloads(model_key, mode, fast=False):
     return [(f[0], f[1], f[2], f[3]) for f in files_for(model_key, mode, fast)]
 
 
-def prepare(session, graph, progress, *, image, model_key=DEFAULT_MODEL, mode=TEXT_MODE, fast=False):
+def prepare(session, graph, progress, *, image, model_key=DEFAULT_MODEL, mode=TEXT_MODE, fast=False, end_image=None):
     """Make every weight the graph names exist under ComfyUI/models (download on demand, pinned revision, size and SHA-256 checked)."""
     import cf_download
     try:
@@ -219,3 +230,5 @@ def prepare(session, graph, progress, *, image, model_key=DEFAULT_MODEL, mode=TE
             raise ValueError(f"{target.name} baixou com tamanho diferente do publicado; removido. Tente de novo.")
     if "56" in graph:
         graph["56"]["inputs"]["image"] = upload_input(session, image)
+    if "59" in graph:  # the last frame; for a seamless loop it is the first picture again
+        graph["59"]["inputs"]["image"] = upload_input(session, end_image or image)

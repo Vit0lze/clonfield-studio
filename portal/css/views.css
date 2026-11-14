@@ -20,7 +20,7 @@
 .mosaic .wide { grid-column: span 2; }
 @media (max-width: 560px) { .mosaic .wide { grid-column: auto; } }
 
-.section-head { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin: 44px 0 18px; }
+.section-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px; margin: 44px 0 18px; }
 .section-head p { color: var(--muted); margin-top: 4px; }
 
 /* ---------- home ---------- */
@@ -764,3 +764,16 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
 .bform { display: grid; gap: 10px; padding: 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--s1); }
 .bform:empty { display: none; }
 .bform-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+/* Elenco */
+.cast-form { display: grid; gap: 8px; max-width: 640px; margin-bottom: 22px; }
+.cast-form label { font-size: 13px; color: var(--muted, #8b8b94); }
+.cast-form .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.cast-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); }
+.cast-card { display: grid; grid-template-rows: auto 1fr; border: 1px solid var(--line, #2a2a30); border-radius: 12px; overflow: hidden; background: var(--panel, transparent); }
+.cast-card img, .cast-noimg { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; display: grid; place-items: center; background: rgba(127, 127, 140, .12); }
+.cast-body { padding: 12px; display: grid; gap: 8px; align-content: start; }
+.cast-body h3 { margin: 0; font-size: 16px; }
+.cast-body p { margin: 0; font-size: 13px; }
+.cast-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; align-items: center; }
+.cast-chips .btn { padding: 2px 10px; }

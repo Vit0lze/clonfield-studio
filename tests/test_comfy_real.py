@@ -84,6 +84,13 @@ def test_wan_fast_lightx2v_graphs_are_accepted(comfy, mode):
     assert ok(comfy, graph) == []
 
 
+@pytest.mark.parametrize("fast", [False, True])
+def test_wan_first_last_frame_graphs_are_accepted(comfy, fast):
+    graph = cf_wan.make_graph("a14b-q6", cf_wan.FLF_MODE, "x.png", "um gato vira um leão", "", "Horizontal · 832 × 480", 3, 16, 20, 3.5, 7, vram_gb=24, fast=fast, end_image="y.png")
+    assert graph["55"]["class_type"] == "WanFirstLastFrameToVideo"
+    assert ok(comfy, graph) == []
+
+
 @pytest.mark.parametrize("model", list(cf_audio.MODELS))
 @pytest.mark.parametrize("fmt", list(cf_audio.FORMATS))
 def test_audio_graphs_are_accepted(comfy, model, fmt):
@@ -182,3 +189,15 @@ def test_ltx_video_graphs_are_accepted(comfy, mode):
     graph = cf_ltxv.build(comfy["info"], mode, "A red fox moving gracefully through a snowy forest at dawn, its russet coat vivid against the white landscape.", seconds=4, fps=24)
     errors = ok(comfy, graph)
     assert errors == [], explain(errors)
+
+
+def test_agent_system_info_and_free_memory_against_the_real_worker(comfy, monkeypatch, tmp_path):
+    """The agent's two memory tools talk to a real ComfyUI: /system_stats for the numbers, /free to unload."""
+    import types
+    import cf_agent
+    import cf_workflows
+    monkeypatch.setattr(cf_workflows, "SERVER", comfy["url"])
+    box = cf_agent.Toolbox(None, types.SimpleNamespace(tier=types.SimpleNamespace(gpu="CPU de teste", vram_gb=0.0, label="Leve"), base=tmp_path), None)
+    info = box.system_info()
+    assert info["worker"] and info["worker"]["ram_total_gb"] > 0 and info["worker"]["ram_free_gb"] > 0 and info["disk_free_gb"] > 0
+    assert box.free_memory()["ok"] is True

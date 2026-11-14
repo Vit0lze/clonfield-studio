@@ -106,3 +106,23 @@ def test_app_is_registered_and_not_blocked_on_a_small_card(monkeypatch):
     app = cf_apps.registry()["character_sheet"]
     described = app.describe(cf_tiers.detect())
     assert described["group"] == "Identidade" and not described["blocked"] and {f["id"] for f in described["fields"]} >= {"image", "set", "notes", "model", "size"}
+
+
+def test_coverage_is_nine_distinct_camera_positions_that_keep_the_moment():
+    assert len(character.COVERAGE) == 9 and len({v[0] for v in character.COVERAGE}) == 9
+    for view in character.COVERAGE:
+        text = character.prompt_for(view, "", character.KEEP_SCENE)
+        assert view[2] in text and "same moment exactly" in text and "face, hair, skin" not in text  # the scene baseline, not the character one
+    assert set(character.SCENE_SIZES.values()) <= {(1152, 768), (1536, 1024), (768, 1152)} and all(w % 32 == 0 and h % 32 == 0 for w, h in character.SCENE_SIZES.values())
+
+
+def test_coverage_app_makes_nine_edits_with_one_seed_and_a_three_by_three_sheet(world, tmp_path):
+    calls, Ctx, _ = world
+    out = cf_apps.run_coverage(Ctx(), dict(image=[png(tmp_path / "scene.png", (900, 600), (90, 150, 90))], size="Horizontal · 1152 × 768", seed=5), cf_tiers.detect())
+    assert len(calls) == 9 and {c["seed"] for c in calls} == {5} and {c["size"] for c in calls} == {(1152, 768)} and len({c["files"][0] for c in calls}) == 1
+    assert calls[0]["prompt"].startswith("Show this scene as a wide establishing shot") and "same moment exactly" in calls[0]["prompt"]
+    sheet = Image.open(out[0])
+    cell = round(1152 * character.CELL_HEIGHT / 768)
+    assert out[0].name.startswith("cobertura") and len(out) == 10 and sheet.size == (3 * cell + 4 * character.GAP, 3 * (character.CELL_HEIGHT + character.LABEL) + 4 * character.GAP)
+    with pytest.raises(cf_jobs.JobError, match="imagem"):
+        cf_apps.run_coverage(Ctx(), dict(), cf_tiers.detect())

@@ -78,6 +78,19 @@ export async function appView(id, navigate) {
       const input = h(f.type === "textarea" ? "textarea" : "input", { class: "input", rows: f.rows, value: values[f.id], placeholder: f.placeholder || "",
         oninput: () => { values[f.id] = input.value; rerun(); },
         onkeydown: e => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run(); } });
+      if (f.type === "textarea" && f.id === "prompt") {  // cast chips: click inserts @name at the cursor
+        const chips = h("div", { class: "cast-chips", "aria-label": "Elenco" });
+        api.get("/cast").then(list => {
+          if (!list.length) return;
+          chips.append(h("span", { class: "dim" }, "Elenco:"));
+          for (const c of list) chips.append(h("button", { class: "btn sm", type: "button", title: c.description || `@${c.name}`, onclick: () => {
+            const at = input.selectionStart ?? input.value.length, pad = at > 0 && !/\s$/.test(input.value.slice(0, at)) ? " " : "";
+            input.setRangeText(`${pad}@${c.name} `, at, input.selectionEnd ?? at, "end");
+            values[f.id] = input.value; input.focus(); rerun();
+          } }, `@${c.name}`));
+        }).catch(() => {});
+        return field(f.label, h("div", null, input, chips), f.help);
+      }
       return field(f.label, input, f.help);
     }
     if (f.type === "number") {

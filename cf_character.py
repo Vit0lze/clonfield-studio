@@ -27,11 +27,26 @@ EXPRESSIONS = [
     ("angry", "Bravo", "Show the same character from the chest up, facing the camera, with an angry, frowning expression."),
     ("surprised", "Surpreso", "Show the same character from the chest up, facing the camera, with wide eyes and an open mouth in surprise."),
 ]
+# Coverage: nine camera positions on the SAME moment. The scene stays; only where the camera stands changes.
+KEEP_SCENE = ("Keep the same moment exactly: the same people, clothes, objects, place, time of day, weather and lighting. "
+              "Only the camera position and lens change; photographic, natural, no text.")
+COVERAGE = [
+    ("establishing", "Geral", "Show this scene as a wide establishing shot that includes the whole location."),
+    ("wide", "Aberto", "Show this scene as a wide shot with every person full length in frame."),
+    ("medium", "Médio", "Show this scene as a medium shot, people framed from the waist up."),
+    ("close", "Close-up", "Show this scene as a close-up on the main person's face."),
+    ("detail", "Detalhe", "Show this scene as an extreme close-up on a meaningful detail of it (hands, an object or an eye)."),
+    ("ots", "Sobre o ombro", "Show this scene as an over-the-shoulder shot from behind one person toward the other or the main action."),
+    ("low", "Contra-plongée", "Show this scene from a low angle looking up, heroic."),
+    ("high", "Plongée", "Show this scene from a high angle looking down."),
+    ("top", "Zenital", "Show this scene as a top-down overhead shot."),
+]
 SETS = {
     "turnaround": ("Giro de personagem (4 ângulos)", TURNAROUND),
     "expressions": ("Expressões (4)", EXPRESSIONS),
     "full": ("Completo (4 ângulos + 4 expressões)", TURNAROUND + EXPRESSIONS),
 }
+SCENE_SIZES = {"Horizontal · 1152 × 768": (1152, 768), "Horizontal · 1536 × 1024": (1536, 1024), "Vertical · 768 × 1152": (768, 1152)}
 SIZES = {"Vertical · 768 × 1152": (768, 1152), "Vertical · 1024 × 1536": (1024, 1536), "Quadrado · 1024 × 1024": (1024, 1024)}
 CELL_HEIGHT = 480
 GAP, LABEL = 14, 34
@@ -44,9 +59,9 @@ def views(set_key):
     return SETS[set_key][1]
 
 
-def prompt_for(view, notes=""):
+def prompt_for(view, notes="", keep=KEEP):
     """The edit instruction for one view. `notes` are details the user wants preserved, appended to the baseline."""
-    text = f"{view[2]} {KEEP}"
+    text = f"{view[2]} {keep}"
     notes = " ".join((notes or "").split())
     return text + (f" Also keep: {notes[:300]}." if notes else "")
 

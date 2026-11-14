@@ -17,9 +17,11 @@ import cf_jobs
 import cf_civitai
 import cf_loras
 import cf_model_lab as lab
+import cf_cast as cast
 import cf_character as character
 import cf_compare as compare
 import cf_director as director
+import cf_loop as loopmeter
 import cf_openjutsu as openjutsu
 import cf_refine as refine
 import cf_3d as image3d
@@ -361,9 +363,21 @@ def with_direction(p):
         raise JobError(str(exc)) from None
 
 
+def with_cast(p, ref_slots=0):
+    """`@name` mentions (cf_cast) expanded into the prompt; the characters' pictures join the references while slots are free."""
+    try:
+        found = cast.expand(ENV["base"], p.get("prompt") or "", ref_slots)
+    except ValueError as exc:
+        raise JobError(str(exc)) from None
+    out = {**p, "prompt": found["prompt"]}
+    if found["refs"]:
+        out["refs"] = [*(p.get("refs") or []), *found["refs"]]
+    return out
+
+
 def run_image(ctx, p, tier):
-    p = with_direction(p)
     preset = lab.PRESETS[p["model"]]
+    p = with_direction(with_cast(p, max(0, preset.refs - len(p.get("refs") or []))))
     files = p.get("refs") or []
     plan = resolution_plan(p.get("aspect", "auto"), p.get("quality", "standard"), tier, files, float(p.get("gen_factor") or 1.0))
     width, height = plan["native"]
@@ -542,17 +556,13 @@ def run_compare_models(ctx, p, tier):
     return [destination, *[item["image"] for item in items]]
 
 
-def run_character_sheet(ctx, p, tier):
+def run_view_sheet(ctx, p, chosen, keep, sizes, stem, columns):
     """One edit of the same reference per view (shared seed), then a labelled sheet. Qwen 2.1 (or its Turbo recipe) in edit mode."""
     image = (p.get("image") or [None])[0]
     if not image:
-        raise JobError("Envie a imagem do personagem.")
-    try:
-        chosen = character.views(p.get("set") or "turnaround")
-    except ValueError as exc:
-        raise JobError(str(exc)) from None
+        raise JobError("Envie a imagem de partida.")
     model = p.get("model") if p.get("model") in ("qwen21", "qwen21-turbo") else "qwen21"
-    size = character.SIZES.get(p.get("size"), (768, 1152))
+    size = sizes.get(p.get("size"), next(iter(sizes.values())))
     seed = int(p.get("seed", -1))
     seed = random.randrange(2**31) if seed < 0 else seed
     try:
@@ -568,11 +578,25 @@ def run_character_sheet(ctx, p, tier):
     for index, view in enumerate(chosen):
         ctx.check()
         ctx.progress(index / len(chosen), desc=f"Vista {index + 1}/{len(chosen)} · {view[1]}")
-        out = run_graph_images(ctx, lab.PRESETS[model], {"prompt": character.prompt_for(view, p.get("notes")), "seed": seed}, [str(ref_path)], size[0], size[1], 1)
+        out = run_graph_images(ctx, lab.PRESETS[model], {"prompt": character.prompt_for(view, p.get("notes"), keep), "seed": seed}, [str(ref_path)], size[0], size[1], 1)
         made.append((view[1], out[0]))
-    destination = finish.output_path(ctx.out_dir, "folha-personagem", ".png")
-    character.sheet(made, columns=4).save(destination)
+    destination = finish.output_path(ctx.out_dir, stem, ".png")
+    character.sheet(made, columns=columns).save(destination)
     return [destination, *[path for _, path in made]]
+
+
+def run_character_sheet(ctx, p, tier):
+    try:
+        chosen = character.views(p.get("set") or "turnaround")
+    except ValueError as exc:
+        raise JobError(str(exc)) from None
+    if not (p.get("image") or [None])[0]:
+        raise JobError("Envie a imagem do personagem.")
+    return run_view_sheet(ctx, p, chosen, character.KEEP, character.SIZES, "folha-personagem", 4)
+
+
+def run_coverage(ctx, p, tier):
+    return run_view_sheet(ctx, p, character.COVERAGE, character.KEEP_SCENE, character.SCENE_SIZES, "cobertura", 3)
 
 
 def run_region(ctx, p, tier):
@@ -636,12 +660,15 @@ def run_ltxv(ctx, p, tier):
 
 
 def run_wan(ctx, p, tier):
-    p = with_direction(p)
+    p = with_direction(with_cast(p))
     mode = p["mode"]
     image = (p.get("image") or [None])[0]
     model_key = p.get("model") or wan.DEFAULT_MODEL
     if model_key == "ltxv-2b":
+        if mode == wan.FLF_MODE:
+            raise JobError("«Entre dois quadros» precisa de um modelo Wan A14B; o LTX-Video não tem quadro final.")
         return run_ltxv(ctx, p, tier)
+    end_image = image if p.get("loop") else (p.get("end_image") or [None])[0]
     spec = wan.MODELS.get(model_key)
     if spec is None:
         raise JobError("Escolha um modelo de vídeo da lista.")
@@ -657,12 +684,21 @@ def run_wan(ctx, p, tier):
         try:
             graph = wan.make_graph(model_key, mode, image, p["prompt"], p.get("negative", ""), p.get("size", next(iter(wan.SIZES))), float(p.get("seconds", 3)), fps,
                                    int(p.get("steps", 20)), float(p.get("cfg") or (5 if spec["kind"] == "5b" else 3.5)), -1 if seed < 0 else seed + index,
-                                   p.get("width"), p.get("height"), tier.vram_gb, fast=fast)
+                                   p.get("width"), p.get("height"), tier.vram_gb, fast=fast, end_image=end_image)
         except ValueError as exc:
             raise JobError(str(exc)) from None
-        job = workflows.run(graph, ctx.out_dir, ctx.progress, prepare=partial(wan.prepare, image=image, model_key=model_key, mode=mode, fast=fast),
+        job = workflows.run(graph, ctx.out_dir, ctx.progress, prepare=partial(wan.prepare, image=image, model_key=model_key, mode=mode, fast=fast, end_image=end_image),
                             title=f"{mode} · {spec['label']}", control=ctx.control, family="wan", stall=2400)
         outputs.extend(collect_job(ctx, job))
+    if mode == wan.FLF_MODE and p.get("loop") and outputs:
+        reports = []
+        for path in outputs:
+            try:
+                reports.append(loopmeter.seam(path))
+            except loopmeter.LoopError as exc:
+                reports.append(dict(verdict="não medida", label=str(exc), ratio=None))
+        worst = max(reports, key=lambda r: r["ratio"] or 0)
+        ctx.job.update(message=f"Emenda do loop: {worst['verdict']} · {worst['label']}" + (f" (pior de {len(reports)})" if len(reports) > 1 else ""))
     return outputs
 
 
@@ -1160,12 +1196,16 @@ def build_registry():
         out.append(opt("ltxv-2b", "LTX-Video 2B · v0.9.5 (cabe na T4)", f"~{ltxv.download_gb()[0]:g} GB de pesos · pede prompt longo e descritivo"))
         return out
 
-    def wan_fields(mode, with_image):
+    def wan_fields(mode, with_image, last_frame=False):
         return lambda t: [
             dict(id="mode", type="hidden", default=mode),
-            *([dict(id="image", type="files", label="Foto inicial", accept="image", max=1, min=1)] if with_image else []),
+            *([dict(id="image", type="files", label="Quadro inicial" if last_frame else "Foto inicial", accept="image", max=1, min=1)] if with_image else []),
+            *([dict(id="end_image", type="files", label="Quadro final", accept="image", max=1, min=0, help="Deixe vazio e ligue o loop para voltar ao primeiro quadro."),
+               dict(id="loop", type="switch", label="Loop sem emenda: o último quadro é o primeiro", default=False,
+                    help="Usa a mesma imagem como início e fim; o vídeo termina onde começou. Sem medição de emenda: confira a junção no resultado.")] if last_frame else []),
             dict(id="prompt", type="textarea", label="Cena e movimento", default="", required=True, rows=3 if with_image else 4),
-            dict(id="model", type="chips", label="Modelo", default=wan.DEFAULT_MODEL, options=wan_model_options(mode),
+            dict(id="model", type="chips", label="Modelo", default="a14b-q6" if last_frame else wan.DEFAULT_MODEL,
+                 options=[o for o in wan_model_options(mode) if o["value"].startswith("a14b")] if last_frame else wan_model_options(mode),
                  help="A14B é a rota de alta qualidade (Q6_K); 5B é a leve. Nenhum foi medido em GPU ainda."),
             dict(id="size", type="chips", label="Proporção", default=next(iter(wan.SIZES)), options=wan_size_options()),
             dict(id="seconds", type="slider", label="Duração (s)", default=3, min=wan.SECONDS[0], max=wan.SECONDS[1], step=0.5,
@@ -1204,6 +1244,14 @@ def build_registry():
                        dict(id="seed", type="number", label="Seed (igual em todas as vistas)", default=-1, advanced=True)],
             offload=True, min_vram=16,
             note="Cada vista é uma edição do mesmo personagem com o Qwen 2.1; a fidelidade entre vistas não foi medida em GPU, revise o resultado."),
+        App("coverage", "Cobertura de cena", "Imagem", "Uma cena vira 9 planos do mesmo momento: geral, aberto, médio, close, detalhe, sobre o ombro, baixo, alto e zenital.", "image", run_coverage,
+            lambda t: [dict(id="image", type="files", label="Imagem da cena", accept="image", max=1, min=1, help="A imagem é encaixada no quadro sem cortar; cada plano é uma edição dela."),
+                       dict(id="notes", type="textarea", label="Detalhes a preservar (opcional)", default="", rows=2),
+                       dict(id="model", type="chips", label="Modelo", default="qwen21", options=[opt("qwen21", "Qwen Image 2.1", "40 passos"), opt("qwen21-turbo", "Qwen Image 2.1 Turbo", "8 passos")]),
+                       dict(id="size", type="chips", label="Quadro de cada plano", default="Horizontal · 1152 × 768", options=[opt(k, k, "") for k in character.SCENE_SIZES]),
+                       dict(id="seed", type="number", label="Seed (igual em todos os planos)", default=-1, advanced=True)],
+            offload=True, min_vram=16,
+            note="Nove edições do mesmo momento com o Qwen 2.1; a continuidade entre planos não foi medida em GPU, revise o resultado."),
         App("edit", "Editar com referências", "Imagem", "Mude o que importa e preserve o resto.", "image",
             run_image, lambda t: image_fields(t, 1, prompt_label="O que deve mudar?", refs_label="Imagem a editar")),
         App("relight", "Luz ambiente", "Imagem", "Posicione luzes, escolha cor e intensidade e a IA integra à foto.", "image",
@@ -1222,6 +1270,8 @@ def build_registry():
                        dict(id="padding", type="slider", label="Contexto ao redor", default=96, min=0, max=256, step=8, advanced=True),
                        dict(id="feather", type="slider", label="Suavizar borda", default=8, min=0, max=64, step=1, advanced=True)],
             min_vram=0),
+        App("flf2v", "Entre dois quadros", "Vídeo", "Do quadro inicial ao final (uma transição) ou um loop sem emenda que volta ao primeiro quadro.", "video", run_wan, wan_fields(wan.FLF_MODE, True, last_frame=True),
+            note="Wan 2.2 A14B com início e fim (nó WanFirstLastFrameToVideo do ComfyUI). Grafo aceito pelo ComfyUI real; nada gerado em GPU ainda."),
         App("animate", "Foto em movimento", "Vídeo", "Anime uma foto com movimento e câmera.", "video", run_wan, wan_fields(wan.IMAGE_MODE, True),
             note="No primeiro uso o Studio baixa os pesos do modelo escolhido (o tamanho aparece em cada opção)."),
         App("text2video", "Texto em vídeo", "Vídeo", "Descreva a cena e receba um clipe.", "video", run_wan, wan_fields(wan.TEXT_MODE, False),

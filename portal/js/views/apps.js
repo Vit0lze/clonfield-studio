@@ -28,7 +28,7 @@ export async function appsView() {
       h("p", null, group === "Favoritos" ? "Toque na estrela de um app para fixá-lo aqui e no topo da lista." : "Tente outro termo ou categoria.")));
   };
   const search = h("input", { class: "input", type: "search", placeholder: "Buscar app…", "aria-label": "Buscar app", style: { maxWidth: "260px" }, oninput: () => { query = search.value.toLowerCase(); paint(); } });
-  root.append(h("div", { class: "section-head" }, h("div", null, h("h2", null, "Apps"), h("p", null, `${apps.length} ferramentas para imagem, vídeo e acabamento.`)), h("a", { class: "btn", href: "#/capabilities" }, icon("cube", "sm"), "Capacidades")),
+  root.append(h("div", { class: "section-head" }, h("div", null, h("h2", null, "Apps"), h("p", null, `${apps.length} ferramentas para imagem, vídeo e acabamento.`)), h("div", { class: "row", style: { display: "flex", gap: "8px", flexWrap: "wrap" } }, h("a", { class: "btn", href: "#/cast" }, icon("user", "sm"), "Elenco"), h("a", { class: "btn", href: "#/capabilities" }, icon("cube", "sm"), "Capacidades"))),
     h("div", { class: "libhead" }, seg(groups.map(g => ({ value: g, label: g })), group, v => { group = v; paint(); }), search), grid);
   paint();
   const off = onFavs(paint);

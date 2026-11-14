@@ -161,3 +161,24 @@ def test_choose_provider_is_none_without_a_local_server(monkeypatch):
     cf_llm._health.update(at=0.0, ok=False)
     assert agent.choose_provider() is None
     cf_llm._health.update(at=0.0, ok=False)
+
+
+def test_system_info_and_free_memory_say_so_when_the_worker_is_down(world, monkeypatch):
+    import cf_workflows
+    monkeypatch.setattr(cf_workflows, "SERVER", "http://127.0.0.1:9")  # nothing listens here
+    info = world.tools().system_info()
+    assert info["gpu"] and info["vram_gb"] == 15.0 and info["disk_free_gb"] > 0 and info["worker"] is None and "não respondeu" in info["worker_note"]
+    assert world.tools().free_memory() == dict(ok=False, note="o ComfyUI não respondeu; nada foi descarregado")
+    assert {"system_info", "free_memory"} <= set(world.tools().by_name)
+
+
+def test_list_cast_gives_the_agent_the_names_to_mention(world):
+    import cf_cast
+    for item in cf_cast.load(world.env.base):
+        cf_cast.remove(world.env.base, item["id"])
+    assert world.tools().list_cast() == dict(count=0, cast=[])
+    cf_cast.add(world.env.base, "Marina", "mulher ruiva", None)
+    out = world.tools().list_cast()
+    assert out["count"] == 1 and out["cast"][0] == dict(name="Marina", mention="@Marina", description="mulher ruiva", has_image=False)
+    assert "list_cast" in world.tools().by_name
+    cf_cast.remove(world.env.base, cf_cast.load(world.env.base)[0]["id"])

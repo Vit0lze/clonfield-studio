@@ -20,3 +20,18 @@ test("Folha de personagem: envia a imagem, escolhe as vistas e o pedido leva con
   expect(params).toMatchObject({ set: "full", model: "qwen21", size: "Vertical · 768 × 1152" });
   expect(problems.filter(p => !/net::ERR_FAILED/.test(p)), problems.join("\n")).toEqual([]);
 });
+
+test("Cobertura de cena: envia a cena e o pedido leva modelo e quadro", async ({ page }) => {
+  const problems = await open(page, "#/apps/coverage");
+  await settle(page); await noErrorCard(page);
+  await page.locator("input[type=file]").first().setInputFiles(path.join(__dirname, "fixtures", "portrait.png"));
+  await expect(page.getByText("Falta:")).toHaveCount(0, { timeout: 15000 });
+  const posted = [];
+  await page.route("**/clonfield/api/jobs", route => { if (route.request().method() === "POST") { posted.push(route.request().postDataJSON()); return route.abort(); } return route.continue(); });
+  const run = page.getByRole("button", { name: /Gerar|Executar|Aplicar|Criar/ }).last();
+  await expect(run).toBeEnabled();
+  await run.click();
+  await expect.poll(() => posted.length).toBeGreaterThan(0);
+  expect((posted[0].params || posted[0])).toMatchObject({ model: "qwen21", size: "Horizontal · 1152 × 768" });
+  expect(problems.filter(p => !/net::ERR_FAILED/.test(p)), problems.join("\n")).toEqual([]);
+});

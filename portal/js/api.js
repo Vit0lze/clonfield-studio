@@ -60,6 +60,7 @@ export const api = {
   post: (path, body) => request(`/clonfield/api${path}`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body ?? {})
   }).then(r => r.json()),
+  del: path => request(`/clonfield/api${path}`, { method: "DELETE" }).then(r => r.json()),
   url: rel => rel && new URL(rel, session.base()).href,
 
   // XHR so the dropzone can show real upload progress

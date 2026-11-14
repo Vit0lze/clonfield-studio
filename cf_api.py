@@ -34,6 +34,7 @@ import cf_capabilities
 import cf_chat
 import cf_dag
 import cf_contracts
+import cf_cast
 import cf_env
 import cf_favorites
 import cf_library
@@ -166,6 +167,30 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         except ValueError as exc:
             return JSONResponse({"detail": str(exc)}, 400)
         return JSONResponse(result)
+
+    def cast_item(item):
+        return dict(id=item["id"], name=item["name"], description=item.get("description", ""), created=item.get("created"),
+                    image=sign(f"cast/{item['image']}") if item.get("image") else None)
+
+    async def cast_list(request):
+        return JSONResponse([cast_item(i) for i in cf_cast.load(base)])
+
+    async def cast_create(request):
+        body = await request.json()
+        image = None
+        ident = str(body.get("upload") or "")
+        if ident:
+            if not re.fullmatch(r"[0-9a-f]{32}", ident):
+                raise ValueError("Arquivo enviado inválido.")
+            found = next(iter((uploads / ident).iterdir()), None) if (uploads / ident).is_dir() else None
+            if found is None:
+                raise ValueError("A imagem enviada expirou. Envie de novo.")
+            image = found
+        return JSONResponse(cast_item(cf_cast.add(base, body.get("name"), body.get("description"), image)))
+
+    async def cast_delete(request):
+        cf_cast.remove(base, request.path_params["ident"])
+        return JSONResponse({"ok": True})
 
     async def slots(request):
         key = request.query_params.get("model", "")
@@ -774,7 +799,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             return JSONResponse({"detail": "Link expirado."}, 403)
         for root in (out_dir, base):
             target = (root / rel).resolve()
-            if target.is_file() and (target.is_relative_to(out_dir.resolve()) or target.is_relative_to(uploads.resolve())):
+            if target.is_file() and (target.is_relative_to(out_dir.resolve()) or target.is_relative_to(uploads.resolve()) or target.is_relative_to(cf_cast.folder(base).resolve())):
                 return FileResponse(target, headers={"Cache-Control": "private, max-age=3600",
                                                     "X-Content-Type-Options": "nosniff"})
         return JSONResponse({"detail": "Arquivo não encontrado."}, 404)
@@ -798,6 +823,9 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/components/recipe-file", guard(recipe_file_install), methods=["POST"]),
         Route(f"{PREFIX}/upscalers", guard(upscalers)),
         Route(f"{PREFIX}/upscalers/install", guard(upscaler_install), methods=["POST"]),
+        Route(f"{PREFIX}/cast", guard(cast_list)),
+        Route(f"{PREFIX}/cast/create", guard(cast_create), methods=["POST"]),
+        Route(f"{PREFIX}/cast/{{ident}}", guard(cast_delete), methods=["DELETE"]),
         Route(f"{PREFIX}/favorites", guard(favorites_list)),
         Route(f"{PREFIX}/favorites/toggle", guard(favorites_toggle), methods=["POST"]),
         Route(f"{PREFIX}/sessions", guard(sessions_list), methods=["GET"]),

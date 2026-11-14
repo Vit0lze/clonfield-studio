@@ -125,6 +125,12 @@ class Toolbox:
             dict(name="job_status", description="Estado de um job iniciado antes.", parameters=schema(job_id=S("id do job", True)), fn=self.job_status),
             dict(name="search_models", description="Procura componentes (modelos de difusão, encoders, VAEs, upscalers) no que já está instalado, no Civitai ou no Hugging Face. Só descobre: não baixa nada (baixar exige o usuário).",
                  parameters=schema(role=S("Difusão|Checkpoint|Encoder|VAE|Upscaler|LoRA", True), family=S("modelo da receita: qwen21|flux2|flux3|krea2|z-image", True), query=S("termo de busca"), source=S("local|civitai|huggingface (padrão local)")), fn=self.search_models),
+            dict(name="list_cast", description="Personagens salvos no Elenco (nome e descrição). Num pedido de imagem ou vídeo, escreva @nome no prompt: o Studio troca pela descrição e usa a imagem do personagem como referência.",
+                 parameters=schema(), fn=self.list_cast),
+            dict(name="system_info", description="Placa, VRAM e RAM livres (do ComfyUI, se estiver no ar) e espaço em disco desta máquina. Só lê. Use antes de escolher um modelo grande.",
+                 parameters=schema(), fn=self.system_info),
+            dict(name="free_memory", description="Descarrega os modelos do ComfyUI da VRAM e da RAM. O próximo job recarrega os pesos (fica mais lento). Use para abrir espaço antes de um modelo grande.",
+                 parameters=schema(), fn=self.free_memory),
             dict(name="inspect_artifact", description="Mede um arquivo: dimensões, nitidez, exposição (imagem) ou tamanho. Use depois de executar para conferir o resultado.",
                  parameters=schema(ref=S("id de mídia ou caminho de resultado devolvido por execute_graph", True)), fn=self.inspect_artifact),
         ]
@@ -190,6 +196,40 @@ class Toolbox:
 
     def job_status(self, job_id):
         return self.host.job(job_id)
+
+    def list_cast(self):
+        import cf_cast
+        items = cf_cast.load(self.env.base)
+        return dict(count=len(items), cast=[dict(name=i["name"], mention=f"@{i['name']}", description=i.get("description", ""), has_image=bool(i.get("image"))) for i in items])
+
+    def system_info(self):
+        import shutil
+        import requests
+        import cf_workflows
+        tier = self.env.tier
+        out = dict(gpu=tier.gpu, vram_gb=round(tier.vram_gb, 1), profile=tier.label, worker=None, disk_free_gb=round(shutil.disk_usage(self.env.base).free / 1024**3, 1))
+        try:
+            with requests.Session() as session:
+                session.trust_env = False
+                stats = session.get(f"{cf_workflows.SERVER}/system_stats", timeout=3).json()
+            device = (stats.get("devices") or [{}])[0]
+            system = stats.get("system", {})
+            out["worker"] = dict(device=device.get("name"), type=device.get("type"), vram_total_gb=round(device.get("vram_total", 0) / 1024**3, 1), vram_free_gb=round(device.get("vram_free", 0) / 1024**3, 1),
+                                 ram_total_gb=round(system.get("ram_total", 0) / 1024**3, 1), ram_free_gb=round(system.get("ram_free", 0) / 1024**3, 1))
+        except (requests.RequestException, ValueError):
+            out["worker_note"] = "o ComfyUI não respondeu; VRAM e RAM livres desconhecidas"
+        return out
+
+    def free_memory(self):
+        import requests
+        import cf_workflows
+        try:
+            with requests.Session() as session:
+                session.trust_env = False
+                response = session.post(f"{cf_workflows.SERVER}/free", json={"unload_models": True, "free_memory": True}, timeout=10)
+            return dict(ok=response.ok, note="modelos descarregados; o próximo job recarrega os pesos" if response.ok else f"o ComfyUI recusou (HTTP {response.status_code})")
+        except requests.RequestException:
+            return dict(ok=False, note="o ComfyUI não respondeu; nada foi descarregado")
 
     def inspect_artifact(self, ref):
         return self.host.inspect(ref)
