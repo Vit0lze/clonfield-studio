@@ -108,7 +108,7 @@ def test_the_three_loras_are_in_the_catalog_for_qwen21_and_match_the_real_huggin
         except requests.RequestException:
             pytest.skip("sem rede")
         sibling = next(s for s in info["siblings"] if s["rfilename"] == file)
-        assert 150e6 < sibling["size"] < 170e6, key
+        assert 150e6 < sibling["size"] < 340e6, key
 
 
 def graph_for(params, files, size):
@@ -242,3 +242,27 @@ def test_region_runner_builds_the_mask_from_boxes_when_no_mask_is_sent(tmp_path,
     assert seen["files"] and min(seen["size"]) >= 256  # a real reference crop was prepared around the box
     with pytest.raises(cf_jobs.JobError, match="pelo menos uma"):
         cf_apps.run_region(Ctx(), dict(source=[str(src)], boxes=[], prompt="x"), cf_tiers.detect())
+
+
+def test_bfs_prompts_are_the_authors_and_the_graph_uses_the_right_lora_with_scene_first():
+    assert edits.BFS_PROMPTS["bfs_head"].startswith("head_swap: start with <image1> as the base image") and edits.BFS_PROMPTS["bfs_body"].startswith("body_swap: start with <image1>")
+    for key, file in (("bfs_head", "bfs_head_v1.1_qwen_2.1.safetensors"), ("bfs_head_alt", "bfs_head_v1.1_alternative_qwen_2.1.safetensors"), ("bfs_body", "bfs_body_swap_v1.0_qwen_2.1.safetensors")):
+        assert edits.LORAS[key] == file and any(i["file"] == file for i in cf_loras.CATALOGO)  # downloadable from the pinned catalog
+        params = cf_apps.edit_params({}, edits.BFS_PROMPTS[key], key, 1.0)
+        graph, uploads = graph_for(params, ["scene.png", "ref.png"], (1024, 768))
+        assert next(n for n in graph.values() if n["class_type"] == "LoraLoader")["inputs"]["lora_name"] == file and len(uploads) == 2
+        encode = next(n for n in graph.values() if n["class_type"] == "TextEncodeQwenImage21")["inputs"]
+        assert encode["images.image_1"][0] != encode["images.image_2"][0]  # two different references, scene first
+
+
+def test_bfs_app_requires_consent_and_the_runner_refuses_without_it(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLONFIELD_FAKE_VRAM", "15")
+    fields = {f["id"]: f for f in cf_apps.registry()["bfs"].fields(cf_tiers.detect())}
+    assert fields["consent"]["required"] is True and fields["consent"]["default"] is False and {"scene", "reference", "mode"} <= set(fields)
+    import cf_jobs
+
+    class Ctx:
+        out_dir = tmp_path
+        def progress(self, *a, **k): pass
+    with pytest.raises(cf_jobs.JobError, match="autorizaram"):
+        cf_apps.run_bfs(Ctx(), dict(scene=["a.png"], reference=["b.png"], consent=False), cf_tiers.detect())

@@ -656,6 +656,18 @@ def run_audio(ctx, p, tier):
     return outputs
 
 
+def run_bfs(ctx, p, tier):
+    if not p.get("consent"):
+        raise JobError("Confirme que as pessoas nas fotos autorizaram o uso das imagens e dos rostos.")
+    key = p.get("mode") or "bfs_head"
+    if key not in edits.BFS_MODES:
+        raise JobError("Escolha cabeça ou corpo.")
+    with Image.open(p["scene"][0]) as opened:
+        size = edits.restore_resize(opened, 2_000_000).size  # the author: scene at about 2 MP, reference smaller (the graph scales extra references itself)
+    params = edit_params(p, edits.BFS_PROMPTS[key], key, 1.0)
+    return run_graph_images(ctx, lab.PRESETS["qwen21"], params, [p["scene"][0], p["reference"][0]], size[0], size[1], max(1, min(4, int(p.get("variations", 1)))))
+
+
 def run_faceswap(ctx, p, tier):
     if not p.get("consent"):
         raise JobError("Confirme que as pessoas nas fotos e no vídeo autorizaram o uso dos rostos.")
@@ -1101,6 +1113,16 @@ def build_registry():
                        dict(id="steps", type="slider", label="Passos", default=8, min=1, max=60, step=1, advanced=True),
                        dict(id="seed", type="number", label="Seed", default=-1, advanced=True)],
             note="Baixa o checkpoint (~2,3 GB no Small) e o codificador de texto (~1,2 GB) na primeira vez. Licença dos pesos: «other» (Stability AI)."),
+        App("bfs", "Trocar cabeça ou corpo (BFS)", "Identidade", "Coloca a cabeça ou o corpo de uma pessoa de referência na cena, mantendo pose, luz e fundo (LoRAs BFS no Qwen 2.1).", "identity", run_bfs,
+            lambda t: [dict(id="scene", type="files", label="Cena (imagem 1: pose, luz e fundo ficam)", accept="image", max=1, min=1),
+                       dict(id="reference", type="files", label="Pessoa de referência (imagem 2)", accept="image", max=1, min=1,
+                            help="Funciona melhor com a pessoa de pé, de corpo inteiro, de frente, em fundo claro liso. Retrato apertado com fundo cheio piora o resultado."),
+                       dict(id="mode", type="chips", label="O que trocar", default="bfs_head", options=[opt(k, v, "") for k, v in edits.BFS_MODES.items()]),
+                       dict(id="consent", type="switch", label="Tenho a autorização das pessoas nas fotos", default=False, required=True,
+                            help="Obrigatório. Não use com figuras públicas nem com quem não consentiu (o autor dos LoRAs pede o mesmo)."),
+                       dict(id="variations", type="seg", label="Variações", default=1, options=[opt(n, str(n), "") for n in range(1, 5)]),
+                       dict(id="seed", type="number", label="Seed", default=-1, advanced=True)],
+            note="Usa Qwen Image 2.1 + LoRA BFS (licença MIT). Rostos menores no quadro saem menos fiéis (limitação do autor). Geração BLOQUEADO_GPU."),
         App("faceswap", "Trocar rosto", "Identidade", "Coloca o rosto de uma foto em outra foto ou vídeo (FaceFusion, roda em CPU).", "identity", run_faceswap,
             lambda t: [dict(id="source", type="files", label="Rosto de origem (quem vai aparecer)", accept="image", max=4, min=1),
                        dict(id="target", type="files", label="Foto ou vídeo de destino", accept="image,video", max=1, min=1),

@@ -219,7 +219,7 @@ def native():
 # ---------------------------------------------------------------- generated from the apps
 PRODUCES = {"clip": "video", "sequence": "video", "text2video": "video", "animate": "video", "openjutsu": "video", "board": "image",
             "compare": "image", "seethrough": "file", "still": "image"}
-RISKY = {"openjutsu": "high", "faceswap": "medium", "scail2": "medium"}  # the agent never runs these without the user confirming in the application
+RISKY = {"openjutsu": "high", "faceswap": "medium", "scail2": "medium", "bfs": "medium"}  # the agent never runs these without the user confirming in the application
 APP_GPU_STATE = dict(state="BLOQUEADO_GPU", evidence="o app roda no Colab; nenhuma execução em GPU foi medida nesta máquina")
 
 

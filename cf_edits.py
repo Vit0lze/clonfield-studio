@@ -27,7 +27,16 @@ RESTORE_PROMPTS = {
 OUTFIT_KEEP = "Keep their face, hair, hands, pose and the background exactly the same."
 
 # catalog LoRA files (Hugging Face, pinned in cf_loras.CATALOGO)
-LORAS = {"outpaint": "qwen-image-2.1-outpaint-v2.safetensors", "restore": "qwen-image-2.1-restore.safetensors", "outfit": "qwen-image-2.1-outfit-swap.safetensors"}
+LORAS = {"outpaint": "qwen-image-2.1-outpaint-v2.safetensors", "restore": "qwen-image-2.1-restore.safetensors", "outfit": "qwen-image-2.1-outfit-swap.safetensors",
+         "bfs_head": "bfs_head_v1.1_qwen_2.1.safetensors", "bfs_head_alt": "bfs_head_v1.1_alternative_qwen_2.1.safetensors", "bfs_body": "bfs_body_swap_v1.0_qwen_2.1.safetensors"}
+
+# BFS (Alissonerdx, MIT): prompts word for word from the model docs. Image 1 = the scene, image 2 = the reference person/head; LoRA strength 1.0.
+BFS_PROMPTS = {
+    "bfs_head": "head_swap: start with <image1> as the base image, keeping its lighting, environment, and background. remove the head from <image1> completely and replace it with the head from <image2>, strictly preserving the hair, eye color, nose structure from <image2>. copy the direction of the eye, head rotation, micro expressions from <image1>, high quality, sharp details, 4k",
+    "bfs_body": "body_swap: start with <image1> as the base image, keeping its lighting, environment, and background. replace the body from <image1> with the body from <image2>, strictly preserving the clothing, body shape and proportions from <image2>. copy the pose, direction of the eye, head rotation, micro expressions from <image1>",
+}
+BFS_PROMPTS["bfs_head_alt"] = BFS_PROMPTS["bfs_head"]
+BFS_MODES = {"bfs_head": "Cabeça (v1.1, recomendada)", "bfs_head_alt": "Cabeça (v1.1 alternativa: mais expressão)", "bfs_body": "Corpo inteiro (v1.0)"}
 
 
 def snap(value, up=True):
