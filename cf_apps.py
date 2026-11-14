@@ -19,6 +19,7 @@ import cf_loras
 import cf_model_lab as lab
 import cf_character as character
 import cf_compare as compare
+import cf_director as director
 import cf_openjutsu as openjutsu
 import cf_refine as refine
 import cf_3d as image3d
@@ -212,6 +213,21 @@ def quality_options(tier):
             opt("ultra", "Ultra", "4096 px · gera até " + str(tier.max_side) + " e amplia em blocos")]
 
 
+def director_fields(section=None):
+    """Genre plus six advanced cinema axes (cf_director). A genre fills the axes left on auto; an explicit pick wins."""
+    out = []
+    for axis in director.ORDER:
+        label = director.AXES[axis][0]
+        field = dict(id=director.field_id(axis), type="select", label=label, default=director.AUTO, advanced=axis != "genre",
+                     options=[opt(value, text) for value, text in director.options(axis)])
+        if section:
+            field["section"] = section
+        if axis == "genre":
+            field["help"] = "Direção de cinema: o gênero escolhe câmera, luz e cor padrão; o que você marcar nos outros campos vale mais. Em «Automático» o pedido segue como você escreveu."
+        out.append(field)
+    return out
+
+
 def image_fields(tier, refs_required=0, prompt_default="", prompt_label="Descreva a imagem", refs_label="Referências"):
     models = [opt(k, MODEL_INFO[k]["name"], MODEL_INFO[k]["tagline"]) for k in IMAGE_MODELS]
     default_model = "flux2" if tier.vram_gb < 16 else "qwen21"
@@ -337,7 +353,16 @@ def post_upscale(ctx, outputs, choice):
     return finals
 
 
+def with_direction(p):
+    """The job's parameters with the cinema direction (cf_director) compiled into the prompt. Untouched when every axis is on auto."""
+    try:
+        return {**p, "prompt": director.apply(p.get("prompt") or "", p)}
+    except ValueError as exc:
+        raise JobError(str(exc)) from None
+
+
 def run_image(ctx, p, tier):
+    p = with_direction(p)
     preset = lab.PRESETS[p["model"]]
     files = p.get("refs") or []
     plan = resolution_plan(p.get("aspect", "auto"), p.get("quality", "standard"), tier, files, float(p.get("gen_factor") or 1.0))
@@ -611,6 +636,7 @@ def run_ltxv(ctx, p, tier):
 
 
 def run_wan(ctx, p, tier):
+    p = with_direction(p)
     mode = p["mode"]
     image = (p.get("image") or [None])[0]
     model_key = p.get("model") or wan.DEFAULT_MODEL
@@ -1153,11 +1179,12 @@ def build_registry():
                  help="Destilação oficial do ComfyUI: 4 passos, CFG 1, shift 5 (no lugar dos 20 passos). Baixa mais 2 × 1,2 GB de LoRAs. Qualidade e tempo não medidos em GPU ainda."),
             dict(id="steps", type="slider", label="Passos", default=20, min=wan.STEPS[0], max=wan.STEPS[1], step=1, advanced=True),
             dict(id="cfg", type="number", label="CFG", default=0, advanced=True, help="0 usa o padrão do modelo (3,5 no A14B, 5 no 5B)."),
-            dict(id="seed", type="number", label="Seed", default=-1, advanced=True)]
+            dict(id="seed", type="number", label="Seed", default=-1, advanced=True),
+            *director_fields()]
 
     return [
         App("create", "Criar imagem", "Imagem", "Do texto à imagem com o modelo que você escolher.", "image",
-            run_image, lambda t: image_fields(t)),
+            run_image, lambda t: [*image_fields(t), *director_fields("Estilo")]),
         App("compare_models", "Comparar modelos", "Imagem", "O mesmo pedido em 2 ou 3 modelos, lado a lado, com segundos por passo e VRAM medidos nesta placa.", "image", run_compare_models,
             lambda t: [dict(id="prompt", type="textarea", label="Pedido (igual para todos)", default="", required=True, rows=3),
                        dict(id="model_a", type="select", label="Modelo A", default="qwen21", options=[opt(k, MODEL_INFO[k]["name"], MODEL_INFO[k]["tagline"]) for k in IMAGE_MODELS]),

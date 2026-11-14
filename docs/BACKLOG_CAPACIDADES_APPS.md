@@ -25,10 +25,10 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 |---|---|---|---|---|---|---|
 | docs.comfy.org/agent-tools/mcp | documentação do MCP | — | agente | — | NÃO INICIADO | não aberto |
 | github.com/BillionsBobby/JevRouter | contrato de roteador tipado (cf_router) | decisão atrás de feature flag CLONFIELD_JEV (desligada por padrão) | chat legado | text→escolha | TESTADO API REAL | 30/30 no gabarito próprio (V7); substituído como padrão pelo agente |
-| github.com/Comfy-Org/comfy-mcp | MCP oficial do ComfyUI | alternativa ao conjunto de ferramentas do agente | agente | tool calls | NÃO INICIADO | avaliar se vale expor as ferramentas do Studio por MCP |
-| github.com/hndrr/ComfyUI-Jev | nó ComfyUI de Jev | comparação | — | — | NÃO INICIADO | não aberto; o Studio usa a API direta |
-| github.com/kantan-kanto/ComfyUI-ScriptFlow | projeto relacionado | comparação com cf_dag | — | — | NÃO INICIADO | não aberto |
-| github.com/thinkany-ai/autojev | projeto relacionado | comparação | — | — | NÃO INICIADO | não aberto |
+| github.com/Comfy-Org/comfy-mcp | MCP oficial do ComfyUI | alternativa ao conjunto de ferramentas do agente | agente | tool calls | ESTUDADO — SEM CÓDIGO | README lido (AGPL-3.0 ou comercial: nada de código copiado): 41 ferramentas; ideias úteis ao agente local — system_stats, free_memory, validate/pré-voo, slots de workflow; o agente do Studio já valida o grafo e estima recursos |
+| github.com/hndrr/ComfyUI-Jev | nó ComfyUI de Jev | comparação | — | — | ESTUDADO — DISPENSADO | nó da Jev (TypeSafe), removida do Studio |
+| github.com/kantan-kanto/ComfyUI-ScriptFlow | projeto relacionado | comparação com cf_dag | — | — | ESTUDADO — DISPENSADO | nó de script que consulta a Jev (TypeSafe), removida do Studio; nada a reaproveitar |
+| github.com/thinkany-ai/autojev | projeto relacionado | comparação | — | — | ESTUDADO — DISPENSADO | ligado à Jev (TypeSafe), removida do Studio |
 
 ## Scenario Skills (métodos e evidência)
 
@@ -59,11 +59,11 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 
 | Fonte | Motor | Capacidade-alvo | Consumidores | Contrato I/O | Estado | Evidência / próxima ação |
 |---|---|---|---|---|---|---|
-| github.com/floomhq/opencut | editor de vídeo web | comparação | Fábrica | — | NÃO INICIADO | não aberto |
-| github.com/gyoridavid/short-video-maker | gerador de vídeos curtos | comparação | Fábrica | — | NÃO INICIADO | não aberto |
-| github.com/harry0703/MoneyPrinterTurbo | gerador de vídeos | comparação | Fábrica | — | NÃO INICIADO | não aberto |
+| github.com/floomhq/opencut | editor de vídeo web | comparação | Fábrica | — | ESTUDADO — SEM CÓDIGO | README lido: motor de vídeo em Remotion/TypeScript (timeline por código); outra pilha, só comparação |
+| github.com/gyoridavid/short-video-maker | gerador de vídeos curtos | comparação | Fábrica | — | ESTUDADO — SEM CÓDIGO | README lido: TTS + legendas + vídeos de fundo + música, REST/MCP; sem geração de vídeo; nada novo para a Fábrica |
+| github.com/harry0703/MoneyPrinterTurbo | gerador de vídeos | comparação | Fábrica | — | ESTUDADO — SEM CÓDIGO | README lido: tema → roteiro → material → legenda → música → vídeo (stock footage, não gera vídeo); a Fábrica do Studio já cobre roteiro, voz e montagem |
 | github.com/jutsuhq/content-factory | vendorizado em vendor/content_factory (MIT) | Fábrica de vídeo: modo desenhado + modo «states» com cenas do ComfyUI local | app factory | texto→vídeo | TESTADO CPU | render narrado real em CPU (V6); modo «states» ligado ao gerador local pelo hook `private` (sem API paga), frames/cache/9:16 testados com o motor real e um pintor de imagens no lugar do ComfyUI (tests/test_factory_scenes.py); cenas reais BLOQUEADO_GPU |
-| github.com/wexloops/openfield | projeto de produção de conteúdo | comparação | Fábrica | — | NÃO INICIADO | não aberto |
+| github.com/wexloops/openfield | projeto de produção de conteúdo | comparação | Fábrica | — | CÓDIGO ESCRITO | README e catálogo lidos (MIT, concorrente «Higgsfield» do Comfy): a Direção virou campos de Gênero + 6 eixos de cinema em Criar imagem e nos apps de vídeo (cf_director.py, vocabulário próprio, crédito no módulo). Ideias NÃO feitas: Cast (@menção a personagens salvos), Coverage (9 planos), Seamless Loop, Reshoot, Scene (LLM planeja 2-6 planos), Stage 3D, Mirror |
 | higgsfield.ai/blog/higgsfield-introduces-content-factory | referência de produto | UX da Fábrica | Fábrica | — | CÓDIGO ESCRITO | inspirou o fluxo; sem cópia de código |
 
 ## Workflows e modelos do catálogo comunitário
@@ -134,7 +134,7 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 | bfl.ai/models/flux-2-klein | FLUX.2 Klein 4B | modelo de imagem leve | create, edit | text/image→image | TESTADO GPU | única evidência de GPU: 512², 4 passos, 280 s com download (Colab antigo) |
 | github.com/Blueforcer/ComfyUI-DLSS5-Enhancer | pacote ComfyUI | realce/upscale | upscale (modo) | image→image | ESTUDADO — INVIÁVEL NA T4 | README lido: roda num worker nativo D3D12 (ReShade + RenoDX + NGX) só no Windows com GPU RTX; não existe no Colab/Linux |
 | github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_2_1_image_edit.json | ComfyUI nativo (template oficial) | grafo de edição Qwen 2.1 (modo do app Editar) | edit | image+text→image | TESTADO CPU | grafo do preset qwen21 validado contra /object_info (V7); GPU não medida |
-| github.com/Niko1221/Strata | projeto de imagem | comparação | — | — | NÃO INICIADO | — |
+| github.com/Niko1221/Strata | projeto de imagem | comparação | — | — | ESTUDADO — SEM CÓDIGO | README lido: app desktop de LLM local (GGUF); mesmo território do colibri/llama.cpp já integrados |
 | github.com/artfat-creator/ComfyUI-Artfat-MOSS-BBox | pacote ComfyUI (MIT) | não é necessário: o app usa só nós do núcleo; o pacote serviu de referência da receita de edição | moss | image+bbox→image | TESTADO CPU | código lido; receita reimplementada com nós do núcleo e validada no ComfyUI real |
 | github.com/black-forest-labs/flux2 | FLUX.2 | modelo de imagem | create | — | TESTADO GPU | mesma evidência acima |
 | github.com/black-forest-labs/flux2/blob/main/model_licenses/LICENSE-FLUX-NON-COMMERICAL | FLUX.2 | modelo de imagem | create | — | TESTADO GPU | mesma evidência acima |
@@ -146,12 +146,12 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 
 | Estado | Fontes |
 |---|---|
-| NÃO INICIADO | 29 |
+| NÃO INICIADO | 20 |
 | TESTADO CPU | 16 |
-| CÓDIGO ESCRITO | 19 |
+| CÓDIGO ESCRITO | 20 |
 | ESTUDADO — INVIÁVEL NA T4 | 14 |
-| ESTUDADO — DISPENSADO | 1 |
-| ESTUDADO — SEM CÓDIGO | 2 |
+| ESTUDADO — DISPENSADO | 4 |
+| ESTUDADO — SEM CÓDIGO | 7 |
 | baseline (não é capacidade) | 4 |
 | TESTADO API REAL | 3 |
 | TESTADO GPU | 3 |
