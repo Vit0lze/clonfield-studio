@@ -36,9 +36,9 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 |---|---|---|---|---|---|---|
 | github.com/scenario-labs/skills | método (MIT) | ver as 7 linhas acima | — | — | TESTADO CPU | ver linhas por skill |
 | github.com/scenario-labs/skills/blob/main/skills/scenario-asset-analysis/SKILL.md | método | análise de ativos de entrada | agente (inspect_artifact) | image→json | CÓDIGO ESCRITO | inspect_artifact mede dimensões e gate técnico; sem análise semântica |
-| github.com/scenario-labs/skills/blob/main/skills/scenario-consistency/SKILL.md | método | consistência de personagem entre cenas | chat, Fábrica | image[]→report | NÃO INICIADO | sem avaliador de identidade |
+| github.com/scenario-labs/skills/blob/main/skills/scenario-consistency/SKILL.md | método | consistência de personagem entre cenas | chat, Fábrica | image[]→report | ESTUDADO — SEM CÓDIGO | lido: consistência vem de prompt-base + delta, imagens de referência e (depois) modelo treinado; seed não resolve. O Studio já passa referências e o prompt vai por conta do agente; nada novo implementado |
 | github.com/scenario-labs/skills/blob/main/skills/scenario-formats/SKILL.md | método | formatos de saída por rede social | frame | image→image | TESTADO CPU | capacidade frame com 4 proporções |
-| github.com/scenario-labs/skills/blob/main/skills/scenario-model-comparison/SKILL.md | método | comparar modelos A/B com a mesma seed | benchmark do Studio | image[]→report | NÃO INICIADO | exige GPU para comparar de verdade |
+| github.com/scenario-labs/skills/blob/main/skills/scenario-model-comparison/SKILL.md | método | comparar modelos A/B com a mesma seed | benchmark do Studio | image[]→report | TESTADO CPU | app «Comparar modelos» (cf_compare.py): mesma entrada em 2-3 modelos, tempo frio/quente, segundos por passo, VRAM e folha lado a lado; sem preço (modelos locais); sementes não transferem entre modelos, como o método diz; geração em si BLOQUEADA_GPU |
 | github.com/scenario-labs/skills/blob/main/skills/scenario-quality-gate/SKILL.md | método adaptado (cf_refine) | capacidade quality_gate | create, edit, agente | image→report json | TESTADO CPU | tests/test_capabilities.py, test_refine_router.py |
 | github.com/scenario-labs/skills/blob/main/skills/scenario-refine-loop/SKILL.md | método adaptado (cf_refine.refine) | laço de reparo com teto de rodadas | create (opção refinar) | image→image | TESTADO CPU | test_refine_router.py |
 | github.com/scenario-labs/skills/blob/main/skills/scenario-workflows/SKILL.md | método: workflow como grafo tipado | cf_dag | agente, API /dag | graph json | TESTADO CPU | tests/test_dag.py (cache por hash, retomada) |
@@ -79,7 +79,7 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 | civitai.red/models/2986253/qwen-image-21-character-sheet-designer-image-generation | workflow folha de personagem | capacidade character_sheet (futura) | chat, Fábrica | text+image→image[] | NÃO INICIADO | — |
 | civitai.red/models/2988187/minimax-h3-character-swap-workflow | workflow H3 character swap | troca de personagem em vídeo | alternativa a openjutsu | video+image→video | ESTUDADO — INVIÁVEL NA T4 | medido na API do HF (Comfy-Org/MiniMax-H3): o menor modelo de difusão é 16 GB (w6a8 podado) e o codificador Qwen3-VL 32B menor é 15,7 GB (nvfp4): ~32 GB de pesos só para começar, sem os VAEs (2,8–5,2 GB). Há ~50 templates oficiais (convertíveis com `cf_ui2api`); fica para uma GPU de ≥48 GB. Licença «other»
 | civitai.red/models/2989697/qwen-image-21-restore-lora?modelVersionId=3390033 | LoRA Qwen 2.1 Restore (ausboss, HF) | app Restaurar foto | restore | image→image | CÓDIGO ESCRITO | prompts oficiais, ~2 MP, força 1,0 ou 0,5 (foto desfocada); testado em CPU; geração BLOQUEADO_GPU |
-| civitai.red/models/3004026/flux-3-image-klein-multi-image-edit-or-up-to-6-pictures | FLUX.3 Klein multi-imagem | edição com até 6 imagens | edit (modelo) | image[]→image | NÃO INICIADO | FLUX.3 está indisponível no catálogo (repo restrito) |
+| civitai.red/models/3004026/flux-3-image-klein-multi-image-edit-or-up-to-6-pictures | FLUX.3 Klein multi-imagem | edição com até 6 imagens | edit (modelo) | image[]→image | ESTUDADO — SEM CÓDIGO | página lida: usa nós AusBoss e o modelo gated da BFL (não consegui ler o cartão); o preset FLUX.3 mantém as 3 referências do template oficial, 6 só se medido em GPU |
 | civitai.red/models/3010615/moss-image-inpainting-workflow | workflow MOSS inpainting | capacidade inpaint por máscara | region | image+mask→image | NÃO INICIADO | a máscara a partir de caixas já existe (bbox_mask) |
 | civitai.red/models/3020564/artfat-moss-bbox-studio-or-generate-edit-llm-prompter-50-presets-dlss5-enhancer | MOSS BBox Studio (Artfat) | app Caixas (MOSS): gerar por caixas, editar só as caixas (DifferentialDiffusion + colagem do original), editar por instrução (template oficial) — tudo com nós do núcleo do ComfyUI | app moss, agente (futuro) | image?+boxes+texto→image | CÓDIGO ESCRITO | CORREÇÃO: eu tinha escrito que o MOSS não tinha versão quantizada: tem (Comfy-Org/MOSS-Image: INT8 5,4 GB + Qwen3.5-9B W4A8 7,3 GB + VAE 0,25 GB). Os 3 grafos são ACEITOS pelo ComfyUI 0.44 real em CPU, e a cadeia caixas→CreateBoundingBoxes→MOSSImageLayoutPrompt foi EXECUTADA de verdade e produziu o prompt de layout. Nenhuma imagem gerada (T4) |
 | civitai.red/models/3028227/qwen-character-asset-generator-emotionactionangle-workflows | workflow de ativos de personagem | emoção/ação/ângulo | Fábrica | image→image[] | NÃO INICIADO | — |
@@ -146,11 +146,12 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 
 | Estado | Fontes |
 |---|---|
-| NÃO INICIADO | 34 |
-| TESTADO CPU | 15 |
+| NÃO INICIADO | 31 |
+| TESTADO CPU | 16 |
 | CÓDIGO ESCRITO | 17 |
 | ESTUDADO — INVIÁVEL NA T4 | 14 |
 | ESTUDADO — DISPENSADO | 1 |
+| ESTUDADO — SEM CÓDIGO | 2 |
 | baseline (não é capacidade) | 4 |
 | TESTADO API REAL | 3 |
 | TESTADO GPU | 3 |

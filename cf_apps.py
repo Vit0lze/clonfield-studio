@@ -17,6 +17,7 @@ import cf_jobs
 import cf_civitai
 import cf_loras
 import cf_model_lab as lab
+import cf_compare as compare
 import cf_openjutsu as openjutsu
 import cf_refine as refine
 import cf_3d as image3d
@@ -463,6 +464,56 @@ def run_benchmark(ctx, p, tier):
     ctx.job.update(message=f"{tier.gpu}: frio {record['cold_seconds']} s · quente {record['warm_seconds']} s ({record['steps_per_second']} passos/s)"
                            + (f" · {big['side']}² em {big['seconds']} s" if big else ""))
     return last
+
+
+def vram_used_gb():
+    """Device memory in use right now, from ComfyUI's own stats (None when unreadable)."""
+    import requests
+    try:
+        stats = requests.get(f"{workflows.SERVER}/system_stats", timeout=3).json()["devices"][0]
+        return round((stats["vram_total"] - stats["vram_free"]) / 1024**3, 2)
+    except (requests.RequestException, KeyError, IndexError, ValueError):
+        return None
+
+
+def run_compare_models(ctx, p, tier):
+    """One brief through 2-3 image models: cold run (weights load included), then a warm run with a fresh seed; a contact sheet with the
+    measured seconds per step and VRAM. Numbers come from this machine; see cf_compare."""
+    try:
+        keys = compare.pick_models(p.get("model_a"), p.get("model_b"), p.get("model_c"), valid=IMAGE_MODELS)
+    except ValueError as exc:
+        raise JobError(str(exc)) from None
+    prompt = (p.get("prompt") or "").strip()
+    if not prompt:
+        raise JobError("Escreva o pedido que todos os modelos vão receber.")
+    side = min(int(p.get("side") or 768), tier.max_side)
+    seed = int(p.get("seed", -1))
+    seed = random.randrange(2**31) if seed < 0 else seed
+    warm = bool(p.get("warm", True))
+    items = []
+    for index, key in enumerate(keys):
+        ctx.check()
+        preset = lab.PRESETS[key]
+        ctx.progress(index / len(keys), desc=f"Comparar · {MODEL_INFO[key]['name']} (frio)")
+        params = {"prompt": prompt, "seed": seed + index, "free_vram": not warm}
+        begin = time.monotonic()
+        made = run_graph_images(ctx, preset, params, [], side, side, 1)
+        cold = time.monotonic() - begin
+        vram = vram_used_gb()
+        hot = None
+        if warm:
+            ctx.progress((index + 0.5) / len(keys), desc=f"Comparar · {MODEL_INFO[key]['name']} (quente)")
+            begin = time.monotonic()
+            run_graph_images(ctx, preset, {**params, "seed": seed + 1000 + index, "free_vram": True}, [], side, side, 1)  # free: the next model loads from a clean slate
+            hot = time.monotonic() - begin
+        items.append(dict(model=key, title=MODEL_INFO[key]["name"], seed=params["seed"], cfg=preset.cfg, size=(side, side), vram_gb=vram,
+                          timing=compare.measure(cold, hot, compare.steps_of(preset)), image=made[0]))
+    destination = finish.output_path(ctx.out_dir, "comparacao", ".png")
+    compare.sheet(items, prompt).save(destination)
+    compare.append_history(ENV["base"] / "compare_models.json", compare.record(items, prompt, tier.gpu, round(tier.vram_gb, 1)))
+    quickest = compare.faster(items)
+    ctx.job.update(message=compare.summary_line(items) + (f" · mais rápido: {quickest[0]} ({quickest[1]}× o mais lento)" if quickest and quickest[1] else ""))
+    return [destination, *[item["image"] for item in items]]
 
 
 def run_region(ctx, p, tier):
@@ -1073,6 +1124,16 @@ def build_registry():
     return [
         App("create", "Criar imagem", "Imagem", "Do texto à imagem com o modelo que você escolher.", "image",
             run_image, lambda t: image_fields(t)),
+        App("compare_models", "Comparar modelos", "Imagem", "O mesmo pedido em 2 ou 3 modelos, lado a lado, com segundos por passo e VRAM medidos nesta placa.", "image", run_compare_models,
+            lambda t: [dict(id="prompt", type="textarea", label="Pedido (igual para todos)", default="", required=True, rows=3),
+                       dict(id="model_a", type="select", label="Modelo A", default="qwen21", options=[opt(k, MODEL_INFO[k]["name"], MODEL_INFO[k]["tagline"]) for k in IMAGE_MODELS]),
+                       dict(id="model_b", type="select", label="Modelo B", default="qwen21-turbo", options=[opt(k, MODEL_INFO[k]["name"], MODEL_INFO[k]["tagline"]) for k in IMAGE_MODELS]),
+                       dict(id="model_c", type="select", label="Modelo C (opcional)", default="none", options=[opt("none", "Nenhum", ""), *[opt(k, MODEL_INFO[k]["name"], MODEL_INFO[k]["tagline"]) for k in IMAGE_MODELS]]),
+                       dict(id="side", type="chips", label="Lado da imagem", default=768, options=[opt(n, f"{n}px", "") for n in (512, 768, 1024) if n <= t.max_side]),
+                       dict(id="warm", type="switch", label="Medir também o tempo quente (roda cada modelo duas vezes)", default=True,
+                            help="O tempo frio inclui carregar os pesos. O quente usa uma seed nova com os pesos já na memória e dá o segundos por passo mais justo."),
+                       dict(id="seed", type="number", label="Seed", default=-1, advanced=True)],
+            note="Mede tempo e VRAM desta placa; nada é estimado. Cada modelo baixa seus pesos no primeiro uso."),
         App("edit", "Editar com referências", "Imagem", "Mude o que importa e preserve o resto.", "image",
             run_image, lambda t: image_fields(t, 1, prompt_label="O que deve mudar?", refs_label="Imagem a editar")),
         App("relight", "Luz ambiente", "Imagem", "Posicione luzes, escolha cor e intensidade e a IA integra à foto.", "image",
