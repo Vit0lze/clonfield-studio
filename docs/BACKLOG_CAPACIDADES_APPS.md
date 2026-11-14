@@ -94,7 +94,7 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 
 | Fonte | Motor | Capacidade-alvo | Consumidores | Contrato I/O | Estado | Evidência / próxima ação |
 |---|---|---|---|---|---|---|
-| blog.comfy.org/p/wan22-animate-and-qwen-image-edit-2509 | Wan Animate + Qwen Edit 2509 | alternativa ao OpenJutsu (animar/substituir personagem) | swap em vídeo | video+image→video | NÃO INICIADO | — |
+| blog.comfy.org/p/wan22-animate-and-qwen-image-edit-2509 | Wan Animate 2 (template oficial `video_wan_animate2_distilled`, INT8 16,6 GB) + Wan 2.1 SCAIL-2 (`video_wan21_scail2_character_replacement_int8`) | apps Animar personagem e Substituir personagem (cf_templates.py), alternativas ao OpenJutsu | scail2, animate2 | video+image→video | TESTADO CPU | templates com subgrafos convertidos por `cf_ui2api.flatten`; o ComfyUI 0.44 real em CPU ACEITA os grafos (30–39 nós podados); pesos com revisão/SHA da API do HF. Modelos de 16,6 GB + codificador de 6,7 GB: apps travados em 24 GB de VRAM com o motivo à mostra; NADA gerado (BLOQUEADO_GPU) e a T4 de 15 GB provavelmente não roda |
 | docs.facefusion.io/usage/cli-arguments/face-selector | documentação | seleção de rosto (`--face-selector-*`) | swap | — | TESTADO CPU | opções usadas conferidas contra o `--help` real |
 | github.com/Gourieff/comfyui-reactor | ReActor (ComfyUI) | troca de rosto | swap | image+image→image | NÃO INICIADO | — |
 | github.com/PrunaAI | organização de modelos quantizados | — | — | — | NÃO INICIADO | — |
@@ -146,9 +146,9 @@ Cada item é decidido como: motor compartilhado, passo reutilizável de DAG, aç
 
 | Estado | Fontes |
 |---|---|
-| NÃO INICIADO | 54 |
+| NÃO INICIADO | 53 |
 | CÓDIGO ESCRITO | 14 |
-| TESTADO CPU | 13 |
+| TESTADO CPU | 14 |
 | baseline (não é capacidade) | 4 |
 | TESTADO API REAL | 3 |
 | TESTADO GPU | 3 |

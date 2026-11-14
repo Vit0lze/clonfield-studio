@@ -42,6 +42,8 @@ CAPABILITIES = {
     "audio": (set(), "audio som efeito sonoro musica trilha ambiente loop sfx barulho sound music track ambience", "low"),
     "image3d": ({"image"}, "3d modelo malha glb objeto tridimensional mesh trellis pixal3d model", "low"),
     "moss": (set(), "caixas layout posicionar letreiro texto na imagem bbox boxes layout cartaz poster redesenhar area", "low"),
+    "scail2": ({"video", "image"}, "substituir personagem trocar personagem no video scail pose replace character swap actor", "medium"),
+    "animate2": ({"video", "image"}, "animar personagem seguir movimento dancar imitar movimento animate character motion transfer dance", "low"),
     "compare": ({"image"}, "comparar antes depois lado compare before after side", "low"),
     "openjutsu": ({"video", "image"}, "trocar personagem swap substituir pessoa no video replace character", "high"),
 }
@@ -143,7 +145,7 @@ def route(request, media, registry, tier, installed_nodes=None, provider=None):
 
 
 # What each app hands to the next step (media kinds), used to chain a plan.
-PRODUCES = {"moss": "image", "image3d": "file", "audio": "audio", "faceswap": "image", "outpaint": "image", "restore": "image", "outfit": "image", "clip": "video", "sequence": "video", "text2video": "video", "animate": "video", "openjutsu": "video",
+PRODUCES = {"scail2": "video", "animate2": "video", "moss": "image", "image3d": "file", "audio": "audio", "faceswap": "image", "outpaint": "image", "restore": "image", "outfit": "image", "clip": "video", "sequence": "video", "text2video": "video", "animate": "video", "openjutsu": "video",
             "board": "image", "compare": "image", "seethrough": "image"}
 MAX_STEPS = 5
 FINISHED_AT = 0.35  # Noul is weakly calibrated (0.43 right after a fulfilled one-step request), so stop early

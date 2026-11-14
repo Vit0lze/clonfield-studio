@@ -21,6 +21,7 @@ import cf_wan
 HOME = Path(os.environ.get("CLONFIELD_COMFY_CPU_HOME") or Path.home() / ".cache" / "clonfield-comfyui")
 URL = os.environ.get("CLONFIELD_COMFY_CPU_URL", "http://127.0.0.1:8199")
 IMAGE = Path(__file__).parent / "e2e" / "fixtures" / "portrait.png"
+VIDEO = Path(__file__).parent / "e2e" / "fixtures" / "clip.mp4"
 
 
 def up(url):
@@ -53,7 +54,7 @@ def comfy():
 
 
 def ok(comfy, graph):
-    return check.validate(graph, comfy["url"], str(comfy["models"]), str(comfy["inputs"]), str(IMAGE))
+    return check.validate(graph, comfy["url"], str(comfy["models"]), str(comfy["inputs"]), str(IMAGE), str(VIDEO))
 
 
 def explain(errors):
@@ -145,3 +146,25 @@ def test_every_image_recipe_with_loras_and_references_is_accepted(comfy):
                 assert errors == [], (key, refs, lora, explain(errors))
                 checked += 1
     assert checked >= 20
+
+
+@pytest.mark.parametrize("key", ["scail2", "animate2"])
+def test_character_replacement_templates_convert_with_subgraphs_and_are_accepted(comfy, key):
+    """Official Wan SCAIL-2 / Wan Animate 2 templates (subgraphs flattened by cf_ui2api): the real worker validates the 47-82 node graphs."""
+    import cf_templates
+    graph = cf_templates.build(key, comfy["info"], prompt="a stylish dancer", seed=4)
+    assert len(graph) > 25
+    errors = ok(comfy, graph)
+    assert errors == [], explain(errors)
+    names = {n for n, _ in cf_templates.files_for(key, graph)}
+    assert any(n.endswith("int8_convrot.safetensors") for n in names)
+
+
+def test_the_official_stable_audio_template_with_its_reprompt_subgraph_converts_too(comfy):
+    """A second subgraph template (Stable Audio 3 + Qwen re-prompt): converted mechanically and accepted."""
+    import cf_ui2api
+    wf = requests.get("https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/audio_stable_audio_3_medium.json", timeout=30).json()
+    graph = cf_ui2api.convert(wf, comfy["info"])
+    assert len(graph) > 15
+    errors = ok(comfy, graph)
+    assert errors == [], explain(errors)

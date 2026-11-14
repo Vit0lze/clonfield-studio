@@ -20,6 +20,7 @@ import cf_model_lab as lab
 import cf_openjutsu as openjutsu
 import cf_refine as refine
 import cf_3d as image3d
+import cf_templates as templates
 import cf_moss as moss
 import cf_audio as audio
 import cf_edits as edits
@@ -539,6 +540,23 @@ def save_png(image, ctx, stem):
 MOSS_SIZES = {"Vertical · 768 × 1152": (768, 1152), "Horizontal · 1152 × 768": (1152, 768), "Quadrado · 1024 × 1024": (1024, 1024)}
 
 
+def run_template(key):
+    def run(ctx, p, tier):
+        import requests
+        video, image = (p.get("video") or [None])[0], (p.get("image") or [None])[0]
+        try:
+            with requests.Session() as session:
+                session.trust_env = False
+                info = session.get(f"{workflows.SERVER}/object_info", timeout=60).json()
+            graph = templates.build(key, info, prompt=p.get("prompt", ""), seed=int(p.get("seed", -1)))
+        except (ValueError, requests.RequestException) as exc:
+            raise JobError(f"Não consegui montar o grafo: {exc}") from None
+        job = workflows.run(graph, ctx.out_dir, ctx.progress, prepare=partial(templates.prepare, key=key, video=video, image=image), title=templates.TEMPLATES[key]["title"],
+                            control=ctx.control, family="template", stall=5400)
+        return collect_job(ctx, job)
+    return run
+
+
 def run_moss(ctx, p, tier):
     import requests
     mode = p.get("mode") or "generate"
@@ -1016,6 +1034,13 @@ def build_registry():
             note="No primeiro uso o Studio baixa os pesos do modelo escolhido (o tamanho aparece em cada opção)."),
         App("text2video", "Texto em vídeo", "Vídeo", "Descreva a cena e receba um clipe.", "video", run_wan, wan_fields(wan.TEXT_MODE, False),
             note="No primeiro uso o Studio baixa os pesos do modelo escolhido (o tamanho aparece em cada opção)."),
+        *[App(key, spec["title"], "Vídeo", spec["about"], "video", run_template(key),
+              (lambda t: [dict(id="video", type="files", label="Vídeo com o movimento", accept="video", max=1, min=1),
+                          dict(id="image", type="files", label="Foto do personagem", accept="image", max=1, min=1),
+                          dict(id="prompt", type="textarea", label="Descrição (opcional)", default="", rows=3, help="Vazio mantém o texto do exemplo oficial do template."),
+                          dict(id="seed", type="number", label="Seed", default=-1, advanced=True)]),
+              min_vram=spec["min_vram"], note="Workflow oficial do ComfyUI (MIT), convertido com o /object_info do worker. Modelo de 16,6 GB + codificador de 6,7 GB: precisa de uma GPU grande; grafo validado, nada gerado.")
+          for key, spec in templates.TEMPLATES.items()],
         App("moss", "Caixas (MOSS)", "Imagem", "Desenhe caixas e escreva o que vai em cada uma: gere a cena inteira ou redesenhe só aquelas áreas.", "image", run_moss,
             lambda t: [dict(id="mode", type="chips", label="O que fazer", default="generate", options=[opt(k, v, "") for k, v in moss.MODES.items()]),
                        dict(id="image", type="files", label="Imagem (para editar)", accept="image", max=1, min=0, help="Só nos modos de edição."),

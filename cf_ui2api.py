@@ -6,7 +6,7 @@ hide; this does it mechanically and `validate()` then asks the real ComfyUI (POS
 
 What it handles: links, widget values by definition order (including the extra `control_after_generate` value), converted-to-input widgets, muted
 /bypassed nodes (dropped / passed through), Reroute and Primitive nodes (resolved), UI-only notes (dropped), pruning to the ancestors of the
-output nodes you ask for, and overriding any widget value. What it does not: subgraphs (raises, so a caller never queues half a graph).
+output nodes you ask for, and overriding any widget value. Subgraphs are flattened first (`flatten`): nested ones too; their promoted widgets become literal inputs of the inner nodes.
 """
 
 PRIMITIVES = {"INT", "FLOAT", "STRING", "BOOLEAN"}
@@ -66,10 +66,7 @@ def take_widgets(entries, values, cursor, prefix, out):
 def convert(workflow, objinfo, outputs=None, overrides=None):
     """-> {node_id: {"class_type", "inputs"}}. `outputs`: ids of the nodes to keep (with their ancestors); None keeps every output node.
     `overrides`: {node_id: {input_name: value}} applied last (a link input can be replaced by a literal too)."""
-    if (workflow.get("definitions") or {}).get("subgraphs"):
-        used = {n["type"] for n in workflow["nodes"]} & {sg["id"] for sg in workflow["definitions"]["subgraphs"]}
-        if used:
-            raise ConversionError("O workflow usa subgrafos; abra no ComfyUI e exporte em formato API, ou monte o grafo à mão.")
+    workflow = flatten(workflow)
     nodes = {n["id"]: n for n in workflow["nodes"]}
     links = {}
     for link in workflow.get("links", []):
@@ -110,6 +107,8 @@ def convert(workflow, objinfo, outputs=None, overrides=None):
             origin, slot, *_ = links[entry["link"]]
             resolved = resolve(origin, slot)
             inputs[name] = resolved[1] if resolved[0] == "literal" else [resolved[1], resolved[2]]
+        for name, value in (node.get("_literals") or {}).items():
+            inputs.setdefault(name, value)
         values = list(node.get("widgets_values") or [])
         found = {}
         take_widgets(widget_inputs(definition), values, 0, "", found)
@@ -120,7 +119,7 @@ def convert(workflow, objinfo, outputs=None, overrides=None):
     for nid, changes in (overrides or {}).items():
         graph[str(nid)]["inputs"].update(changes)
     fold_switches(graph)
-    keep = outputs if outputs is not None else [int(k) for k, v in graph.items() if objinfo[v["class_type"]].get("output_node")]
+    keep = outputs if outputs is not None else [k for k, v in graph.items() if objinfo[v["class_type"]].get("output_node")]
     needed, stack = set(), [str(k) for k in keep]
     while stack:
         nid = stack.pop()
@@ -166,3 +165,82 @@ def fold_switches(graph):
                         other["inputs"][name] = chosen
             del graph[nid]
             changed = True
+
+
+def _link_records(workflow):
+    out = {}
+    for link in workflow.get("links", []):
+        if isinstance(link, list):
+            out[link[0]] = dict(id=link[0], origin_id=link[1], origin_slot=link[2], target_id=link[3], target_slot=link[4], type=link[5])
+        else:
+            out[link["id"]] = dict(link)
+    return out
+
+
+def flatten(workflow):
+    """Inline every subgraph node (recursively) so the rest of the converter sees plain nodes. Inner nodes get ids "outer:inner"."""
+    import copy
+    subgraphs = {sg["id"]: sg for sg in (workflow.get("definitions") or {}).get("subgraphs", [])}
+    if not subgraphs or not ({n["type"] for n in workflow["nodes"]} & set(subgraphs)):
+        return workflow
+    nodes = {n["id"]: copy.deepcopy(n) for n in workflow["nodes"]}
+    links = _link_records(workflow)
+    for _ in range(20):  # nesting depth
+        target = next((n for n in nodes.values() if n["type"] in subgraphs), None)
+        if target is None:
+            break
+        sg, outer, prefix = subgraphs[target["type"]], target, f"{target['id']}:"
+        del nodes[outer["id"]]
+        # widgets_values follows the SUBGRAPH's inputs of a widget type, in order (the outer node may not even list them as sockets);
+        # a widget wired to a link still owns its slot. A link on the outer node wins over the stored value.
+        widget_values = iter(outer.get("widgets_values") or [])
+        wired = {e["name"]: e["link"] for e in outer.get("inputs", []) if e.get("link") is not None}
+        provided = {}
+        for spec in sg["inputs"]:
+            is_widget = spec["type"] in ("INT", "FLOAT", "STRING", "BOOLEAN", "COMBO")
+            value = next(widget_values, None) if is_widget else None
+            if spec["name"] in wired:
+                provided[spec["name"]] = ("link", links[wired[spec["name"]]])
+            elif is_widget:
+                provided[spec["name"]] = ("literal", value)
+        inner_nodes = {}
+        for node in sg["nodes"]:
+            clone = copy.deepcopy(node)
+            clone["id"] = prefix + str(node["id"])
+            inner_nodes[node["id"]] = clone
+            nodes[clone["id"]] = clone
+        outputs = {}
+        for link in sg["links"]:
+            origin, slot, dest, dslot = link["origin_id"], link["origin_slot"], link["target_id"], link["target_slot"]
+            if dest == -20:
+                outputs[dslot] = (prefix + str(origin), slot)
+                continue
+            target_node = inner_nodes[dest]
+            entry = target_node["inputs"][dslot]
+            if origin == -10:
+                name = sg["inputs"][slot]["name"]
+                kind, value = provided.get(name, ("literal", None))
+                if kind == "link":
+                    new_id = prefix + str(link["id"])
+                    links[new_id] = dict(id=new_id, origin_id=value["origin_id"], origin_slot=value["origin_slot"], target_id=clone_id(target_node), target_slot=dslot, type=value.get("type"))
+                    entry["link"] = new_id
+                else:
+                    entry["link"] = None
+                    if value is not None:
+                        target_node.setdefault("_literals", {})[entry["name"]] = value
+            else:
+                new_id = prefix + str(link["id"])
+                links[new_id] = dict(id=new_id, origin_id=prefix + str(origin), origin_slot=slot, target_id=clone_id(target_node), target_slot=dslot, type=link.get("type"))
+                entry["link"] = new_id
+        for node in inner_nodes.values():  # inner sockets that were wired inside the subgraph keep their (renamed) links only
+            for entry in node.get("inputs", []):
+                if entry.get("link") is not None and entry["link"] not in links:
+                    entry["link"] = None
+        for record in links.values():  # whatever read the subgraph node's outputs now reads the inner producer
+            if record["origin_id"] == outer["id"] and record["origin_slot"] in outputs:
+                record["origin_id"], record["origin_slot"] = outputs[record["origin_slot"]]
+    return dict(workflow, nodes=list(nodes.values()), links=list(links.values()), definitions={})
+
+
+def clone_id(node):
+    return node["id"]

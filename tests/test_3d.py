@@ -55,9 +55,7 @@ def test_converter_handles_dynamic_combos_colors_and_seed_controls():
     assert g["3"]["inputs"]["background"] == "#ff0000"
 
 
-def test_converter_refuses_subgraphs_and_unknown_nodes_instead_of_queueing_half_a_graph():
-    with pytest.raises(u.ConversionError, match="subgrafos"):
-        u.convert({"nodes": [{"id": 1, "type": "abc"}], "links": [], "definitions": {"subgraphs": [{"id": "abc"}]}}, OBJ)
+def test_converter_refuses_unknown_nodes_that_are_needed_instead_of_queueing_half_a_graph():
     with pytest.raises(u.ConversionError, match="não existe"):
         u.convert({"nodes": [{"id": 1, "type": "NoSuchNode", "widgets_values": []}], "links": []}, OBJ, outputs=[1])
     ignored = u.convert({"nodes": [{"id": 1, "type": "NoSuchNode", "widgets_values": []}, {"id": 2, "type": "PrimitiveInt", "widgets_values": [3, "fixed"], "inputs": []}], "links": []}, OBJ, outputs=[2])

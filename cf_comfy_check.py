@@ -27,7 +27,7 @@ def _errors(body):
     return out
 
 
-def validate(graph, url, models_dir=None, input_dir=None, image=None, rounds=3):
+def validate(graph, url, models_dir=None, input_dir=None, image=None, video=None, rounds=3):
     """-> list of remaining validation errors ([] means the worker accepts the graph).
     `models_dir` / `input_dir` / `image`: scratch ComfyUI folders and a real image file used for LoadImage placeholders."""
     import shutil
@@ -58,6 +58,10 @@ def validate(graph, url, models_dir=None, input_dir=None, image=None, rounds=3):
                 if e["type"] == "custom_validation_failed" and "Invalid image file" in text:
                     name = text.rsplit("Invalid image file:", 1)[1].strip()
                     shutil.copyfile(image, Path(input_dir) / name)
+                    fixable = True
+                if video and e["type"] == "custom_validation_failed" and "Invalid video file" in text:
+                    name = text.rsplit("Invalid video file:", 1)[1].strip()
+                    shutil.copyfile(video, Path(input_dir) / name)
                     fixable = True
         if not fixable:
             return errors
