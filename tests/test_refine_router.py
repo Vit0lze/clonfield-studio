@@ -144,3 +144,17 @@ def test_plan_suggests_one_available_step_and_treats_plain_talk_as_conversation(
     with pytest.raises(ValueError):
         cf_router.plan("  ", set(), registry, tier)
 
+
+
+def test_plan_chains_stages_in_pipeline_order_when_the_text_asks_for_several(monkeypatch):
+    monkeypatch.setenv("CLONFIELD_FAKE_VRAM", "24")
+    registry, tier = cf_apps.registry(), cf_tiers.detect()
+    out = cf_router.plan("crie uma imagem de um dragão em qualidade alta e depois faça um vídeo", set(), registry, tier)
+    assert out["chain"] and [s["app"] for s in out["steps"]] == ["create", "upscale", "animate"]
+    assert all(s["probability"] == 1.0 for s in out["steps"])
+    with_image = cf_router.plan("remova o fundo, amplie e anime", {"image"}, registry, tier)
+    assert [s["app"] for s in with_image["steps"]] == ["removebg", "upscale", "animate"]
+    loop = cf_router.plan("gere uma foto e anime em loop", set(), registry, tier)
+    assert [s["app"] for s in loop["steps"]] == ["create", "flf2v"]
+    single = cf_router.plan("amplie esta foto", {"image"}, registry, tier)
+    assert not single.get("chain") and [s["app"] for s in single["steps"]] == ["upscale"]

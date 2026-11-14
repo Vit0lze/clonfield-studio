@@ -33,6 +33,7 @@ Regras:
 - Descubra o que existe com list_capabilities (filtre por texto, por tipo de entrada com accepts, por saída com produces) e inspect_capability. Nunca invente o id de uma capacidade, de uma mídia ou de um parâmetro.
 - As mídias do usuário vêm de list_media; use o campo id delas em {"media": "<id>"}.
 - Monte um grafo JSON: {"nodes":[{"id":"a","cap":"<capacidade>","inputs":{"<entrada>":{"media":"<id>"} ou {"from":"<no>.<saida>"}},"params":{...}}]}. Passos podem se repetir (por exemplo duas ampliações) e podem usar a saída de qualquer passo anterior.
+- Para encadear passos (por exemplo gerar imagem, ampliar e animar em vídeo, escolhendo o modelo de cada passo) prefira compose_chain: ele liga o resultado de um passo ao seguinte e devolve o grafo pronto; com run=sim já executa. Escolha parâmetros reais olhando inspect_capability (modelo, qualidade, duração, seed). Para listas (vários cenários, quadros de um vídeo) um passo pode rodar uma vez por item ("each"), receber um texto de um passo anterior ("bind") ou rodar só se uma medição passar ("when"). Se uma receita de list_recipes cobre o pedido, use run_recipe.
 - Antes de executar, rode validate_graph. Se houver erros, corrija o grafo usando os motivos devolvidos e valide de novo.
 - Execute com execute_graph. Depois confira o resultado com inspect_artifact; se a conferência técnica falhar, ajuste e execute de novo.
 - Apps de GPU e passos de risco alto: se execute_graph responder needs_confirmation, pare e peça ao usuário para confirmar; não tente contornar.
@@ -129,6 +130,8 @@ class Toolbox:
                  parameters=schema(role=S("Difusão|Checkpoint|Encoder|VAE|Upscaler|LoRA", True), family=S("modelo da receita: qwen21|flux2|flux3|krea2|z-image", True), query=S("termo de busca"), source=S("local|civitai|huggingface (padrão local)")), fn=self.search_models),
             dict(name="list_cast", description="Personagens salvos no Elenco (nome e descrição). Num pedido de imagem ou vídeo, escreva @nome no prompt: o Studio troca pela descrição e usa a imagem do personagem como referência.",
                  parameters=schema(), fn=self.list_cast),
+            dict(name="compose_chain", description="Monta um fluxo ligando passos em fila: o resultado de cada passo entra no seguinte (mesmo tipo de mídia). Ex.: gerar imagem, ampliar, animar em vídeo. Cada passo: {\"cap\", \"params\"?, \"inputs\"?: {entrada: id_de_mídia}, \"each\"?}. Se o passo anterior devolve uma lista, o seguinte roda uma vez por item. Com run=sim já executa (se válido).",
+                 parameters=schema(stages_json=S("lista JSON de passos: [{\"cap\":\"app.create\",\"params\":{...}},{\"cap\":\"upscale\"},{\"cap\":\"app.animate\",\"params\":{\"model\":\"5b-q6\"}}]", True), run=S("sim para executar já; padrão não")), fn=self.compose_chain),
             dict(name="list_recipes", description="Receitas prontas: fluxos de vários passos (lote de imagens, matriz de cenários, storyboard em filme…) com o formulário de cada uma. Prefira uma receita a montar o grafo à mão quando ela cobre o pedido.",
                  parameters=schema(), fn=self.list_recipes),
             dict(name="run_recipe", description="Executa uma receita. vars_json é o formulário como objeto JSON (ids de mídia de list_media nos campos de arquivo); uma LISTA de objetos enfileira uma execução por item. Receitas de GPU devolvem job_id.",
@@ -207,6 +210,18 @@ class Toolbox:
         import cf_cast
         items = cf_cast.load(self.env.base)
         return dict(count=len(items), cast=[dict(name=i["name"], mention=f"@{i['name']}", description=i.get("description", ""), has_image=bool(i.get("image"))) for i in items])
+
+    def compose_chain(self, stages_json, run="nao"):
+        try:
+            stages = json.loads(stages_json) if isinstance(stages_json, str) else stages_json
+        except ValueError as exc:
+            raise ValueError(f"stages_json não é JSON válido: {exc}") from None
+        graph = dag.chain(stages, self.registry)
+        report = dag.validate(graph, self.registry, self.env.tier, self.env.resolve_media)
+        out = dict(graph=graph, ok=report["ok"], errors=[e["message"] for e in report["errors"]], order=report["order"], resources=report["resources"])
+        if report["ok"] and str(run).lower() in ("sim", "true", "1", "yes"):
+            out["execution"] = self.execute_graph(json.dumps(graph))
+        return out
 
     def list_recipes(self):
         import cf_recipes

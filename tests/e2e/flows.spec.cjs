@@ -43,3 +43,16 @@ test("Fluxos: formulário de GPU mostra o estado honesto e as linhas viram passo
   await page.locator("textarea").fill("só um plano");
   await expect(page.locator(".flow-steps .bad")).toContainText(/use de 2 a 6 linhas/);
 });
+
+test("Chat sem agente: pedido com vários estágios vira uma fila de 3 passos ligados", async ({ page }) => {
+  await open(page, "#/chat");
+  await settle(page); await noErrorCard(page);
+  await page.getByLabel("Mensagem").fill("crie uma imagem de um farol em qualidade alta e depois faça um vídeo");
+  await page.getByLabel("Mensagem").press("Enter");
+  const rail = page.locator(".path .steps li.step");
+  await expect(rail).toHaveCount(3, { timeout: 15000 });
+  await expect(rail.nth(0)).toContainText("Criar");
+  await expect(rail.nth(1)).toContainText(/Ampliar/);
+  await expect(rail.nth(2)).toContainText("usa o resultado do passo anterior");
+  await expect(rail.nth(1).getByRole("button", { name: "Executar" })).toBeEnabled();
+});

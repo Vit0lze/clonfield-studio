@@ -544,6 +544,53 @@ def final_files(run):
     return out
 
 
+def chain(stages, registry):
+    """Wire a list of stages into a graph: each stage takes the previous stage's result in its first free input of the same type.
+    stages: [{"cap", "params"?, "inputs"?: {port: "media id" | {"media"|"from": ...}}, "each"?, "bind"?, "when"?, "id"?, "label"?}].
+    A list from the previous stage (frames, a matrix, an `each` node) feeding a single port makes the stage run once per item.
+    Raises ValueError saying which stage cannot take what the previous one produces."""
+    if not isinstance(stages, list) or not stages:
+        raise ValueError("stages precisa ser uma lista com pelo menos um passo")
+    nodes, prev = [], None  # prev = (node id, capability, node)
+    for index, stage in enumerate(stages, 1):
+        if not isinstance(stage, dict) or not stage.get("cap"):
+            raise ValueError(f"passo {index}: falta o campo «cap»")
+        try:
+            cap = registry.get(stage["cap"])
+        except KeyError:
+            raise ValueError(f"passo {index}: «{stage['cap']}» não existe no catálogo (use list_capabilities)") from None
+        nid = str(stage.get("id") or f"{caps.slug(cap.id)}_{index}")
+        node = dict(id=nid, cap=cap.id, params=dict(stage.get("params") or {}))
+        for key in ("each", "bind", "when", "label"):
+            if stage.get(key) is not None:
+                node[key] = stage[key]
+        inputs = {}
+        for port, source in (stage.get("inputs") or {}).items():
+            inputs[port] = {"media": source} if isinstance(source, str) else source
+        if prev is not None:
+            pid, pcap, pnode = prev
+            taken = set(inputs)
+            options = [p for p in cap.inputs if p.name not in taken]
+            link = None
+            for port in sorted(options, key=lambda p: not p.required):
+                out = next((o for o in pcap.outputs if o.name == port.name and o.type == port.type), None) or next((o for o in pcap.outputs if o.type == port.type), None)
+                if out is not None:
+                    link = (port, out)
+                    break
+            if link is None and not any("from" in v for v in inputs.values() if isinstance(v, dict)):
+                raise ValueError(f"passo {index}: {cap.id} não aceita o que {pcap.id} produz ({', '.join(o.type for o in pcap.outputs)}); ele aceita {', '.join(f'{p.name}:{p.type}' for p in cap.inputs) or 'nada'}")
+            if link is not None:
+                port, out = link
+                inputs[port.name] = {"from": f"{pid}.{out.name}"}
+                if (out.many or pnode.get("each")) and not port.many and "each" not in node:
+                    node["each"] = port.name
+        if inputs:
+            node["inputs"] = inputs
+        nodes.append(node)
+        prev = (nid, cap, node)
+    return {"nodes": nodes}
+
+
 class AppCtx:
     """The job context an app runner expects, with its output folder pointed at the node's own work dir."""
 

@@ -28,7 +28,7 @@ CAPABILITIES = {
     "region": ({"image"}, "mascara pintar regiao area retocar apenas somente so mask inpaint region retouch only", "low"),
     "animate": ({"image"}, "animar movimento mover camera video animate motion move", "low"),
     "text2video": (set(), "video clipe cena filmar text2video clip film movie", "low"),
-    "upscale": ({"image"}, "ampliar aumentar resolucao upscale enlarge bigger resolution", "low"),
+    "upscale": ({"image"}, "ampliar amplie ampliado aumentar resolucao upscale enlarge bigger resolution", "low"),
     "seedvr2": ({"image"}, "restaurar nitidez detalhe melhorar qualidade restore sharpen enhance detail", "low"),
     "seethrough": ({"image"}, "camadas psd anime layers transparencia separar partes rigging live2d decompose", "low"),
     "look": ({"image"}, "cor contraste filtro look grade tom color contrast filter tone", "low"),
@@ -118,6 +118,32 @@ def has_evidence(request, media):
     return any(words & tokens(keywords) for _needs, keywords, _risk in CAPABILITIES.values())
 
 
+QUALITY = {"alta", "maxima", "maximo", "melhor", "altissima", "ultra", "4k", "8k"}
+
+
+def chain_apps(request, media):
+    """Ordered app ids when the text asks for several stages in one go (make an image, enlarge it, then animate it). Canonical order,
+    not word order: cutting the background comes before the look, the look before enlarging, enlarging before the video. [] if fewer than two."""
+    words = tokens(request)
+    has_image, has_video = "image" in media, "video" in media
+    stages = []
+    wants_video = bool(words & {"video", "animar", "anime", "animacao", "clipe", "filme", "movimento"}) and not has_video
+    enlarge = bool(words & {"upscale", "ampliar", "amplie", "ampliado", "resolucao", "nitidez", "4k", "8k"}) or ("qualidade" in words and bool(words & QUALITY))
+    if not has_image and wants_video and words & {"gere", "gerar", "crie", "criar", "imagem", "foto", "ilustracao", "desenhe"}:
+        stages.append("create")
+    elif not has_image and not has_video and enlarge and words & {"gere", "gerar", "crie", "criar", "imagem", "foto", "ilustracao", "desenhe"}:
+        stages.append("create")
+    if "fundo" in words and words & {"remover", "tirar", "sem", "recortar", "remova", "tire"}:
+        stages.append("removebg")
+    if words & {"look", "filtro"}:
+        stages.append("look")
+    if enlarge:
+        stages.append("upscale")
+    if wants_video:
+        stages.append("flf2v" if "loop" in words else ("animate" if (has_image or "create" in stages or stages) else "text2video"))
+    return stages if len(stages) >= 2 else []
+
+
 def plan(request, media, registry, tier):
     """One suggested step from the local ranking (the local agent plans longer chains in the chat). Decision-only."""
     request = (request or "").strip()
@@ -126,6 +152,10 @@ def plan(request, media, registry, tier):
         raise ValueError("Descreva o que quer fazer.")
     if not has_evidence(request, media):
         return dict(request=request, media=sorted(media), provider="local", steps=[], complete=False, conversation=True)
+    chain = [a for a in chain_apps(request, media) if registry.get(a) is not None]
+    if len(chain) >= 2:
+        steps = [dict(app=a, title=registry[a].title, probability=1.0, chain=True) for a in chain]
+        return dict(request=request, media=sorted(media), provider="local", steps=steps, complete=True, conversation=False, chain=True)
     best = next((c for c in route(request, media, registry, tier)["candidates"] if c["router"]["available"]), None)
     steps = [dict(app=best["app"], title=best["title"], probability=best["probability"])] if best else []
     return dict(request=request, media=sorted(media), provider="local", steps=steps, complete=bool(steps), conversation=False)

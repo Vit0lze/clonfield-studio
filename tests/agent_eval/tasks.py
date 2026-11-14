@@ -83,3 +83,41 @@ TASKS = [
     ("ambig", "Melhore a foto.", "media", None, lambda w, o, j: bool(o.get("final")) and (len(w.manager.jobs) - j <= 3), "ambiguo"),
 ]
 assert len(TASKS) == 30
+
+
+# ---- chains (V8.4). The author's tasks again, for the longer flows: image -> enlarge -> video, lists, conditions. The GPU stages cannot be
+# generated on a CPU box, so these check what the agent PLANNED (the graph it composed or validated), never a generated file.
+def planned(out):
+    """Capability ids in every graph the agent composed, validated or executed (from the trace arguments and results)."""
+    import json
+    found = []
+    for t in out["trace"]:
+        raw = t["args"] if isinstance(t["args"], dict) else json.loads(t["args"])
+        for key in ("graph_json", "stages_json"):
+            if key in raw:
+                try:
+                    data = json.loads(raw[key])
+                except ValueError:
+                    continue
+                items = data.get("nodes", []) if isinstance(data, dict) else data
+                found += [n.get("cap") for n in items if isinstance(n, dict)]
+    return found
+
+
+def in_order(found, wanted):
+    it = iter(found)
+    return all(any(c == w for c in it) for w in wanted)
+
+
+CHAIN_TASKS = [
+    ("ch_img_up_vid", "Gere uma imagem de um farol à noite em qualidade alta, amplie e depois faça um vídeo dela.", "empty", ["app.create", "upscale", "app.animate"],
+     lambda w, o, j: in_order(planned(o), ["app.create", "upscale", "app.animate"]), "cadeia"),
+    ("ch_model", "Gere uma imagem com o modelo Qwen 2.1 Turbo, amplie 2x e anime com o modelo Wan 5B Q6.", "empty", ["app.create", "upscale", "app.animate"],
+     lambda w, o, j: in_order(planned(o), ["app.create", "upscale", "app.animate"]) and any("qwen21-turbo" in str(t["args"]) for t in o["trace"]) and any("5b-q6" in str(t["args"]) for t in o["trace"]), "cadeia"),
+    ("ch_frames", "Tire um quadro por segundo do vídeo, aplique o look Frio suave em cada um e monte uma folha de contatos.", "video_only", ["video_frames", "look", "contact_sheet"],
+     lambda w, o, j: in_order(planned(o), ["video_frames", "look", "contact_sheet"]) and len(w.attached) >= 1, "cadeia"),
+    ("ch_recipe", "Use a receita de polir lote com a foto: quadrado, look Cinema quente.", "media", None,
+     lambda w, o, j: any(t["tool"] == "run_recipe" for t in o["trace"]), "cadeia"),
+    ("ch_gate_up", "Gere uma imagem, confira a qualidade técnica e só amplie se ela passar.", "empty", ["app.create", "quality_gate", "upscale"],
+     lambda w, o, j: in_order(planned(o), ["app.create", "quality_gate", "upscale"]) and any('"when"' in str(t["args"]) or "when" in str(t["args"]) for t in o["trace"]), "cadeia"),
+]

@@ -198,3 +198,37 @@ def test_agent_lists_and_runs_recipes_as_a_queue(world):
         tools.run_recipe("looks_lado_a_lado", json.dumps(dict(strength=50)))
     with pytest.raises(ValueError, match="1 a 12"):
         tools.run_recipe("looks_lado_a_lado", json.dumps([dict(image="m-foto", strength=50)] * 13))
+
+
+def test_compose_chain_links_image_upscale_video_and_picks_models(world):
+    tools = world.tools()
+    out = tools.compose_chain(json.dumps([
+        dict(cap="app.create", params=dict(prompt="uma raposa no outono", quality="high", model="qwen21-turbo")),
+        dict(cap="upscale", params=dict(scale=2)),
+        dict(cap="app.animate", params=dict(prompt="vento nas folhas", model="5b-q6", fast=True)),
+    ]))
+    assert out["ok"], out["errors"]
+    nodes = out["graph"]["nodes"]
+    assert [n["cap"] for n in nodes] == ["app.create", "upscale", "app.animate"]
+    assert nodes[1]["inputs"] == {"image": {"from": f"{nodes[0]['id']}.result"}}
+    assert nodes[2]["inputs"] == {"image": {"from": f"{nodes[1]['id']}.image"}}
+    assert out["resources"]["lane"] == "gpu"
+    bad = tools.compose_chain(json.dumps([dict(cap="app.create", params=dict(prompt="x", model="modelo-que-nao-existe"))]))
+    assert not bad["ok"] and "modelo-que-nao-existe" in bad["errors"][0]
+    with pytest.raises(ValueError, match="não aceita o que"):
+        tools.compose_chain(json.dumps([dict(cap="look", inputs=dict(image="m-foto")), dict(cap="video_join")]))
+    with pytest.raises(ValueError, match="não existe no catálogo"):
+        tools.compose_chain(json.dumps([dict(cap="app.nada")]))
+
+
+def test_compose_chain_fans_out_lists_and_runs_cpu_chains_for_real(world):
+    tools = world.tools()
+    out = tools.compose_chain(json.dumps([
+        dict(cap="video_frames", inputs=dict(video="m-clipe"), params=dict(every_s=0.25, max=3)),
+        dict(cap="look", params=dict(look="Frio suave")),
+        dict(cap="contact_sheet", params=dict(columns=3)),
+    ]), run="sim")
+    assert out["ok"], out["errors"]
+    nodes = out["graph"]["nodes"]
+    assert nodes[1]["each"] == "image" and "each" not in nodes[2]  # one look per frame, then the list folds into one sheet
+    assert out["execution"].get("status") != "invalid", out["execution"]

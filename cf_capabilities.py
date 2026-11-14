@@ -473,7 +473,11 @@ def app_capability(app, tier):
             inputs.append(Port(f["id"], _port_type(f.get("accept")), required=int(f.get("min", 0)) > 0, many=int(f.get("max", 1)) > 1, note=f.get("label", "")))
         elif f["type"] == "boxes":
             params[f["id"]] = dict(type="list", default=[])
-        elif f["type"] in ("lights", "loras", "model", "hidden"):
+        elif f["type"] == "model" and f.get("options"):  # the model is a choice the agent must be able to make
+            params[f["id"]] = dict(type="enum", default=f.get("default"), options=[o["value"] if isinstance(o, dict) else o for o in f["options"]])
+        elif f["type"] == "loras":
+            params[f["id"]] = dict(type="list", default=[])
+        elif f["type"] in ("lights", "model", "hidden"):
             continue
         elif f["type"] in ("number", "slider"):
             params[f["id"]] = dict(type="number", default=f.get("default"), min=f.get("min"), max=f.get("max"))

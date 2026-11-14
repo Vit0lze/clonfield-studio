@@ -156,3 +156,12 @@ def test_live_local_model_writes_the_reply_and_fills_the_prompt_box_for_a_task(a
     last_reply = [m for m in done["messages"] if m.get("kind") == "text" and m.get("text")][-1]
     assert last_reply["text"] and "executado" not in last_reply["text"].lower()
     assert plans[-1]["plan"]["prompt"]  # editable box is never empty
+
+
+def test_chat_proposes_a_chain_image_then_upscale_then_video_and_later_steps_wait_for_the_previous(api):
+    sid = api.post("/clonfield/api/sessions", json={}).json()["id"]
+    session = api.post(f"/clonfield/api/sessions/{sid}/message", json={"text": "crie uma imagem de um farol em qualidade alta e depois faça um vídeo"}).json()
+    plan = session["messages"][1]["plan"]
+    assert [s["app"] for s in plan["steps"]] == ["create", "upscale", "animate"]
+    assert plan["steps"][0]["missing"] == [] and plan["steps"][1]["missing"] and plan["steps"][2]["missing"]  # they need the previous result: the UI says so
+    assert all(s["probability"] == 1.0 for s in plan["steps"])

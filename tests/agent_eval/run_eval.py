@@ -30,7 +30,7 @@ import cf_dag as dag  # noqa: E402
 import cf_jobs  # noqa: E402
 import cf_router  # noqa: E402
 import cf_tiers  # noqa: E402
-from tasks import TASKS  # noqa: E402
+from tasks import CHAIN_TASKS, TASKS  # noqa: E402
 
 CAP_APP = {"upscale": "upscale", "look": "look", "frame": "frame", "still": "still", "compare": "compare"}
 
@@ -130,10 +130,11 @@ if __name__ == "__main__":
     parser.add_argument("--only", default="")
     parser.add_argument("--workers", type=int, default=3)
     parser.add_argument("--no-baseline", action="store_true")
+    parser.add_argument("--chains", action="store_true", help="run the longer-flow tasks (image -> enlarge -> video, lists, conditions) instead of the 30")
     args = parser.parse_args()
     BASE = Path(tempfile.mkdtemp(prefix="cf-eval-base-"))
     cf_apps.configure(BASE, BASE / "outputs")
-    chosen = [t for t in TASKS if not args.only or t[0] in args.only.split(",")]
+    chosen = [t for t in (CHAIN_TASKS if args.chains else TASKS) if not args.only or t[0] in args.only.split(",")]
     with ThreadPoolExecutor(args.workers) as pool:
         results = list(pool.map(run_one, chosen))
     baseline = [] if args.no_baseline else [router_baseline(t) for t in chosen]

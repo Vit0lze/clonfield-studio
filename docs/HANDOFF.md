@@ -71,6 +71,8 @@ Frontend (`portal/`): `index.html` (assets com `?v=N`, hoje 15), `css/base.css`,
 
 ## Funcionalidades entregues (todas na main)
 
+- **Fluxos e filas (V8.4).** `cf_dag.py` ganhou controle de fluxo: `each` (um passo roda uma vez por item de uma lista, cache por item), `bind` (parâmetro vindo de um texto/json de outro passo), `when` (só roda se uma medição passar; o ramo ignorado e seus descendentes ficam «ignorado») e `chain()` (liga passos pelo tipo de mídia). 11 passos novos de CPU em `cf_capabilities.py` (quadros de vídeo, matriz de cenários, lista de textos, folha de contatos, escolher a melhor, juntar vídeos, medir loop, legenda, fatiar, direção, expandir @elenco). `cf_recipes.py`: 10 receitas (5 de CPU testadas de verdade, 5 de GPU só validadas na estrutura). API `/recipes`, `/recipes/{id}/preview`, `/recipes/{id}/run` (um `batch` vira uma fila de jobs). Tela `#/flows`. Agente: `compose_chain`, `list_recipes`, `run_recipe`; apps expõem `model` e `loras` como parâmetros. Chat sem agente: pedido com vários estágios («imagem em qualidade alta e depois vídeo») vira uma fila de passos ligados (`cf_router.chain_apps`). Medir com o modelo local real: `tests/agent_eval/run_eval.py --chains` (5 tarefas; nada rodou com o 9B aqui).
+
 - Destravamento: Qwen via ComfyUI, watchdogs, cancelar, downloads retomáveis, reconexão de SSE.
 - 19 apps, cada um com glifo próprio no mesmo bloco visual. Apps de escolha usam dropdown com ícone de proporção, grupos e explicação (Auto, redes sociais, vídeo e tela, foto).
 - Luz ambiente: luzes arrastáveis sobre a foto (cor, intensidade, maciez, profundidade, 4 tipos), vira prompt para a IA.
