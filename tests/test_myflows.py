@@ -154,3 +154,23 @@ def test_api_revises_a_finished_run_from_one_step(api):
         assert api.post(f"{BASE}/dag/runs/naoexiste/revise", json={}).status_code == 404
     finally:
         api.delete(f"{BASE}/recipes/{rid}")
+
+
+def test_api_saves_a_finished_run_as_a_flow_and_reuses_it_on_another_file(api):
+    first, other = up(api, 4), up(api, 5)
+    graph = {"nodes": [dict(id="warm", label="Dar o look", cap="look", inputs={"image": {"media": first}}, params=dict(look="Frio suave")),
+                       dict(id="cap", label="Legenda", cap="caption", inputs={"image": {"from": "warm.image"}}, params=dict(text="original"))]}
+    done = wait_job(api, api.post(f"{BASE}/dag/run", json=dict(graph=graph)).json()["id"])
+    assert done["status"] == "concluído"
+    assert api.post(f"{BASE}/dag/runs/naoexiste/save", json=dict(title="Qualquer nome")).status_code == 404
+    assert "Dê um nome" in api.post(f"{BASE}/dag/runs/{done['run']}/save", json=dict(title="")).json()["detail"]
+    saved = api.post(f"{BASE}/dag/runs/{done['run']}/save", json=dict(title="Do chat para a fila", expose=[dict(node="cap", name="text", label="Legenda")]))
+    assert saved.status_code == 201, saved.text
+    rid = saved.json()["id"]
+    try:
+        again = wait_job(api, api.post(f"{BASE}/recipes/{rid}/run", json=dict(vars=dict(entrada_1=other, p_cap_text="outra"))).json()["jobs"][0]["id"])
+        assert again["status"] == "concluído" and again["results"]
+        record = api.get(f"{BASE}/dag/runs/{again['run']}").json()
+        assert record["graph"]["nodes"][0]["inputs"]["image"] == {"media": other} and record["graph"]["nodes"][1]["params"]["text"] == "outra"
+    finally:
+        api.delete(f"{BASE}/recipes/{rid}")

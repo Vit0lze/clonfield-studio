@@ -291,6 +291,7 @@ def test_revise_run_recomputes_only_what_changed_and_reports_the_run_id(world):
     frames, look, sheet = (n["id"] for n in graph["nodes"])
     first = tools.execute_graph(json.dumps(graph))
     assert first["status"] == "concluído" and first["run_id"] and sorted(first["recomputed"]) == sorted([frames, look, sheet])
+    assert world.manager.get(first["job_id"]).params["run"] == first["run_id"]  # the job carries its run record id (the chat's "save as flow" reads it)
     again = tools.revise_run(first["run_id"])  # nothing changed: everything from the cache
     assert again["status"] == "concluído" and again["recomputed"] == [] and sorted(again["cached"]) == sorted([frames, look, sheet]) and again["run_id"] != first["run_id"]
     edited = tools.revise_run(first["run_id"], json.dumps([dict(op="set_param", node=sheet, name="columns", value=2)]))

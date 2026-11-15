@@ -149,12 +149,23 @@ export async function chatView(navigate, sessionId) {
       weak.length ? h("details", { class: "weak" }, h("summary", null, `Outros caminhos (${weak.length})`), h("ol", { class: "steps" }, weak.map(s => row(s, plan.steps.indexOf(s), false)))) : null);
   }
 
+  // The graph the agent ran, kept as a flow: files become form fields, so it runs again on other files from "Fluxos".
+  async function saveFlow(snap, title) {
+    const name = prompt("Nome do fluxo:", String(title || "").replace(/^Agente · /, "").slice(0, 50));
+    if (!name) return;
+    try {
+      const saved = await api.post(`/dag/runs/${snap.run}/save`, { title: name.trim() });
+      toast(saved.replaced ? "Fluxo atualizado em Meus fluxos." : "Fluxo guardado em Meus fluxos.");
+    } catch (error) { toast(error.message, "err"); }
+  }
+
   function resultBlock(message) {
     const status = h("span", { class: "result-status" }, "enviado");
     const bar = h("i", { style: { transform: "scaleX(0.02)" } });
     const track = h("div", { class: "result-bar", role: "progressbar" }, bar);
     const frames = h("div", { class: "result-frames" });
-    const card = h("div", { class: "result" }, h("div", { class: "result-head" }, appGlyph(message.app, "sm"), h("b", null, message.title), status), track, frames);
+    const keep = h("button", { class: "btn sm", type: "button", hidden: true, "data-action": "save-flow", onclick: () => saveFlow(snaps.get(message.job), message.title) }, icon("plus", "sm"), "Salvar como fluxo");
+    const card = h("div", { class: "result" }, h("div", { class: "result-head" }, appGlyph(message.app, "sm"), h("b", null, message.title), status), track, frames, keep);
     const paintFrames = () => {
       clear(frames);
       session.media.filter(m => m.job === message.job).forEach(m => frames.append(h("figure", { class: "frame" }, thumb(m, "lg"),
@@ -166,6 +177,7 @@ export async function chatView(navigate, sessionId) {
       bar.style.transform = `scaleX(${final ? 1 : Math.max(0.02, Math.min(1, snap.fraction || 0))})`;
       track.hidden = final;
       card.classList.toggle("fail", final && snap.status !== "concluído");
+      keep.hidden = !(final && snap.status === "concluído" && snap.run && message.app === "dag");
     };
     paintFrames();
     updaters.set(message.job, apply);

@@ -68,3 +68,18 @@ audio_job = {"id": "job_e2eaudio", "app": "audio", "title": "Áudio · seed", "s
              "results": [{"path": "e2e/tom.mp3", "name": "tom.mp3", "kind": "audio", "size": (out / "e2e" / "tom.mp3").stat().st_size}],
              "created": time.time() - 5, "started": time.time() - 5, "finished": time.time() - 4, "lane": "gpu", "position": None, "params": {}, "version": 1}
 (out / "jobs" / "job_e2eaudio.json").write_text(json.dumps(audio_job), encoding="utf-8")
+
+
+# A finished agent job (graph run) inside a conversation, to check the "Salvar como fluxo" button in the chat.
+(out / "dag" / "runs").mkdir(parents=True, exist_ok=True)
+agent_graph = {"nodes": [dict(id="lista", label="Lista de pedidos", cap="text_list", params=dict(text="praia\nmata")),
+                         dict(id="junta", label="Juntar os pedidos", cap="text_join", inputs={"texts": {"from": "lista.texts"}}, params=dict(separator="vírgula"))]}
+(out / "dag" / "runs" / "seedrun0001.json").write_text(json.dumps(dict(id="seedrun0001", status="concluído", order=["lista", "junta"], nodes={}, graph=agent_graph)), encoding="utf-8")
+agent_job = {"id": "job_e2eagent", "app": "dag", "title": "Agente · text_list, text_join", "status": "concluído", "fraction": 1.0, "desc": "pronto", "message": "",
+             "results": [], "created": time.time() - 3, "started": time.time() - 3, "finished": time.time() - 2, "lane": "cpu", "position": None, "params": {"run": "seedrun0001"}, "version": 1}
+(out / "jobs" / "job_e2eagent.json").write_text(json.dumps(agent_job), encoding="utf-8")
+AGENT_SESSION = "b" * 32
+(data / "sessions" / f"{AGENT_SESSION}.json").write_text(json.dumps(dict(
+    id=AGENT_SESSION, title="Juntar pedidos", created=now - 30, updated=now - 1, media=[],
+    messages=[dict(id="u2", role="user", time=now - 20, text="junte os pedidos praia e mata", media=[]),
+              dict(id="j2", role="job", time=now - 3, job="job_e2eagent", app="dag", title="Agente · text_list, text_join")])), encoding="utf-8")

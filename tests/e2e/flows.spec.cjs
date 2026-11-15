@@ -130,3 +130,22 @@ test("Chat sem agente: pedido com vários estágios vira uma fila de 3 passos li
   await expect(rail.nth(2)).toContainText("usa o resultado do passo anterior");
   await expect(rail.nth(1).getByRole("button", { name: "Executar" })).toBeEnabled();
 });
+
+test("Chat: o resultado do agente tem «Salvar como fluxo» e o fluxo aparece em Meus fluxos", async ({ page }) => {
+  const problems = await open(page, `#/chat/${"b".repeat(32)}`);
+  await settle(page); await noErrorCard(page);
+  const keep = page.locator('[data-action="save-flow"]');
+  await expect(keep).toBeVisible();
+  page.once("dialog", d => d.accept("Pedidos do agente"));
+  await keep.click();
+  await expect(page.getByText("Fluxo guardado em Meus fluxos.")).toBeVisible();
+  await open(page, "#/flows"); await settle(page); await noErrorCard(page);
+  const card = page.locator('.flow-card[data-recipe="meu_pedidos_do_agente"]');
+  await expect(card).toContainText("seu fluxo");
+  await card.click(); await settle(page);
+  await expect(page.locator(".flow-steps li[data-step]")).toHaveCount(2, { timeout: 15000 });
+  page.once("dialog", d => d.accept());
+  await page.locator('[data-action="delete-flow"]').click();
+  await expect(page.locator('.flow-card[data-recipe="meu_pedidos_do_agente"]')).toHaveCount(0);
+  expect(problems.filter(p => !/favicon/i.test(p))).toEqual([]);
+});

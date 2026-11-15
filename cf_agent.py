@@ -394,7 +394,7 @@ class LocalHost:
             return files
 
         lane = resources["lane"]
-        job = self.manager.submit("dag", "Agente · " + ", ".join(n["cap"] for n in graph["nodes"])[:60], {}, lane, runner)
+        job = self.manager.submit("dag", "Agente · " + ", ".join(n["cap"] for n in graph["nodes"])[:60], {"run": run_id}, lane, runner)
         self.runs[job.id] = box
         if self.on_job:
             self.on_job(job)

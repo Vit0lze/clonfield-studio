@@ -331,6 +331,19 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         except (OSError, ValueError):
             return JSONResponse({"detail": "Execução não encontrada."}, 404)
 
+    async def dag_run_save(request):
+        """Keep the graph of a finished run as a reusable flow ("Meus fluxos"): media become form slots, `expose` params become fields."""
+        try:
+            previous = cf_dag.load_run(dag_env(upload_media), request.path_params["id"])
+        except (OSError, ValueError):
+            return JSONResponse({"detail": "Execução não encontrada."}, 404)
+        body = await request.json()
+        try:
+            saved = cf_myflows.save(base, capability_registry(), previous["graph"], body.get("title"), body.get("tagline", ""), body.get("expose") or [], upload_media, tier)
+        except (ValueError, KeyError, TypeError) as exc:
+            return JSONResponse({"detail": str(exc)}, 400)
+        return JSONResponse(saved, 201)
+
     async def dag_run_revise(request):
         """Re-run a finished (or failed) run: optional edit ops on its graph, optional nodes to force; everything unchanged comes from the cache."""
         env, registry = dag_env(upload_media), capability_registry()
@@ -917,6 +930,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/dag/validate", guard(dag_validate), methods=["POST"]),
         Route(f"{PREFIX}/dag/run", guard(dag_run), methods=["POST"]),
         Route(f"{PREFIX}/dag/runs/{{id}}", guard(dag_run_get)),
+        Route(f"{PREFIX}/dag/runs/{{id}}/save", guard(dag_run_save), methods=["POST"]),
         Route(f"{PREFIX}/dag/runs/{{id}}/revise", guard(dag_run_revise), methods=["POST"]),
         Route(f"{PREFIX}/recipes", guard(recipes_list)),
         Route(f"{PREFIX}/recipes", guard(recipe_save), methods=["POST"]),
