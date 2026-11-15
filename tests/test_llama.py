@@ -3,6 +3,8 @@
 import io
 import tarfile
 
+import os
+
 import pytest
 import requests
 
@@ -78,3 +80,39 @@ def test_server_command_finds_the_unpacked_binary_without_the_return_value(tmp_p
     exe.parent.mkdir(parents=True)
     exe.write_text("#!/bin/sh\n")
     assert cf_llama.server_command(tmp_path)[0] == str(exe)
+
+
+def test_free_port_skips_a_port_that_is_taken_like_colabs_8080():
+    import socket
+    with socket.socket() as taken:
+        taken.bind(("127.0.0.1", 0))
+        taken.listen()
+        busy = taken.getsockname()[1]
+        chosen = cf_llama.free_port(busy)
+        assert chosen != busy and chosen > 0
+        with socket.socket() as probe:  # the chosen port really is bindable
+            probe.bind(("127.0.0.1", chosen))
+    assert cf_llama.free_port(chosen) == chosen  # a free preferred port is kept
+
+
+def test_start_launches_on_a_free_port_and_publishes_that_url(tmp_path, monkeypatch):
+    """A real child process answers /health on the port start() chose while the preferred one is taken (no model needed)."""
+    import socket, stat, sys
+    server = tmp_path / "llama" / cf_llama.TAG / "llama-server"
+    server.parent.mkdir(parents=True)
+    server.write_text(f"#!{sys.executable}\nimport sys, http.server\nport = int(sys.argv[sys.argv.index('--port') + 1])\n"
+                      "class H(http.server.BaseHTTPRequestHandler):\n    def do_GET(self):\n        self.send_response(200); self.end_headers(); self.wfile.write(b'ok')\n"
+                      "    def log_message(self, *a): pass\nhttp.server.HTTPServer(('127.0.0.1', port), H).serve_forever()\n")
+    server.chmod(server.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("CLONFIELD_LLAMA_BIN", str(server))
+    monkeypatch.delenv("CLONFIELD_LLAMA_URL", raising=False)
+    with socket.socket() as taken:
+        taken.bind(("127.0.0.1", 0))
+        taken.listen()
+        busy = taken.getsockname()[1]
+        process = cf_llama.start(tmp_path, wait=20, port=busy)
+        try:
+            url = os.environ["CLONFIELD_LLAMA_URL"]
+            assert url != f"http://127.0.0.1:{busy}" and url.startswith("http://127.0.0.1:")
+        finally:
+            cf_llama.stop(process)

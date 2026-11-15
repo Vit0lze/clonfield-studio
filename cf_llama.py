@@ -17,6 +17,7 @@ Quantisation candidates for the A/B on the T4 (mandate: main models <= 8 bit, Q6
 import hashlib
 import os
 import shutil
+import socket
 import subprocess
 import tarfile
 import time
@@ -136,14 +137,27 @@ def server_command(base, key=DEFAULT, binary=None, port=PORT, ctx=16384, gpu_lay
     return command
 
 
+def free_port(preferred=PORT):
+    """`preferred` when nothing listens on it, else any free port. Colab's own server already holds 8080, which made llama-server exit."""
+    for port in (preferred, 0):
+        with socket.socket() as probe:
+            try:
+                probe.bind(("127.0.0.1", port))
+            except OSError:
+                continue
+            return probe.getsockname()[1]
+    raise RuntimeError("Nenhuma porta local livre para o llama-server.")
+
+
 def start(base, key=DEFAULT, wait=300, **kwargs):
+    kwargs["port"] = free_port(kwargs.get("port") or PORT)
     command = server_command(base, key, **kwargs)
     env = dict(os.environ, LD_LIBRARY_PATH=f"{Path(command[0]).parent}:{os.environ.get('LD_LIBRARY_PATH', '')}")
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
-    url = f"http://127.0.0.1:{kwargs.get('port', PORT)}"
+    url = f"http://127.0.0.1:{kwargs['port']}"
     for _ in range(wait):
         if process.poll() is not None:
-            raise RuntimeError("llama-server encerrou: " + (process.stdout.read() or "")[-400:])
+            raise RuntimeError("llama-server encerrou: " + (process.stdout.read() or "")[-1500:])
         try:
             if requests.get(url + "/health", timeout=2).status_code == 200:
                 os.environ["CLONFIELD_LLAMA_URL"] = url
