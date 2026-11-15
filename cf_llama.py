@@ -114,12 +114,18 @@ def install_binary(base, variant="cuda12", progress=None):
     if found is None:
         raise ValueError("llama-server não veio no pacote.")
     found.chmod(0o755)
+    os.environ["CLONFIELD_LLAMA_BIN"] = str(found)  # start() finds it even when the caller ignores the return value (the Colab cell does)
     return found
+
+
+def installed_binary(base):
+    """A `llama-server` already unpacked under `base` (any pinned tag), or None."""
+    return next(iter(sorted((Path(base) / "llama").rglob("llama-server"))), None) if (Path(base) / "llama").is_dir() else None
 
 
 def server_command(base, key=DEFAULT, binary=None, port=PORT, ctx=16384, gpu_layers=99, threads=None):
     """The llama-server command line. `--jinja` makes the model's own chat template drive native tool calls."""
-    exe = binary or os.environ.get("CLONFIELD_LLAMA_BIN") or shutil.which("llama-server")
+    exe = binary or os.environ.get("CLONFIELD_LLAMA_BIN") or shutil.which("llama-server") or installed_binary(base)
     if not exe:
         raise ValueError("llama-server não encontrado. Use cf_llama.install_binary() ou defina CLONFIELD_LLAMA_BIN.")
     command = [str(exe), "-m", str(target(base, key)), "--port", str(port), "--host", "127.0.0.1", "-c", str(ctx), "--jinja"]

@@ -68,3 +68,13 @@ def test_archive_with_a_path_escape_is_refused(tmp_path):
     with pytest.raises(ValueError, match="suspeito"):
         cf_llama.safe_extract(bad, tmp_path / "out")
     assert not (tmp_path / "escape.txt").exists()
+
+
+def test_server_command_finds_the_unpacked_binary_without_the_return_value(tmp_path, monkeypatch):
+    """The Colab cell calls install_binary() and drops its result; start() must still find the binary (this failed on the T4)."""
+    monkeypatch.delenv("CLONFIELD_LLAMA_BIN", raising=False)
+    monkeypatch.setattr(cf_llama.shutil, "which", lambda name: None)
+    exe = tmp_path / "llama" / cf_llama.TAG / "build" / "bin" / "llama-server"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("#!/bin/sh\n")
+    assert cf_llama.server_command(tmp_path)[0] == str(exe)

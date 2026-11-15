@@ -13,3 +13,6 @@ __pycache__/
 .cache/
 node_modules/
 .pytest_cache/
+
+# remote GPU validation output (downloaded media + reports)
+tests/gpu/out/
