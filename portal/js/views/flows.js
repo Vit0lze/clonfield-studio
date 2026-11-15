@@ -1,5 +1,5 @@
 // Fluxos: ready-made multi-step recipes. One form, a preview of the steps, and a queue: every queued set of values is its own job.
-import { api, isFinal } from "../api.js";
+import { api, isFinal, store } from "../api.js";
 import { h, icon, toast, clear, field, switchRow } from "../ui.js";
 
 const KIND_MEDIA = { image: "image/*", images: "image/*", video: "video/*", videos: "video/*" };
@@ -38,6 +38,7 @@ export async function flowsView(id, navigate) {
     const queueBox = h("div", { class: "flow-queue" });
     const jobsBox = h("div", { class: "flow-jobs", "aria-live": "polite" });
     const note = h("p", { class: "muted flow-note" });
+    const carried = store.takePrefill(`flow:${rec.id}`);  // files sent here from another screen (e.g. the shots of a storyboard)
 
     for (const spec of rec.inputs) controls.append(control(spec));
 
@@ -46,7 +47,12 @@ export async function flowsView(id, navigate) {
       const label = spec.label || key;
       if (KIND_MEDIA[spec.kind]) {
         const many = spec.kind.endsWith("s");
-        const status = h("span", { class: "muted" }, many ? `Escolha de ${spec.min || 1} a ${spec.max || 8} arquivos.` : "Escolha um arquivo.");
+        const status = h("span", { class: "muted", "data-status": key }, many ? `Escolha de ${spec.min || 1} a ${spec.max || 8} arquivos.` : "Escolha um arquivo.");
+        const given = (carried[key] || []).slice(0, spec.max || 8);
+        if (given.length) {
+          values[key] = many ? given.map(g => g.id) : given[0].id;
+          status.textContent = `${given.length} ${given.length === 1 ? "arquivo vindo" : "arquivos vindos"} da tela anterior: ${given.map(g => g.name).join(", ")}`;
+        }
         const input = h("input", { type: "file", accept: KIND_MEDIA[spec.kind], multiple: many, "aria-label": label, onchange: async () => {
           const files = [...(input.files || [])].slice(0, spec.max || 8);
           if (!files.length) return;

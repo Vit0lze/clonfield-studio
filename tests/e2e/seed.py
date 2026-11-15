@@ -83,3 +83,17 @@ AGENT_SESSION = "b" * 32
     id=AGENT_SESSION, title="Juntar pedidos", created=now - 30, updated=now - 1, media=[],
     messages=[dict(id="u2", role="user", time=now - 20, text="junte os pedidos praia e mata", media=[]),
               dict(id="j2", role="job", time=now - 3, job="job_e2eagent", app="dag", title="Agente · text_list, text_join")])), encoding="utf-8")
+
+
+# A finished storyboard job: the numbered sheet, the animatic and three real shot pictures, to check "Planos em receita".
+(out / "e2e").mkdir(parents=True, exist_ok=True)
+sheet_name = "storyboard-seed0001.png"
+Image.new("RGB", (300, 100), (30, 30, 30)).save(out / "e2e" / sheet_name)
+story_results = [{"path": f"e2e/{sheet_name}", "name": sheet_name, "kind": "image", "size": (out / "e2e" / sheet_name).stat().st_size}]
+for index, colour in enumerate([(200, 90, 40), (60, 90, 200), (90, 190, 120)], 1):
+    shot = f"plano-{index}.png"
+    Image.new("RGB", (160, 90), colour).save(out / "e2e" / shot)
+    story_results.append({"path": f"e2e/{shot}", "name": shot, "kind": "image", "size": (out / "e2e" / shot).stat().st_size})
+story_job = {"id": "job_e2estory", "app": "storyboard", "title": "Storyboard · seed", "status": "concluído", "fraction": 1.0, "desc": "pronto", "message": "Planos: 1. A · 2. B · 3. C",
+             "results": story_results, "created": time.time() - 2, "started": time.time() - 2, "finished": time.time() - 1, "lane": "gpu", "position": None, "params": {}, "version": 1}
+(out / "jobs" / "job_e2estory.json").write_text(json.dumps(story_job), encoding="utf-8")

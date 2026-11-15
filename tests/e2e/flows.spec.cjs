@@ -159,3 +159,20 @@ test("Chat: o resultado do agente tem «Salvar como fluxo» e o fluxo aparece em
   await expect(page.locator('.flow-card[data-recipe="meu_pedidos_do_agente"]')).toHaveCount(0);
   expect(problems.filter(p => !/favicon/i.test(p))).toEqual([]);
 });
+
+test("Storyboard: «Planos em receita» leva as imagens dos planos para a receita e ela roda", async ({ page }) => {
+  await page.addInitScript(() => { try { sessionStorage.setItem("cf-last-storyboard", "job_e2estory"); } catch {} });
+  const problems = await open(page, "#/apps/storyboard");
+  await settle(page); await noErrorCard(page);
+  await page.getByRole("button", { name: /Planos em receita/ }).click();
+  await page.getByText("Animatic do storyboard").first().click();
+  await expect(page).toHaveURL(/#\/flows\/animatic_do_storyboard$/, { timeout: 15000 });
+  await settle(page); await noErrorCard(page);
+  await expect(page.locator('[data-status="images"]')).toContainText(/3 arquivos vindos.*plano-1\.png.*plano-3\.png/);
+  await expect(page.locator(".flow-steps li[data-step]")).toHaveCount(3, { timeout: 15000 });  // enquadrar, folha, animatic (sem look)
+  await expect(page.locator(".flow-steps .bad")).toHaveCount(0);
+  await page.getByRole("button", { name: "Rodar" }).click();
+  await expect(page.locator('.flow-job[data-status="concluído"]')).toHaveCount(1, { timeout: 90000 });
+  await expect(page.locator(".flow-job video")).toHaveCount(1);
+  expect(problems.filter(p => !/favicon/i.test(p))).toEqual([]);
+});

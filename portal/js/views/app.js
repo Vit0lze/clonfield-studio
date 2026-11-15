@@ -471,7 +471,7 @@ export async function appView(id, navigate) {
       files.length ? h("div", { class: "audio-list" }, files.map(r => h("figure", { class: "audio-card" }, h("figcaption", null, icon("cube", "sm"), " ", r.name, " · ", fmtBytes(r.size), " · ",
         h("a", { href: api.url(r.url), download: r.name }, "Baixar"))))) : null,
       job.message ? h("p", { class: "hint" }, job.message) : null,
-      h("div", { class: "actions" }, first ? sendMenu(first) : null,
+      h("div", { class: "actions" }, first ? sendMenu(first) : null, app.id === "storyboard" ? shotsMenu(results) : null,
         downloadable ? h("a", { class: "btn sm", href: api.url(downloadable.url), download: downloadable.name }, icon("download", "sm"), "Baixar") : null,
         h("button", { class: "btn sm primary", type: "button", onclick: () => run() }, icon("refresh", "sm"), "Gerar de novo"))));
   }
@@ -481,6 +481,28 @@ export async function appView(id, navigate) {
     if (!targets.length) return null;
     return actionMenu({ label: "Usar em", iconName: "external",
       items: targets.map(t => ({ label: t.title, hint: t.tagline, app: t.id, onclick: () => sendTo(t, result) })) });
+  }
+  // The shots of a storyboard (every image except the numbered sheet) become the "Planos, na ordem" field of a recipe.
+  function shotsMenu(results) {
+    const shots = results.filter(r => r.kind === "image" && !/^storyboard-/.test(r.name));
+    if (shots.length < 2) return null;
+    const holder = h("span", { class: "shots-menu" });
+    api.get("/recipes").then(recipes => {
+      const targets = recipes.filter(r => r.inputs.some(i => i.kind === "images" && (i.min || 1) <= shots.length && shots.length <= (i.max || 16)));
+      if (!targets.length) return;
+      holder.append(actionMenu({ label: "Planos em receita", iconName: "layers",
+        items: targets.map(t => ({ label: t.title, hint: t.tagline, app: t.id, onclick: () => sendShots(t, shots) })) }));
+    }).catch(() => {});
+    return holder;
+  }
+  async function sendShots(recipe, shots) {
+    try {
+      const uploads = [];
+      for (const shot of shots) uploads.push(await api.post("/import", { path: shot.path }));
+      const slot = recipe.inputs.find(i => i.kind === "images");
+      store.prefill({ app: `flow:${recipe.id}`, values: { [slot.id]: uploads.map(u => ({ id: u.id, name: u.name })) } });
+      navigate(`#/flows/${recipe.id}`);
+    } catch (error) { toast(error.message, "err"); }
   }
   async function sendTo(target, result) {
     try {
