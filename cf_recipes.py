@@ -241,7 +241,7 @@ def build_story_clips(v, preview=False):
         dict(id="shots", label="Os planos", cap="text_list", params=dict(text=v["shots"])),
         dict(id="direct", label="Direção de cinema", cap="direction", each="text", inputs={"text": {"from": "shots.texts"}}, params={"dir_genre": v["genre"]}),
         dict(id="still", label="Imagem de cada plano", cap="app.create", each="prompt", bind={"prompt": "direct.text"}, params=dict(aspect="16:9", quality="standard", variations=1)),
-        dict(id="move", label="Animar cada imagem", cap="app.animate", each="image", inputs={"image": {"from": "still.result"}}, params=dict(prompt=v["motion"], seconds=v["seconds"], fast=True)),
+        dict(id="move", label="Animar cada imagem", cap="app.animate", each="image", inputs={"image": {"from": "still.result"}}, params=dict(prompt=v["motion"], seconds=v["seconds"], model="5b-q6", fast=False)),  # LightX2V «rápido» só existe no A14B; o 5B Q6 é o leve
         dict(id="film", label="Juntar o filme", cap="video_join", inputs={"videos": {"from": "move.result"}}, params=dict(ratio="Paisagem · 16:9", fit="Preencher", mute=True)),
     ]}
 
@@ -250,7 +250,7 @@ def build_shots_to_film(v, preview=False):
     """Already-made shots (approved, edited or from «Storyboard») -> one clip per shot -> joined film. Unlike `storyboard_em_filme` nothing is regenerated."""
     return {"nodes": [
         dict(id="frame", label="Enquadrar cada plano", cap="frame", each="image", inputs={"image": medias(v["images"])}, params=dict(ratio=v["ratio"], fit="Preencher")),
-        dict(id="move", label="Animar cada plano", cap="app.animate", each="image", inputs={"image": {"from": "frame.image"}}, params=dict(prompt=v["motion"], seconds=v["seconds"], fast=True)),
+        dict(id="move", label="Animar cada plano", cap="app.animate", each="image", inputs={"image": {"from": "frame.image"}}, params=dict(prompt=v["motion"], seconds=v["seconds"], model="5b-q6", fast=False)),  # LightX2V «rápido» só existe no A14B; o 5B Q6 é o leve
         dict(id="film", label="Juntar o filme", cap="video_join", inputs={"videos": {"from": "move.result"}}, params=dict(ratio=v["ratio"] if v["ratio"] in cf_finish.SEQUENCE_SIZES else "Paisagem · 16:9", fit="Preencher", mute=True)),
         dict(id="seam", label="Medir o fim contra o começo", cap="loop_check", inputs={"video": {"from": "film.video"}}),
     ]}

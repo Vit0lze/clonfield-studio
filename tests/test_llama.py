@@ -100,7 +100,7 @@ def test_start_launches_on_a_free_port_and_publishes_that_url(tmp_path, monkeypa
     import socket, stat, sys
     server = tmp_path / "llama" / cf_llama.TAG / "llama-server"
     server.parent.mkdir(parents=True)
-    server.write_text(f"#!{sys.executable}\nimport sys, http.server\nport = int(sys.argv[sys.argv.index('--port') + 1])\n"
+    server.write_text(f"#!{sys.executable}\nimport sys, http.server\nprint('ggml_cuda_init: found 1 CUDA devices', flush=True)\nport = int(sys.argv[sys.argv.index('--port') + 1])\n"
                       "class H(http.server.BaseHTTPRequestHandler):\n    def do_GET(self):\n        self.send_response(200); self.end_headers(); self.wfile.write(b'ok')\n"
                       "    def log_message(self, *a): pass\nhttp.server.HTTPServer(('127.0.0.1', port), H).serve_forever()\n")
     server.chmod(server.stat().st_mode | stat.S_IEXEC)
@@ -116,3 +116,44 @@ def test_start_launches_on_a_free_port_and_publishes_that_url(tmp_path, monkeypa
             assert url != f"http://127.0.0.1:{busy}" and url.startswith("http://127.0.0.1:")
         finally:
             cf_llama.stop(process)
+
+
+def _fake_server(tmp_path, monkeypatch, banner):
+    import stat, sys
+    server = tmp_path / "llama" / cf_llama.TAG / "llama-server"
+    server.parent.mkdir(parents=True)
+    body = "import sys, http.server\n" + (f"print({banner!r}, flush=True)\n" if banner else "") + "print('x' * 200000, flush=True)\n"  # 200 KB of log: a PIPE nobody reads would block here
+    body += "port = int(sys.argv[sys.argv.index('--port') + 1])\nclass H(http.server.BaseHTTPRequestHandler):\n    def do_GET(self):\n        self.send_response(200); self.end_headers(); self.wfile.write(b'ok')\n    def log_message(self, *a): pass\nhttp.server.HTTPServer(('127.0.0.1', port), H).serve_forever()\n"
+    server.write_text(f"#!{sys.executable}\n" + body)
+    server.chmod(server.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("CLONFIELD_LLAMA_BIN", str(server))
+    monkeypatch.delenv("CLONFIELD_LLAMA_URL", raising=False)
+    return server
+
+
+def test_a_server_that_came_up_without_cuda_is_refused_not_left_crawling_on_the_cpu(tmp_path, monkeypatch):
+    _fake_server(tmp_path, monkeypatch, "load_backend: failed to load libggml-cuda.so")
+    with pytest.raises(RuntimeError, match="SEM o backend CUDA"):
+        cf_llama.start(tmp_path, wait=20)
+    assert "failed to load" in (tmp_path / "logs" / "llama-server.log").read_text()
+
+
+def test_a_chatty_server_does_not_block_on_its_log_and_the_cuda_line_is_accepted(tmp_path, monkeypatch):
+    _fake_server(tmp_path, monkeypatch, "ggml_cuda_init: found 1 CUDA devices")
+    process = cf_llama.start(tmp_path, wait=20)
+    try:
+        assert requests.get(os.environ["CLONFIELD_LLAMA_URL"] + "/health", timeout=5).status_code == 200
+    finally:
+        cf_llama.stop(process)
+
+
+def test_the_cuda_runtime_folder_next_to_the_binary_is_on_the_library_path(tmp_path):
+    """The real layout of the b12360 release: llama-server in llama-<tag>/, libcudart/libcublas in a SIBLING cudart-... folder."""
+    binary = tmp_path / "llama" / cf_llama.TAG / "llama-b12360" / "llama-server"
+    runtime = tmp_path / "llama" / cf_llama.TAG / "cudart-llama-b12360-bin-ubuntu-cuda-12.8-x64"
+    binary.parent.mkdir(parents=True)
+    runtime.mkdir(parents=True)
+    (binary.parent / "libggml-cuda.so").write_text("")
+    (runtime / "libcudart.so.12").write_text("")
+    dirs = cf_llama.library_dirs(tmp_path, binary)
+    assert dirs[0] == str(binary.parent) and str(runtime) in dirs

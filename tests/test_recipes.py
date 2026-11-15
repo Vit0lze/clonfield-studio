@@ -258,3 +258,17 @@ def test_not_inverts_a_condition_and_first_of_needs_one_branch(world, tmp_path):
     ]}
     with pytest.raises(ValueError, match="Nenhum dos ramos"):
         dag.execute(both_skipped, registry, env, Ctx())
+
+
+def test_video_recipes_never_pair_the_fast_mode_with_the_5b_model():
+    """Found on the T4: «Planos prontos em filme» asked for fast mode on the default 5B, which only the A14B has, and the job failed."""
+    import cf_wan
+    for recipe_id, values in (("planos_em_filme", dict(images=[ident(1), ident(2)], motion="x", ratio="Paisagem · 16:9", seconds=3)),
+                              ("storyboard_em_filme", dict(shots="a\nb", motion="x", genre="drama", seconds=3)),
+                              ("loop_de_imagem", dict(image=ident(1), prompt="x", seconds=3))):
+        graph = recipes.graph_for(recipe_id, values)
+        for node in graph["nodes"]:
+            if node["cap"] in ("app.animate", "app.flf2v"):
+                params = node["params"]
+                model = params.get("model") or ("a14b-q6" if node["cap"] == "app.flf2v" else cf_wan.DEFAULT_MODEL)
+                assert not (params.get("fast") and cf_wan.MODELS[model]["kind"] != "a14b"), (recipe_id, node["id"], model)

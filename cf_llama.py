@@ -16,6 +16,7 @@ Quantisation candidates for the A/B on the T4 (mandate: main models <= 8 bit, Q6
 
 import hashlib
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -149,24 +150,53 @@ def free_port(preferred=PORT):
     raise RuntimeError("Nenhuma porta local livre para o llama-server.")
 
 
-def start(base, key=DEFAULT, wait=300, **kwargs):
+def library_dirs(base, exe):
+    """Folders to put on LD_LIBRARY_PATH: the binary's own, plus every folder under <base>/llama that holds shared libraries.
+    The CUDA runtime (libcudart/libcublas) unpacks NEXT TO the llama.cpp folder, not inside it; without it the CUDA backend fails to
+    load and llama.cpp silently falls back to the CPU (a 9B then needs minutes per prompt)."""
+    dirs = [str(Path(exe).parent)]
+    root = Path(base) / "llama"
+    if root.is_dir():
+        dirs += sorted({str(p.parent) for p in root.rglob("*.so*")} - set(dirs))
+    return dirs
+
+
+CUDA_LINE = re.compile(r"found \d+ CUDA devices|loaded CUDA backend", re.I)
+
+
+def log_tail(path, size=1800):
+    try:
+        return Path(path).read_text(encoding="utf-8", errors="replace")[-size:]
+    except OSError:
+        return ""
+
+
+def start(base, key=DEFAULT, wait=300, require_gpu=True, **kwargs):
+    """Launch llama-server on a free port; its log goes to <base>/logs/llama-server.log (a PIPE nobody reads would block the server).
+    With GPU layers requested, a server that came up without the CUDA backend is stopped with a plain error instead of crawling on the CPU."""
     kwargs["port"] = free_port(kwargs.get("port") or PORT)
     command = server_command(base, key, **kwargs)
-    env = dict(os.environ, LD_LIBRARY_PATH=f"{Path(command[0]).parent}:{os.environ.get('LD_LIBRARY_PATH', '')}")
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
+    env = dict(os.environ, LD_LIBRARY_PATH=":".join([*library_dirs(base, command[0]), os.environ.get("LD_LIBRARY_PATH", "")]))
+    log = Path(base) / "logs" / "llama-server.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with log.open("w") as handle:
+        process = subprocess.Popen(command, stdout=handle, stderr=subprocess.STDOUT, text=True, env=env)
     url = f"http://127.0.0.1:{kwargs['port']}"
     for _ in range(wait):
         if process.poll() is not None:
-            raise RuntimeError("llama-server encerrou: " + (process.stdout.read() or "")[-1500:])
+            raise RuntimeError("llama-server encerrou: " + log_tail(log))
         try:
             if requests.get(url + "/health", timeout=2).status_code == 200:
+                if require_gpu and kwargs.get("gpu_layers", 99) and not CUDA_LINE.search(log_tail(log, 400000)):
+                    process.terminate()
+                    raise RuntimeError("O llama-server subiu SEM o backend CUDA e rodaria na CPU (minutos por resposta). Últimas linhas do log:\n" + log_tail(log))
                 os.environ["CLONFIELD_LLAMA_URL"] = url
                 return process
         except requests.RequestException:
             pass
         time.sleep(1)
     process.terminate()
-    raise RuntimeError(f"llama-server não respondeu em {wait} s")
+    raise RuntimeError(f"llama-server não respondeu em {wait} s. Log:\n" + log_tail(log))
 
 
 def stop(process):

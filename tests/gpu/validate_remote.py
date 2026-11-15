@@ -51,13 +51,30 @@ class Client:
         api = api.strip().rstrip("/")
         api = re.sub(r"/clonfield(/api)?$", "", api)
         api = re.sub(r"/studio/?$", "", api)
-        self.base, self.bearer = api, bearer
+        self.base, self.password, self.bearer = api, bearer, bearer
         self.http = requests.Session()
         self.http.trust_env = False
 
+    def connect(self):
+        """Exchange the session password for the API token (POST /clonfield/connect), like the portal does. A local engine without that route
+        (cf_engine.py) takes the password itself as the bearer, so a 404 keeps it. Stops on a refused password (the server blocks 8 failures a minute)."""
+        try:
+            response = self.http.post(self.base + "/clonfield/connect", headers={"Authorization": f"Bearer {self.password}"}, timeout=60)
+        except requests.RequestException as exc:
+            raise Stop(self.scrub(f"Studio inalcançável: {type(exc).__name__}")) from None
+        if response.status_code == 200 and response.json().get("token"):
+            self.bearer = response.json()["token"]
+        elif response.status_code == 429:
+            raise Stop("429: muitas tentativas de senha; espere 1 minuto.")
+        elif response.status_code == 401:
+            raise Stop("401: a senha da sessão do .env foi recusada. Copie a senha da execução atual da célula do Studio (ela muda a cada subida).")
+        elif response.status_code != 404:
+            raise Stop(f"connect respondeu {response.status_code}")
+        return self
+
     def scrub(self, text):
         text = str(text)
-        for secret in (self.bearer, self.base):
+        for secret in (self.bearer, self.password, self.base):
             if secret:
                 text = text.replace(secret, "<oculto>")
         return text
@@ -70,7 +87,7 @@ class Client:
         except requests.RequestException as exc:
             raise Stop(self.scrub(f"Studio inalcançável: {type(exc).__name__}")) from None
         if response.status_code == 401:
-            raise Stop("401: o bearer foi recusado. Parei para não gerar bloqueio; confira a senha da sessão no .env.")
+            raise Stop("401: o token da sessão foi recusado (o Studio reiniciou?). Rode de novo para reconectar.")
         return response
 
     def get(self, path, **kw):
@@ -163,7 +180,7 @@ class Run:
     # -- helpers
     def defaults(self, app_id):
         app = self.apps[app_id]
-        return {f["id"]: f["default"] for f in app["fields"] if f.get("default") is not None and f["type"] not in ("files", "hidden")}
+        return {f["id"]: f["default"] for f in app["fields"] if f.get("default") is not None and f["type"] != "files"}  # hidden fields too: the portal sends them and some runners read p["mode"]
 
     def upload(self, path):
         with open(path, "rb") as handle:
@@ -274,6 +291,95 @@ def _create(run, case, model, prompt, aspect="1:1", **extra):
     return files, f"{secs}s"
 
 
+def make_clip(path, seconds=2):
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc=duration={seconds}:size=320x240:rate=12", "-pix_fmt", "yuv420p", str(path)], check=True)
+    return path
+
+
+def auto_values(run, recipe, folder):
+    """A form filled from the recipe's own spec: media from generated files, everything else at its default (first option for a choice)."""
+    values, count = {}, 0
+    for spec in recipe["inputs"]:
+        kind = spec["kind"]
+        if kind in ("image", "images"):
+            n = 1 if kind == "image" else max(2, spec.get("min") or 2)
+            ids = []
+            for _ in range(n):
+                count += 1
+                ids.append(run.upload(make_picture(folder / f"img{count}.png", [(200, 120, 60), (60, 120, 200), (90, 180, 110), (180, 90, 160)][count % 4], f"p{count}")))
+            values[spec["id"]] = ids[0] if kind == "image" else ids
+        elif kind in ("video", "videos"):
+            n = 1 if kind == "video" else max(2, spec.get("min") or 2)
+            ids = []
+            for _ in range(n):
+                count += 1
+                ids.append(run.upload(make_clip(folder / f"clip{count}.mp4")))
+            values[spec["id"]] = ids[0] if kind == "video" else ids
+        elif kind == "enum":
+            values[spec["id"]] = spec.get("default") or spec["options"][0]
+        elif kind == "enumlist":
+            values[spec["id"]] = list(spec.get("default") or spec["options"][:1])
+        elif "default" in spec:
+            values[spec["id"]] = spec["default"]
+    return values
+
+
+def case_cpu_recipes_all(run):
+    """Every CPU recipe of the catalogue, run for real on the Colab host with generated inputs; each one's files are checked."""
+    folder = Path(tempfile.mkdtemp(prefix="cf-auto-"))
+    files, notes, failed = [], [], []
+    for recipe in [r for r in run.recipes.values() if r["lane"] == "cpu" and not r.get("custom")]:
+        try:
+            job, secs = run.run_recipe(f"cpu_{recipe['id']}", recipe["id"], auto_values(run, recipe, folder))
+            got = run.collect(f"cpu_{recipe['id']}", job)
+            files += got
+            notes.append(f"{recipe['id']} ok {secs}s ({len(got)} arq.)")
+        except Stop:
+            raise
+        except Exception as exc:
+            failed.append(f"{recipe['id']}: {run.c.scrub(str(exc))[:160]}")
+    if failed:
+        raise ValueError(" | ".join(failed) + " || ok: " + "; ".join(notes))
+    return files, "; ".join(notes)
+
+
+def case_cpu_apps_all(run):
+    """Every CPU-lane app, one job each, with generated media for its file fields and the form's own defaults. Apps that need something
+    this harness cannot invent (drawn boxes, a mask, a script) are listed as skipped inside the note, not hidden."""
+    folder = Path(tempfile.mkdtemp(prefix="cf-apps-"))
+    files, ok, failed, skipped = [], [], [], []
+    for app_id, app in run.apps.items():
+        if app.get("lane") != "cpu" or app.get("blocked_reason") or app_id == "faceswap":  # face swap = deepfake: never run on Colab (its FAQ forbids it)
+            continue
+        params = run.defaults(app_id)
+        try:
+            for field in app["fields"]:
+                if field["type"] != "files":
+                    if field.get("required") and not params.get(field["id"]):
+                        raise Skip(f"campo obrigatório «{field['id']}»")
+                    continue
+                need = max(int(field.get("min") or 0), 0)
+                if not need:
+                    continue
+                kind = "video" if "video" in str(field.get("accept")) and "image" not in str(field.get("accept")) else "image"
+                ids = [run.upload(make_clip(folder / f"{app_id}-{i}.mp4") if kind == "video" else make_picture(folder / f"{app_id}-{i}.png", [(200, 120, 60), (60, 120, 200)][i % 2], f"{app_id}{i}")) for i in range(need)]
+                params[field["id"]] = ids
+            job, secs = run.run_job(f"cpuapp_{app_id}", app_id, params, label=app_id)
+            got = run.collect(f"cpuapp_{app_id}", job)
+            files += got
+            ok.append(f"{app_id} {secs}s")
+        except Skip as exc:
+            skipped.append(f"{app_id} ({exc})")
+        except Stop:
+            raise
+        except Exception as exc:
+            failed.append(f"{app_id}: {run.c.scrub(str(exc))[:150]}")
+    note = f"ok: {', '.join(ok)}" + (f" || pulados: {', '.join(skipped)}" if skipped else "")
+    if failed:
+        raise ValueError(" | ".join(failed) + " || " + note)
+    return files, note
+
+
 def case_create_turbo(run):
     return _create(run, "create_turbo", "qwen21-turbo", "um farol branco numa ilha ao entardecer, mar calmo, fotografia")
 
@@ -359,8 +465,17 @@ def case_agent_chain(run):
     reply = run.c.post(f"/sessions/{sid}/message", {"text": "crie uma imagem de um farol ao entardecer, depois amplie 2x e faça um vídeo curto dela"}, timeout=600)
     if reply.status_code >= 400:
         raise ValueError(f"agente: {run.c.scrub(reply.text)[:300]}")
-    body = run.c.get(f"/sessions/{sid}").json()
-    last = [m for m in body["messages"] if m["role"] == "assistant"][-1]
+    started = time.monotonic()
+    while True:  # the reply is produced by a background thread: poll until it is no longer pending
+        body = run.c.get(f"/sessions/{sid}").json()
+        last = [m for m in body["messages"] if m["role"] == "assistant"][-1]
+        if not last.get("pending"):
+            break
+        if time.monotonic() - started > min(run.timeout, 900):
+            raise ValueError("o agente continuou «pendente» por 15 min")
+        time.sleep(5)
+    if "Não consegui concluir com o agente" in (last.get("text") or ""):
+        raise ValueError(run.c.scrub(last["text"])[:300])
     trace = (last.get("agent") or {}).get("trace") or []
     tools = [t["tool"] for t in trace]
     note = f"ferramentas: {', '.join(tools) or 'nenhuma'}"
@@ -374,6 +489,8 @@ CASES = [
     ("system", "Sistema: GPU, VRAM, RAM e worker do ComfyUI", case_system),
     ("llm", "Modelo local do chat/agente no ar", case_llm),
     ("cpu_recipe", "Receita de CPU de ponta a ponta (upload → fluxo → MP4)", case_cpu_recipe),
+    ("cpu_recipes_all", "Todas as receitas de CPU do catálogo, entradas geradas", case_cpu_recipes_all),
+    ("cpu_apps_all", "Todos os apps de CPU, um job por app", case_cpu_apps_all),
     ("create_turbo", "Criar imagem com Qwen 2.1 Turbo", case_create_turbo),
     ("create_std", "Criar imagem com Qwen 2.1 padrão", case_create_std),
     ("upscale_gpu", "Ampliar com upscaler de IA (GPU)", case_upscale_gpu),
@@ -407,6 +524,11 @@ def main():
         return 2
     print("credenciais carregadas (valores ocultos)")
     client = Client(values["api"], values["bearer"])
+    try:
+        client.connect()
+    except Stop as exc:
+        print("\nPARADO:", exc)
+        return 1
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     wanted = [w for w in args.only.split(",") if w]
