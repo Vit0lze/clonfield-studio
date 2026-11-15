@@ -163,6 +163,33 @@ def test_best_of_recipe_discards_the_flat_picture_for_real(world, tmp_path):
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg ausente")
+def test_storyboard_animatic_recipe_numbers_the_shots_and_cuts_the_video(world, tmp_path):
+    shots = [ident(1), ident(2), ident(3), ident(4)]
+    run = go(world, tmp_path, "animatic_do_storyboard", dict(images=shots, ratio="Paisagem · 16:9", look="Sem look", seconds=1, zoom=False, fade=True))
+    assert "look" not in run["nodes"]  # «Sem look» leaves the grade step out instead of running it at zero
+    assert run["nodes"]["frame"]["items"] == 4
+    with Image.open(run["nodes"]["sheet"]["outputs"]["image"]["path"]) as sheet:
+        assert sheet.width > 300
+    assert abs(probe_seconds(run["nodes"]["show"]["outputs"]["video"]["path"]) - 4.0) < 0.5
+    graded = go(world, tmp_path, "animatic_do_storyboard", dict(images=shots[:2], ratio="Quadrado · 1:1", look="Preto e branco", seconds=1, zoom=True, fade=False))
+    assert graded["nodes"]["look"]["items"] == 2
+    labels = recipes.graph_for("animatic_do_storyboard", dict(images=shots, ratio="Paisagem · 16:9", look="Sem look", seconds=1, zoom=True, fade=True))["nodes"][1]["params"]["labels"]
+    assert labels == ["Plano 1", "Plano 2", "Plano 3", "Plano 4"]
+    with pytest.raises(ValueError):
+        recipes.graph_for("animatic_do_storyboard", dict(images=shots[:1], ratio="Paisagem · 16:9", look="Sem look", seconds=1, zoom=True, fade=True))
+
+
+def test_shots_to_film_recipe_validates_and_never_regenerates(world):
+    registry, tier, media, base = world
+    graph = recipes.graph_for("planos_em_filme", dict(images=[ident(1), ident(2)], motion="slow push in", ratio="Paisagem · 16:9", seconds=3))
+    assert [n["cap"] for n in graph["nodes"]] == ["frame", "app.animate", "video_join", "loop_check"]
+    assert not any(n["cap"] == "app.create" for n in graph["nodes"])  # the shots are inputs, not regenerated
+    report = dag.validate(graph, registry, tier, media.get)
+    assert report["ok"], report["errors"]
+    assert recipes.get("planos_em_filme").state == "BLOQUEADO_GPU"
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg ausente")
 def test_boomerang_recipe_loops_each_clip_and_joins(world, tmp_path):
     run = go(world, tmp_path, "boomerang_de_clipes", dict(videos=[ident(10), ident(11)], ratio="Paisagem · 16:9"))
     assert run["nodes"]["boom"]["items"] == 2

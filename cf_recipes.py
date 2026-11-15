@@ -162,6 +162,20 @@ def build_slideshow(v, preview=False):
     ]}
 
 
+def build_animatic(v, preview=False):
+    """The pictures of a storyboard (e.g. the shots «Storyboard» made) in order: same frame, optional common grade, a numbered sheet and a silent animatic."""
+    count = len(v["images"])
+    nodes = [dict(id="frame", label="Enquadrar cada plano", cap="frame", each="image", inputs={"image": medias(v["images"])}, params=dict(ratio=v["ratio"], fit="Preencher"))]
+    source = "frame.image"
+    if v["look"] != NO_LOOK:
+        nodes.append(dict(id="look", label="Mesmo look em todos os planos", cap="look", each="image", inputs={"image": {"from": "frame.image"}}, params=dict(look=v["look"], strength=60)))
+        source = "look.image"
+    nodes.append(dict(id="sheet", label="Folha numerada", cap="contact_sheet", inputs={"images": {"from": source}}, params=dict(columns=3 if count > 4 else count, labels=[f"Plano {i}" for i in range(1, count + 1)])))
+    nodes.append(dict(id="show", label="Animatic com zoom e fade", cap="slideshow", inputs={"images": {"from": source}},
+                      params=dict(seconds=v["seconds"], ratio=v["ratio"] if v["ratio"] in cf_finish.SEQUENCE_SIZES else "Paisagem · 16:9", zoom=v["zoom"], fade=v["fade"])))
+    return {"nodes": nodes}
+
+
 def build_best_of(v, preview=False):
     return {"nodes": [
         dict(id="keep", label="Descartar as que reprovam", cap="keep_passing", inputs={"images": medias(v["images"])}, params=dict(checks=v["checks"])),
@@ -232,6 +246,16 @@ def build_story_clips(v, preview=False):
     ]}
 
 
+def build_shots_to_film(v, preview=False):
+    """Already-made shots (approved, edited or from «Storyboard») -> one clip per shot -> joined film. Unlike `storyboard_em_filme` nothing is regenerated."""
+    return {"nodes": [
+        dict(id="frame", label="Enquadrar cada plano", cap="frame", each="image", inputs={"image": medias(v["images"])}, params=dict(ratio=v["ratio"], fit="Preencher")),
+        dict(id="move", label="Animar cada plano", cap="app.animate", each="image", inputs={"image": {"from": "frame.image"}}, params=dict(prompt=v["motion"], seconds=v["seconds"], fast=True)),
+        dict(id="film", label="Juntar o filme", cap="video_join", inputs={"videos": {"from": "move.result"}}, params=dict(ratio=v["ratio"] if v["ratio"] in cf_finish.SEQUENCE_SIZES else "Paisagem · 16:9", fit="Preencher", mute=True)),
+        dict(id="seam", label="Medir o fim contra o começo", cap="loop_check", inputs={"video": {"from": "film.video"}}),
+    ]}
+
+
 def build_character(v, preview=False):
     return {"nodes": [
         dict(id="cut", label="Tirar o fundo", cap="app.removebg", inputs={"image": {"media": v["image"]}}, params=dict(model="u2netp", background="Transparente")),
@@ -244,6 +268,7 @@ def _enum(id_, label, options, default=None):
     return dict(id=id_, kind="enum", label=label, options=list(options), default=default if default is not None else list(options)[0])
 
 
+NO_LOOK = "Sem look"
 RATIOS = list(cf_finish.SIZES)
 GENRES = [v for v, _ in cf_director.options("genre")]
 
@@ -268,6 +293,10 @@ RECIPES = {r.id: r for r in [
            [dict(id="images", kind="images", label="Imagens", min=2, max=12), _enum("ratio", "Formato", cf_finish.SEQUENCE_SIZES), _enum("look", "Look", cf_finish.LOOKS),
             dict(id="seconds", kind="number", label="Segundos por imagem", min=0.5, max=8, default=2), dict(id="zoom", kind="bool", label="Zoom lento", default=True)], build_slideshow,
            evidence="tests/test_recipes.py: 4 imagens reais viram um MP4 de duração conferida"),
+    Recipe("animatic_do_storyboard", "Animatic do storyboard", "Pega os planos já feitos (por exemplo os do app Storyboard), enquadra todos igual, dá o mesmo look se quiser e entrega uma folha numerada e um animatic com zoom e fade.", "Vídeo",
+           [dict(id="images", kind="images", label="Planos, na ordem", min=2, max=12), _enum("ratio", "Formato", cf_finish.SEQUENCE_SIZES), _enum("look", "Look", [NO_LOOK, *cf_finish.LOOKS]),
+            dict(id="seconds", kind="number", label="Segundos por plano", min=0.5, max=8, default=2), dict(id="zoom", kind="bool", label="Zoom lento", default=True), dict(id="fade", kind="bool", label="Fade entre planos", default=True)],
+           build_animatic, evidence="tests/test_recipes.py: 4 planos reais viram folha numerada e MP4 de duração conferida"),
     Recipe("melhores_do_lote", "Melhores do lote", "Descarta as imagens que reprovam na conferência técnica, fica com as primeiras, dá o look e monta a folha.", "Lote",
            [dict(id="images", kind="images", label="Imagens", min=1, max=16), dict(id="checks", kind="enumlist", label="Conferências", options=["not_blank", "sharp", "exposure", "size", "structure"], default=["not_blank", "sharp"]),
             dict(id="count", kind="number", label="Quantas ficam", min=1, max=16, default=4), _enum("look", "Look", cf_finish.LOOKS)], build_best_of,
@@ -303,6 +332,10 @@ RECIPES = {r.id: r for r in [
             dict(id="motion", kind="text", label="Movimento dos clipes", default="slow push in, subtle motion"), _enum("genre", "Gênero", GENRES, "drama"),
             dict(id="seconds", kind="number", label="Segundos por clipe", min=2, max=5, default=3)], build_story_clips, gpu=True, state="BLOQUEADO_GPU",
            evidence="grafo validado; junção testada com clipes reais"),
+    Recipe("planos_em_filme", "Planos prontos em filme", "Anima cada plano que você já tem (sem gerar de novo) e junta os clipes na ordem, medindo a emenda final.", "Vídeo",
+           [dict(id="images", kind="images", label="Planos, na ordem", min=2, max=8), dict(id="motion", kind="text", label="Movimento dos clipes", default="slow push in, subtle motion"),
+            _enum("ratio", "Formato", cf_finish.SEQUENCE_SIZES), dict(id="seconds", kind="number", label="Segundos por clipe", min=2, max=5, default=3)], build_shots_to_film, gpu=True, state="BLOQUEADO_GPU",
+           evidence="grafo validado contra o registro; nenhum clipe gerado aqui"),
     Recipe("personagem_pronto", "Personagem pronto para usar", "Tira o fundo, monta a folha de vistas (offload de 24 GB) e amplia.", "Criar",
            [dict(id="image", kind="image", label="Imagem do personagem"), _enum("set", "Conjunto de vistas", list(cf_character.SETS))], build_character, gpu=True, state="BLOQUEADO_GPU",
            evidence="grafo validado; recorte testado com U²-Net real"),
