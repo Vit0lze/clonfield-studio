@@ -91,6 +91,21 @@ def _exposed(registry, template, expose):
     return fields
 
 
+def exposable(registry, graph, limit=40):
+    """Parameters a saved flow could turn into form fields: the simple ones (number, option, yes/no, text) set on the graph's steps."""
+    out = []
+    for node in graph.get("nodes", []):
+        cap = registry.get(node["cap"])
+        for name, value in (node.get("params") or {}).items():
+            spec = cap.params.get(name)
+            if spec is None or spec.get("type") not in PARAM_KINDS or name in (node.get("bind") or {}):
+                continue
+            out.append(dict(node=node["id"], step=node.get("label") or cap.title, name=name, type=PARAM_KINDS[spec["type"]], value=value))
+            if len(out) >= limit:
+                return out
+    return out
+
+
 def save(base, registry, graph, title, tagline="", expose=(), resolve_media=None, tier=None):
     """Validate the graph, derive its form and store it. Returns the public description. Raises ValueError in plain language."""
     title = str(title or "").strip()

@@ -815,3 +815,8 @@ body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointe
 .flow-timeline .tl-rodando{background:var(--accent,#6d5efc);color:#fff}
 .flow-timeline .tl-falhou{background:#b3261e;color:#fff}
 .flow-timeline .tl-ignorado,.flow-timeline .tl-espera{opacity:.7}
+
+dialog.save-flow{max-width:min(460px,calc(100vw - 32px));border:1px solid var(--line,#3334);border-radius:14px;background:var(--surface,#fff);color:inherit;padding:18px;display:grid;gap:12px}
+dialog.save-flow::backdrop{background:#0008}
+dialog.save-flow .row{justify-content:flex-end;gap:8px}
+.flow-checks.col{flex-direction:column;gap:8px}

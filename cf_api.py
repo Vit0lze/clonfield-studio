@@ -331,6 +331,13 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         except (OSError, ValueError):
             return JSONResponse({"detail": "Execução não encontrada."}, 404)
 
+    async def dag_run_exposable(request):
+        try:
+            previous = cf_dag.load_run(dag_env(upload_media), request.path_params["id"])
+        except (OSError, ValueError):
+            return JSONResponse({"detail": "Execução não encontrada."}, 404)
+        return JSONResponse(cf_myflows.exposable(capability_registry(), previous["graph"]))
+
     async def dag_run_save(request):
         """Keep the graph of a finished run as a reusable flow ("Meus fluxos"): media become form slots, `expose` params become fields."""
         try:
@@ -930,6 +937,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/dag/validate", guard(dag_validate), methods=["POST"]),
         Route(f"{PREFIX}/dag/run", guard(dag_run), methods=["POST"]),
         Route(f"{PREFIX}/dag/runs/{{id}}", guard(dag_run_get)),
+        Route(f"{PREFIX}/dag/runs/{{id}}/exposable", guard(dag_run_exposable)),
         Route(f"{PREFIX}/dag/runs/{{id}}/save", guard(dag_run_save), methods=["POST"]),
         Route(f"{PREFIX}/dag/runs/{{id}}/revise", guard(dag_run_revise), methods=["POST"]),
         Route(f"{PREFIX}/recipes", guard(recipes_list)),

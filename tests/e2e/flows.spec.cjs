@@ -136,14 +136,24 @@ test("Chat: o resultado do agente tem «Salvar como fluxo» e o fluxo aparece em
   await settle(page); await noErrorCard(page);
   const keep = page.locator('[data-action="save-flow"]');
   await expect(keep).toBeVisible();
-  page.once("dialog", d => d.accept("Pedidos do agente"));
   await keep.click();
+  const dialog = page.locator("dialog.save-flow");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("[data-param]")).toHaveCount(2);  // text_list.text and text_join.separator
+  await dialog.getByLabel("Nome do fluxo").fill("x");
+  await dialog.locator('[data-action="confirm-save-flow"]').click();
+  await expect(dialog).toContainText("pelo menos 3 letras");  // refused in the dialog, which stays open
+  await dialog.getByLabel("Nome do fluxo").fill("Pedidos do agente");
+  await dialog.locator('[data-param="lista.text"]').check();
+  await dialog.locator('[data-action="confirm-save-flow"]').click();
   await expect(page.getByText("Fluxo guardado em Meus fluxos.")).toBeVisible();
+  await expect(dialog).toHaveCount(0);
   await open(page, "#/flows"); await settle(page); await noErrorCard(page);
   const card = page.locator('.flow-card[data-recipe="meu_pedidos_do_agente"]');
   await expect(card).toContainText("seu fluxo");
   await card.click(); await settle(page);
   await expect(page.locator(".flow-steps li[data-step]")).toHaveCount(2, { timeout: 15000 });
+  await expect(page.getByLabel("Lista de pedidos: text")).toBeVisible();  // the ticked setting became an editable field
   page.once("dialog", d => d.accept());
   await page.locator('[data-action="delete-flow"]').click();
   await expect(page.locator('.flow-card[data-recipe="meu_pedidos_do_agente"]')).toHaveCount(0);

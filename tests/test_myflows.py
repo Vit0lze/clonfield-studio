@@ -174,3 +174,14 @@ def test_api_saves_a_finished_run_as_a_flow_and_reuses_it_on_another_file(api):
         assert record["graph"]["nodes"][0]["inputs"]["image"] == {"media": other} and record["graph"]["nodes"][1]["params"]["text"] == "outra"
     finally:
         api.delete(f"{BASE}/recipes/{rid}")
+
+
+def test_api_lists_the_settings_a_run_could_expose(api):
+    first = up(api, 6)
+    graph = {"nodes": [dict(id="warm", label="Dar o look", cap="look", inputs={"image": {"media": first}}, params=dict(look="Frio suave", strength=40)),
+                       dict(id="cap", label="Legenda", cap="caption", inputs={"image": {"from": "warm.image"}}, params=dict(text="oi"))]}
+    done = wait_job(api, api.post(f"{BASE}/dag/run", json=dict(graph=graph)).json()["id"])
+    items = api.get(f"{BASE}/dag/runs/{done['run']}/exposable").json()
+    assert {(i["node"], i["name"], i["type"]) for i in items} == {("warm", "look", "enum"), ("warm", "strength", "number"), ("cap", "text", "text")}
+    assert next(i for i in items if i["name"] == "strength")["value"] == 40 and next(i for i in items if i["name"] == "look")["step"] == "Dar o look"
+    assert api.get(f"{BASE}/dag/runs/naoexiste/exposable").status_code == 404

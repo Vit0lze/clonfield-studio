@@ -149,14 +149,34 @@ export async function chatView(navigate, sessionId) {
       weak.length ? h("details", { class: "weak" }, h("summary", null, `Outros caminhos (${weak.length})`), h("ol", { class: "steps" }, weak.map(s => row(s, plan.steps.indexOf(s), false)))) : null);
   }
 
-  // The graph the agent ran, kept as a flow: files become form fields, so it runs again on other files from "Fluxos".
+  // The graph the agent ran, kept as a flow: files become form fields, and the person picks which settings stay editable.
   async function saveFlow(snap, title) {
-    const name = prompt("Nome do fluxo:", String(title || "").replace(/^Agente · /, "").slice(0, 50));
-    if (!name) return;
-    try {
-      const saved = await api.post(`/dag/runs/${snap.run}/save`, { title: name.trim() });
-      toast(saved.replaced ? "Fluxo atualizado em Meus fluxos." : "Fluxo guardado em Meus fluxos.");
-    } catch (error) { toast(error.message, "err"); }
+    let options = [];
+    try { options = await api.get(`/dag/runs/${snap.run}/exposable`); } catch (error) { return toast(error.message, "err"); }
+    const name = h("input", { class: "input", type: "text", maxlength: 60, "aria-label": "Nome do fluxo", value: String(title || "").replace(/^Agente · /, "").slice(0, 50) });
+    const picks = options.map(o => ({ o, box: h("input", { type: "checkbox", "data-param": `${o.node}.${o.name}` }) }));
+    const note = h("p", { class: "muted" });
+    const dialog = h("dialog", { class: "save-flow", "aria-label": "Salvar como fluxo" },
+      h("h3", null, "Salvar como fluxo"),
+      h("p", { class: "muted" }, "As imagens e vídeos viram campos do formulário. Marque o que mais deve poder mudar a cada uso."),
+      h("label", { class: "field" }, h("span", null, "Nome"), name),
+      picks.length ? h("div", { class: "flow-checks col", role: "group", "aria-label": "Ajustes editáveis" }, picks.map(({ o, box }) =>
+        h("label", { class: "flow-check" }, box, h("span", null, `${o.step}: ${o.name}`, h("small", { class: "muted" }, ` (${String(o.value).slice(0, 40)})`))))) : null,
+      note,
+      h("div", { class: "row" },
+        h("button", { class: "btn", type: "button", onclick: () => dialog.close() }, "Cancelar"),
+        h("button", { class: "btn primary", type: "button", "data-action": "confirm-save-flow", onclick: async () => {
+          if (name.value.trim().length < 3) { note.textContent = "Dê um nome de pelo menos 3 letras."; return; }
+          try {
+            const expose = picks.filter(p => p.box.checked).map(p => ({ node: p.o.node, name: p.o.name, label: `${p.o.step}: ${p.o.name}` }));
+            const saved = await api.post(`/dag/runs/${snap.run}/save`, { title: name.value.trim(), expose });
+            toast(saved.replaced ? "Fluxo atualizado em Meus fluxos." : "Fluxo guardado em Meus fluxos.");
+            dialog.close();
+          } catch (error) { note.textContent = error.message; }
+        } }, "Guardar")));
+    dialog.addEventListener("close", () => dialog.remove());
+    document.body.append(dialog);
+    dialog.showModal();
   }
 
   function resultBlock(message) {
