@@ -16,7 +16,7 @@ import cf_jobs
 import cf_tiers
 
 ROOT = Path(os.environ.get("CLONFIELD_FACEFUSION_DIR") or Path.home() / ".cache" / "clonfield-facefusion")
-needs_ff = pytest.mark.skipif(not ff.installed(ROOT), reason="FaceFusion não instalado (rode prepare_facefusion.py)")
+needs_ff = pytest.mark.skipif(not ff.installed(ROOT), reason="FaceFusion não instalado (rode prepare_ff.py)")
 
 
 def help_text():

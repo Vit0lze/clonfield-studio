@@ -80,7 +80,7 @@ def kind_of(target):
 def run(path, sources, target, output, check=lambda: None, on_line=lambda line: None, timeout=3600, **options):
     """Run one swap. Returns the output path. `check()` may raise to cancel (the subprocess is terminated)."""
     if not installed(path):
-        raise ValueError("O FaceFusion não está instalado. Rode prepare_facefusion.py (célula do Colab) ou defina CLONFIELD_FACEFUSION_DIR.")
+        raise ValueError("O FaceFusion não está instalado. Rode prepare_ff.py (célula do Colab) ou defina CLONFIELD_FACEFUSION_DIR.")
     kind_of(target)
     work = Path(output).parent / ".facefusion"
     work.mkdir(parents=True, exist_ok=True)
