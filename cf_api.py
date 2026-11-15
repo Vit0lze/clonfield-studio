@@ -416,7 +416,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         except ValueError as exc:  # a half-filled form is not a server error: say what is missing and keep the status 200
             return JSONResponse(dict(ok=False, detail=str(exc)))
         values, graph, report = built[0]
-        steps = [dict(id=n["id"], label=n.get("label") or n["cap"], cap=n["cap"], each=n.get("each"), when=bool(n.get("when"))) for n in graph["nodes"]]
+        steps = [dict(id=n["id"], label=n.get("label") or n["cap"], cap=n["cap"], each=n.get("each"), when=bool(n.get("when")), when_not=bool((n.get("when") or {}).get("not"))) for n in graph["nodes"]]
         return JSONResponse(dict(ok=True, recipe=recipe.id, runs=len(built), steps=steps, resources=report["resources"], order=report["order"]))
 
     async def recipe_run(request):

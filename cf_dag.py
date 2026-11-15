@@ -15,7 +15,8 @@ Control flow (all optional, all explained by validate()):
   * a capability output marked `many` (frames of a video, the cells of a scenario matrix) is a list source for `each`.
   * `"bind": {param: "node.port"}` takes a node parameter from an upstream text/json output (`{"from": ..., "path": "a.b"}` digs into json).
   * `"when": {"from": "node.port", "path": "passed", "equals": true}` runs the node only if the condition holds; otherwise the node is
-    «ignorado», and so is every node that needs its output. Nothing is faked for a skipped branch.
+    «ignorado», and so is every node that needs its output. Nothing is faked for a skipped branch. `"not": true` inverts the condition, so
+    two nodes with the same test (one plain, one `not`) make an if/else; a step whose inputs are all optional (`first_of`) joins the branches.
 """
 
 import hashlib
@@ -120,12 +121,14 @@ def dig(value, path):
 def condition_holds(when, value):
     got = dig(value, when.get("path") or "")
     if "equals" in when:
-        return got == when["equals"]
-    if "gte" in when:
-        return isinstance(got, (int, float)) and got >= when["gte"]
-    if "lte" in when:
-        return isinstance(got, (int, float)) and got <= when["lte"]
-    return bool(got)
+        held = got == when["equals"]
+    elif "gte" in when:
+        held = isinstance(got, (int, float)) and got >= when["gte"]
+    elif "lte" in when:
+        held = isinstance(got, (int, float)) and got <= when["lte"]
+    else:
+        held = bool(got)
+    return (not held) if when.get("not") else held
 
 
 def validate(graph, registry, tier=None, resolve_media=None):

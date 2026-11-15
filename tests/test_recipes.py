@@ -191,3 +191,43 @@ def test_sweep_step_and_bind_coercion_limits(world, tmp_path):
     bad = {"nodes": [dict(id="t", cap="text_list", params=dict(text="abc")), dict(id="g", cap="look", each="strength", inputs={"image": {"media": ident(1)}}, bind={"strength": "t.texts"})]}
     with pytest.raises(ValueError, match="precisa ser número"):
         dag.execute(bad, registry, env, Ctx())
+
+
+def test_check_and_fix_is_a_real_if_else(world, tmp_path):
+    from PIL import ImageFilter
+    registry, tier, media, base = world
+    soft_path = tmp_path / "soft.png"
+    Image.open(media[ident(1)]["path"]).filter(ImageFilter.GaussianBlur(14)).save(soft_path)
+    media = {**media, ident(90): dict(type="image", path=str(soft_path))}
+
+    def go_with(image):
+        graph = recipes.graph_for("conferir_e_consertar", dict(image=image, checks=["sharp"], ratio=recipes.RATIOS[0], sharpen=100))
+        report = dag.validate(graph, registry, tier, media.get)
+        assert report["ok"], report["errors"]
+        return dag.execute(graph, registry, dag.Env(base, tmp_path / "out", tier, media.get), Ctx())
+
+    sharp = go_with(ident(1))
+    assert sharp["nodes"]["gate"]["outputs"]["report"]["value"]["passed"] is True
+    assert sharp["nodes"]["keep"]["status"] == "concluído" and sharp["nodes"]["fix"]["status"] == "ignorado" and sharp["nodes"]["reframe"]["status"] == "ignorado"
+    assert sharp["nodes"]["final"]["status"] == "concluído"
+    soft = go_with(ident(90))
+    assert soft["nodes"]["gate"]["outputs"]["report"]["value"]["passed"] is False
+    assert soft["nodes"]["keep"]["status"] == "ignorado" and soft["nodes"]["fix"]["status"] == "concluído" and soft["nodes"]["reframe"]["status"] == "concluído"
+    assert soft["nodes"]["final"]["status"] == "concluído"
+    with Image.open(soft["nodes"]["final"]["outputs"]["image"]["path"]) as out:
+        assert out.size == (1080, 1920)  # the fixed branch reached the end
+
+
+def test_not_inverts_a_condition_and_first_of_needs_one_branch(world, tmp_path):
+    registry, tier, media, base = world
+    env = dag.Env(base, tmp_path / "out", tier, media.get)
+    assert dag.condition_holds({"path": "x", "equals": 1}, {"x": 1}) is True
+    assert dag.condition_holds({"path": "x", "equals": 1, "not": True}, {"x": 1}) is False
+    assert dag.condition_holds({"path": "x", "gte": 5, "not": True}, {"x": 1}) is True
+    both_skipped = {"nodes": [
+        dict(id="gate", cap="quality_gate", inputs={"image": {"media": ident(1)}}, params=dict(checks=["not_blank"])),
+        dict(id="a", cap="frame", inputs={"image": {"from": "gate.image"}}, when={"from": "gate.report", "path": "passed", "equals": False}),
+        dict(id="end", cap="first_of", inputs={"a": {"from": "a.image"}}),
+    ]}
+    with pytest.raises(ValueError, match="Nenhum dos ramos"):
+        dag.execute(both_skipped, registry, env, Ctx())

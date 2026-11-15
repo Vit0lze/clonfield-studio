@@ -161,3 +161,12 @@ def run_sweep(env, ctx, inputs, params, workdir):
         if len(set(steps)) != len(steps):
             raise ValueError("Com números inteiros, alguns valores se repetiriam; diminua «count» ou alargue o intervalo.")
     return {"values": [art("text", value=f"{v:g}" if not params.get("integer") else str(v)) for v in steps]}
+
+
+def run_first_of(env, ctx, inputs, params, workdir):
+    """Joins the branches of an if/else: the first input that exists (the other branches were skipped)."""
+    for name in ("a", "b", "c"):
+        got = inputs.get(name)
+        if got is not None and not (isinstance(got, list) and not got):
+            return {"image": dict(got[0] if isinstance(got, list) else got)}
+    raise ValueError("Nenhum dos ramos produziu uma imagem; confira as condições dos passos ligados a «a», «b» e «c».")

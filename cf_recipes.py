@@ -140,6 +140,18 @@ def build_sweep(v, preview=False):
     ]}
 
 
+def build_check_and_fix(v, preview=False):
+    gate = {"from": "gate.report", "path": "passed"}
+    return {"nodes": [
+        dict(id="gate", label="Conferir a imagem", cap="quality_gate", inputs={"image": {"media": v["image"]}}, params=dict(checks=v["checks"])),
+        dict(id="keep", label="Passou: só enquadrar", cap="frame", inputs={"image": {"from": "gate.image"}}, when={**gate, "equals": True}, params=dict(ratio=v["ratio"], fit="Preencher")),
+        dict(id="fix", label="Reprovou: ampliar e reforçar a nitidez", cap="upscale", inputs={"image": {"from": "gate.image"}}, when={**gate, "equals": True, "not": True},
+             params=dict(scale=2, sharpen=v["sharpen"])),
+        dict(id="reframe", label="Reprovou: enquadrar o resultado", cap="frame", inputs={"image": {"from": "fix.image"}}, params=dict(ratio=v["ratio"], fit="Preencher")),
+        dict(id="final", label="Resultado (o ramo que rodou)", cap="first_of", inputs={"a": {"from": "keep.image"}, "b": {"from": "reframe.image"}}),
+    ]}
+
+
 def build_slideshow(v, preview=False):
     return {"nodes": [
         dict(id="frame", label="Enquadrar cada imagem", cap="frame", each="image", inputs={"image": medias(v["images"])}, params=dict(ratio=v["ratio"], fit="Preencher")),
@@ -267,6 +279,10 @@ RECIPES = {r.id: r for r in [
            [dict(id="image", kind="image", label="Imagem"), _enum("look", "Look", cf_finish.LOOKS), dict(id="start", kind="number", label="Intensidade inicial", min=0, max=100, default=20),
             dict(id="stop", kind="number", label="Intensidade final", min=0, max=100, default=100), dict(id="count", kind="number", label="Quantos valores", min=2, max=12, default=5)], build_sweep,
            evidence="tests/test_recipes.py: 5 intensidades reais ligadas por bind numérico"),
+    Recipe("conferir_e_consertar", "Conferir e consertar", "Mede a imagem; se passar, só enquadra; se reprovar (mole, vazia, mal exposta), amplia reforçando a nitidez. Um se/senão de verdade.", "Lote",
+           [dict(id="image", kind="image", label="Imagem"), dict(id="checks", kind="enumlist", label="Conferências", options=["not_blank", "sharp", "exposure", "size", "structure"], default=["sharp", "exposure"]),
+            _enum("ratio", "Proporção final", RATIOS), dict(id="sharpen", kind="number", label="Reforço de nitidez se reprovar", min=0, max=200, default=100)], build_check_and_fix,
+           evidence="tests/test_recipes.py: uma imagem nítida segue o ramo «passou», uma desfocada segue o «reprovou»"),
     Recipe("cenarios_em_matriz", "Cenários em matriz", "Combina dois eixos (ex.: personagem × lugar), aplica a direção de cinema e gera uma imagem por combinação.", "Criar",
            [dict(id="template", kind="text", label="Frase com {a} e {b}", default="{a} em {b}"), dict(id="axis_a", kind="lines", label="Valores de {a} (um por linha)", min=1, max=6, default="uma detetive\num robô velho"),
             dict(id="axis_b", kind="lines", label="Valores de {b} (um por linha)", min=1, max=6, default="um beco chuvoso\numa estação vazia"), _enum("genre", "Gênero", GENRES, "noir"),

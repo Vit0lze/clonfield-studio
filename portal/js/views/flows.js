@@ -93,7 +93,7 @@ export async function flowsView(id, navigate) {
         const out = await api.post(`/recipes/${rec.id}/preview`, { vars: values });
         if (!out.ok) throw new Error(out.detail);
         clear(steps).append(...out.steps.map(s => h("li", { "data-step": s.id }, h("span", null, s.label),
-          s.each ? h("small", { class: "sr-chip" }, "um por item") : null, s.when ? h("small", { class: "sr-chip" }, "só se passar") : null)));
+          s.each ? h("small", { class: "sr-chip" }, "um por item") : null, s.when ? h("small", { class: "sr-chip" }, s.when_not ? "só se reprovar" : "só se passar") : null)));
         note.textContent = out.resources.slow?.length ? "Alguns passos usam offload (mais lentos)." : "";
         run.disabled = add.disabled = false;
         steps.dataset.ok = "1";
