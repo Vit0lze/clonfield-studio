@@ -786,6 +786,9 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         schema = {f["id"]: f for f in app.fields(tier)}
         resolved = dict(params)
         for field_id, field in schema.items():
+            # API clients may omit fields the portal always sends (including hidden ones): fill the form default
+            if field["type"] not in FILE_FIELDS and field["type"] != "lights" and field_id not in resolved and "default" in field:
+                resolved[field_id] = field["default"]
             if field["type"] not in FILE_FIELDS:
                 continue
             ids = params.get(field_id) or []

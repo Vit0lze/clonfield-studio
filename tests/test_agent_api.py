@@ -106,3 +106,20 @@ def test_live_chat_agent_path_runs_tools_and_answers(api):
     message = final["messages"][-1]
     assert not message.get("error"), message["text"]
     assert message["agent"]["provider"] == "llama-server" and message["agent"]["trace"] and message["text"]
+
+
+def test_job_submit_fills_omitted_fields_with_the_form_defaults(api):
+    """API clients that omit fields (hidden ones included) must not crash the runner with a KeyError."""
+    seen = {}
+    real = cf_apps.registry()["look"]
+    original = real.runner
+    real.runner = lambda ctx, p, tier: (seen.update(p), original(ctx, p, tier))[1]
+    try:
+        photo = upload(api)
+        run = api.post(f"{BASE}/jobs", json={"app": "look", "params": {"image": [photo["id"]]}})
+        assert run.status_code == 202, run.text
+        job = wait_job(api, run.json()["id"])
+    finally:
+        real.runner = original
+    assert job["status"] == "concluído", job
+    assert seen["look"] and seen["strength"] is not None
