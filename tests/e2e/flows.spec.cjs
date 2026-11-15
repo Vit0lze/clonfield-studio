@@ -8,7 +8,7 @@ const PORTRAIT = path.join(__dirname, "fixtures", "portrait.png");
 test("Fluxos: receitas listadas, passos mostrados, fila de duas execuções roda de verdade", async ({ page }) => {
   const problems = await open(page, "#/flows");
   await settle(page); await noErrorCard(page);
-  await expect(page.locator(".flow-card")).toHaveCount(13);
+  await expect(page.locator(".flow-card")).toHaveCount(15);
   await expect(page.locator('.flow-card[data-recipe="loop_de_imagem"]')).toContainText("BLOQUEADO_GPU");
   await page.locator('.flow-card[data-recipe="polir_lote"]').click();
   await settle(page); await noErrorCard(page);

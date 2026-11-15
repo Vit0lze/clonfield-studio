@@ -91,6 +91,21 @@ def sources_of(node):
     return out
 
 
+def coerce_param(spec, value):
+    """A bound value from a text list ("40") fits a number/bool parameter ("40" -> 40, "sim" -> True); anything else is left for check_params to judge."""
+    kind = (spec or {}).get("type")
+    if isinstance(value, str) and kind == "number":
+        try:
+            number = float(value.strip().replace(",", "."))
+        except ValueError:
+            return value
+        return int(number) if number == int(number) else number
+    if isinstance(value, str) and kind == "bool":
+        word = value.strip().lower()
+        return True if word in ("true", "sim", "1", "yes") else False if word in ("false", "nao", "não", "0", "no") else value
+    return value
+
+
 def dig(value, path):
     for part in [p for p in str(path).split(".") if p]:
         if isinstance(value, list) and part.isdigit() and int(part) < len(value):
@@ -417,11 +432,12 @@ def execute(graph, registry, env, ctx, run_id=None, force=(), check=None):
                     skip = skip or f"«{other}» foi ignorado"
                     continue
                 source = values[other][out_name]
+                spec = cap.params.get(name)
                 if isinstance(source, list):
-                    bound[name] = [dig(i.get("value"), path) for i in source]
+                    bound[name] = [coerce_param(spec, dig(i.get("value"), path)) for i in source]
                     listy_bound.add(name)
                 else:
-                    bound[name] = dig(source.get("value"), path)
+                    bound[name] = coerce_param(spec, dig(source.get("value"), path))
             for port in cap.inputs:
                 sources = (node.get("inputs") or {}).get(port.name)
                 if sources is None:

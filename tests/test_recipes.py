@@ -169,3 +169,25 @@ def test_boomerang_recipe_loops_each_clip_and_joins(world, tmp_path):
     assert abs(probe_seconds(run["nodes"]["join"]["outputs"]["video"]["path"]) - 12.0) < 1.0  # two 3 s clips, each there and back
     single = go(world, tmp_path, "boomerang_de_clipes", dict(videos=[ident(10)], ratio="Paisagem · 16:9"))
     assert "join" not in single["nodes"] and abs(probe_seconds(single["nodes"]["boom"]["outputs"]["video"]["path"]) - 6.0) < 0.6
+
+
+def test_sweep_recipe_binds_numbers_into_a_number_parameter_for_real(world, tmp_path):
+    run = go(world, tmp_path, "varredura_de_intensidade", dict(image=ident(1), look="Cinema quente", start=0, stop=100, count=5))
+    assert [a["value"] for a in run["nodes"]["values"]["outputs"]["values"]] == ["0", "25", "50", "75", "100"]
+    assert run["nodes"]["graded"]["items"] == 5
+    import numpy as np
+    images = [Image.open(a["path"]).convert("RGB") for a in run["nodes"]["graded"]["outputs"]["image"]]
+    gap = [float(np.abs(np.asarray(images[0], dtype=float) - np.asarray(im, dtype=float)).mean()) for im in images[1:]]
+    assert all(g > 0 for g in gap) and gap[-1] > gap[0]  # 0% is the base; a stronger setting moves the picture further: the bound number really reached the step
+
+
+def test_sweep_step_and_bind_coercion_limits(world, tmp_path):
+    registry, tier, media, base = world
+    env = dag.Env(base, tmp_path / "out", tier, media.get)
+    seeds = {"nodes": [dict(id="s", cap="sweep", params=dict(start=1000, stop=1003, count=4, integer=True))]}
+    assert [a["value"] for a in dag.execute(seeds, registry, env, Ctx())["nodes"]["s"]["outputs"]["values"]] == ["1000", "1001", "1002", "1003"]
+    with pytest.raises(ValueError, match="se repetiriam"):
+        dag.execute({"nodes": [dict(id="s", cap="sweep", params=dict(start=1, stop=2, count=5, integer=True))]}, registry, env, Ctx())
+    bad = {"nodes": [dict(id="t", cap="text_list", params=dict(text="abc")), dict(id="g", cap="look", each="strength", inputs={"image": {"media": ident(1)}}, bind={"strength": "t.texts"})]}
+    with pytest.raises(ValueError, match="precisa ser número"):
+        dag.execute(bad, registry, env, Ctx())

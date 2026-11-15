@@ -130,6 +130,16 @@ def build_cutouts(v, preview=False):
     ]}
 
 
+def build_sweep(v, preview=False):
+    count = int(v["count"])
+    return {"nodes": [
+        dict(id="values", label="As intensidades", cap="sweep", params=dict(start=v["start"], stop=v["stop"], count=count)),
+        dict(id="graded", label="Um look por intensidade", cap="look", each="strength", inputs={"image": {"media": v["image"]}}, bind={"strength": "values.values"}, params=dict(look=v["look"])),
+        dict(id="sheet", label="Lado a lado", cap="contact_sheet", inputs={"images": {"from": "graded.image"}}, params=dict(columns=min(4, count))),
+        dict(id="best", label="A mais nítida", cap="pick_best", inputs={"images": {"from": "graded.image"}}, params=dict(by="sharp")),
+    ]}
+
+
 def build_slideshow(v, preview=False):
     return {"nodes": [
         dict(id="frame", label="Enquadrar cada imagem", cap="frame", each="image", inputs={"image": medias(v["images"])}, params=dict(ratio=v["ratio"], fit="Preencher")),
@@ -162,6 +172,17 @@ def build_boomerangs(v, preview=False):
 
 
 # ---------------------------------------------------------------- GPU recipes (structure validated, nothing generated here)
+def build_best_of_seeds(v, preview=False):
+    return {"nodes": [
+        dict(id="seeds", label="As sementes", cap="sweep", params=dict(start=v["seed"], stop=v["seed"] + int(v["count"]) - 1, count=int(v["count"]), integer=True)),
+        dict(id="direct", label="Direção de cinema", cap="direction", params=dict(prompt=v["prompt"], dir_genre=v["genre"])),
+        dict(id="make", label="Uma imagem por semente", cap="app.create", each="seed", bind={"seed": "seeds.values", "prompt": "direct.text"}, params=dict(aspect=v["aspect"], quality="standard", variations=1)),
+        dict(id="gate", label="Ficar só com as que passam", cap="keep_passing", inputs={"images": {"from": "make.result"}}, params=dict(checks=["not_blank", "sharp", "exposure"])),
+        dict(id="best", label="A mais nítida", cap="pick_best", inputs={"images": {"from": "gate.images"}}, params=dict(by="sharp")),
+        dict(id="up", label="Ampliar a escolhida", cap="upscale", inputs={"image": {"from": "best.image"}}, params=dict(scale=2)),
+    ]}
+
+
 def build_matrix(v, preview=False):
     genre = v["genre"]
     return {"nodes": [
@@ -242,11 +263,19 @@ RECIPES = {r.id: r for r in [
     Recipe("boomerang_de_clipes", "Boomerang de clipes", "Cada clipe vai e volta (loop natural); com vários, os loops são emendados.", "Vídeo",
            [dict(id="videos", kind="videos", label="Clipes", min=1, max=6), _enum("ratio", "Formato", cf_finish.SEQUENCE_SIZES)], build_boomerangs,
            evidence="tests/test_recipes.py: 2 clipes reais com boomerang e emenda"),
+    Recipe("varredura_de_intensidade", "Varredura de intensidade", "Aplica o mesmo look em várias intensidades (de X a Y) e mostra tudo lado a lado, para escolher o ponto certo.", "Lote",
+           [dict(id="image", kind="image", label="Imagem"), _enum("look", "Look", cf_finish.LOOKS), dict(id="start", kind="number", label="Intensidade inicial", min=0, max=100, default=20),
+            dict(id="stop", kind="number", label="Intensidade final", min=0, max=100, default=100), dict(id="count", kind="number", label="Quantos valores", min=2, max=12, default=5)], build_sweep,
+           evidence="tests/test_recipes.py: 5 intensidades reais ligadas por bind numérico"),
     Recipe("cenarios_em_matriz", "Cenários em matriz", "Combina dois eixos (ex.: personagem × lugar), aplica a direção de cinema e gera uma imagem por combinação.", "Criar",
            [dict(id="template", kind="text", label="Frase com {a} e {b}", default="{a} em {b}"), dict(id="axis_a", kind="lines", label="Valores de {a} (um por linha)", min=1, max=6, default="uma detetive\num robô velho"),
             dict(id="axis_b", kind="lines", label="Valores de {b} (um por linha)", min=1, max=6, default="um beco chuvoso\numa estação vazia"), _enum("genre", "Gênero", GENRES, "noir"),
             _enum("aspect", "Proporção", ["1:1", "16:9", "9:16", "4:5"], "16:9")], build_matrix, gpu=True, state="BLOQUEADO_GPU",
            evidence="grafo validado contra o registro real; nenhuma imagem gerada aqui"),
+    Recipe("melhor_de_n_sementes", "Melhor de N sementes", "Gera a mesma cena com N sementes, descarta as que reprovam na conferência técnica, escolhe a mais nítida e amplia.", "Criar",
+           [dict(id="prompt", kind="text", label="Cena", default="um farol à noite, mar agitado"), _enum("genre", "Gênero", GENRES, "drama"), _enum("aspect", "Proporção", ["1:1", "16:9", "9:16", "4:5"], "16:9"),
+            dict(id="count", kind="number", label="Quantas sementes", min=2, max=8, default=4), dict(id="seed", kind="number", label="Semente inicial", min=0, max=999999, default=1000)],
+           build_best_of_seeds, gpu=True, state="BLOQUEADO_GPU", evidence="grafo validado contra o registro; o bind numérico da semente foi testado em CPU com outro passo; nada gerado aqui"),
     Recipe("cena_com_elenco", "Cena com @elenco e conferência", "Gera a cena (os @nomes viram personagens do Elenco), confere a qualidade e só amplia se passar.", "Criar",
            [dict(id="prompt", kind="text", label="Cena (use @nome)", default="@Mira corre na chuva"), _enum("genre", "Gênero", GENRES, "drama"), _enum("aspect", "Proporção", ["1:1", "16:9", "9:16", "4:5"], "16:9")],
            build_cast_scene, gpu=True, state="BLOQUEADO_GPU", evidence="grafo validado; condição `when` testada em CPU com outro gerador"),

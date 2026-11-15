@@ -148,3 +148,16 @@ def run_blend(env, ctx, inputs, params, workdir):
     target = Path(workdir) / "mistura.png"
     out.save(target)
     return {"image": art("image", target, f"{round(mix * 100)}% da segunda")}
+
+
+def run_sweep(env, ctx, inputs, params, workdir):
+    """A list of numbers from start to stop (count values): bind it to a number parameter with `each` to sweep that parameter, or to `seed` for N variations."""
+    start, stop, count = float(params.get("start", 0)), float(params.get("stop", 100)), int(params.get("count", 5))
+    if not 1 <= count <= MAX_LIST:
+        raise ValueError(f"«count» deve ficar entre 1 e {MAX_LIST}.")
+    steps = [start + (stop - start) * i / max(1, count - 1) for i in range(count)]
+    if params.get("integer"):
+        steps = [round(v) for v in steps]
+        if len(set(steps)) != len(steps):
+            raise ValueError("Com números inteiros, alguns valores se repetiriam; diminua «count» ou alargue o intervalo.")
+    return {"values": [art("text", value=f"{v:g}" if not params.get("integer") else str(v)) for v in steps]}
