@@ -60,3 +60,32 @@ def test_real_narrated_render_of_a_drawn_episode(configured):
                             str(result["video"])], capture_output=True, text=True).stdout
     assert "width=1080" in probe and "height=1920" in probe and "codec_type=audio" in probe
     assert result["qa"]["ok"] is True  # no 'no-audio' error: the narration made it into the file
+
+
+def test_the_stt_provider_hands_faster_whisper_samples_instead_of_a_file_so_pyav_is_never_called(tmp_path, monkeypatch):
+    """Colab's PyAV rejects `metadata_errors=`, which faster-whisper passes when it decodes a file path itself."""
+    import sys, types, wave
+    from pathlib import Path
+    import numpy as np
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "vendor" / "content_factory" / "engine"))
+    from factory.providers.stt import faster_whisper as stt
+    wav = tmp_path / "vo.wav"
+    tone = (np.sin(np.linspace(0, 440 * 2 * np.pi, 24000)) * 12000).astype("<i2")  # 1 s at 24 kHz, like Kokoro's output
+    with wave.open(str(wav), "wb") as handle:
+        handle.setnchannels(1); handle.setsampwidth(2); handle.setframerate(24000); handle.writeframes(tone.tobytes())
+    seen = {}
+
+    class Word:
+        word, start, end = " oi", 0.0, 0.4
+
+    class FakeModel:
+        def transcribe(self, audio, **kwargs):
+            seen["audio"], seen["kwargs"] = audio, kwargs
+            return [types.SimpleNamespace(words=[Word()])], None
+
+    monkeypatch.setitem(sys.modules, "soundfile", None)  # force the stdlib reader as well
+    monkeypatch.setattr(stt, "_model", lambda name: FakeModel())
+    result = stt.words(wav, "pt", "tiny")
+    assert isinstance(seen["audio"], np.ndarray) and seen["audio"].dtype == np.float32
+    assert abs(len(seen["audio"]) - 16000) <= 2 and float(np.abs(seen["audio"]).max()) > 0.2
+    assert result == [{"word": " oi", "start": 0.0, "end": 0.4}] and seen["kwargs"]["word_timestamps"] is True
