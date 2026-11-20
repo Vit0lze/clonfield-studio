@@ -118,11 +118,11 @@ def test_start_launches_on_a_free_port_and_publishes_that_url(tmp_path, monkeypa
             cf_llama.stop(process)
 
 
-def _fake_server(tmp_path, monkeypatch, banner):
+def _fake_server(tmp_path, monkeypatch, banner, filler=200000):
     import stat, sys
     server = tmp_path / "llama" / cf_llama.TAG / "llama-server"
     server.parent.mkdir(parents=True)
-    body = "import sys, http.server\n" + (f"print({banner!r}, flush=True)\n" if banner else "") + "print('x' * 200000, flush=True)\n"  # 200 KB of log: a PIPE nobody reads would block here
+    body = "import sys, http.server\n" + (f"print({banner!r}, flush=True)\n" if banner else "") + f"print('x' * {filler}, flush=True)\n"  # 200 KB of log: a PIPE nobody reads would block here
     body += "port = int(sys.argv[sys.argv.index('--port') + 1])\nclass H(http.server.BaseHTTPRequestHandler):\n    def do_GET(self):\n        self.send_response(200); self.end_headers(); self.wfile.write(b'ok')\n    def log_message(self, *a): pass\nhttp.server.HTTPServer(('127.0.0.1', port), H).serve_forever()\n"
     server.write_text(f"#!{sys.executable}\n" + body)
     server.chmod(server.stat().st_mode | stat.S_IEXEC)
@@ -157,3 +157,15 @@ def test_the_cuda_runtime_folder_next_to_the_binary_is_on_the_library_path(tmp_p
     (runtime / "libcudart.so.12").write_text("")
     dirs = cf_llama.library_dirs(tmp_path, binary)
     assert dirs[0] == str(binary.parent) and str(runtime) in dirs
+
+
+def test_the_cuda_banner_is_found_even_when_a_verbose_load_pushes_it_far_from_the_log_tail(tmp_path, monkeypatch):
+    _fake_server(tmp_path, monkeypatch, "ggml_cuda_init: found 1 CUDA devices", filler=1500000)
+    process = cf_llama.start(tmp_path, wait=30)
+    cf_llama.stop(process)
+
+
+def test_the_refusal_names_the_backend_lines_of_the_log(tmp_path, monkeypatch):
+    _fake_server(tmp_path, monkeypatch, "load_backend: failed to load libggml-cuda.so", filler=1500000)
+    with pytest.raises(RuntimeError, match="failed to load libggml-cuda.so"):
+        cf_llama.start(tmp_path, wait=30)

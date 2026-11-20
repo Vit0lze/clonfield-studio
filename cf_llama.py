@@ -161,7 +161,38 @@ def library_dirs(base, exe):
     return dirs
 
 
-CUDA_LINE = re.compile(r"found \d+ CUDA devices|loaded CUDA backend", re.I)
+CUDA_LINE = re.compile(r"found \d+ CUDA devices|loaded CUDA backend|ggml_cuda_init|\bCUDA\d* (?:model|KV|compute) buffer|offloaded [1-9]\d*/\d+ layers to GPU", re.I)
+CUDA_HINT = re.compile(r"cuda|cublas|cudart|libcuda|backend|device|ggml_|load_backend|offload", re.I)
+
+
+def log_has_cuda(path):
+    """True when ANY line of the whole log shows the CUDA backend. The banner is at the START of the log and a verbose model load can push
+    it far out of a tail window, so the file is scanned from the top."""
+    try:
+        with Path(path).open(errors="replace") as handle:
+            return any(CUDA_LINE.search(line) for line in handle)
+    except OSError:
+        return False
+
+
+def cuda_diagnosis(path, exe):
+    """What a person needs to see when CUDA is missing: the backend/device lines of the log plus any shared library the CUDA backend cannot resolve."""
+    lines = []
+    try:
+        with Path(path).open(errors="replace") as handle:
+            lines = [line.rstrip()[:240] for line in handle if CUDA_HINT.search(line)][:40]
+    except OSError:
+        pass
+    missing = ""
+    backend = next(iter(sorted(Path(exe).parent.glob("libggml-cuda.so*"))), None)
+    if backend is not None:
+        try:
+            out = subprocess.run(["ldd", str(backend)], capture_output=True, text=True, timeout=20,
+                                 env=dict(os.environ, LD_LIBRARY_PATH=os.environ.get("LD_LIBRARY_PATH", ""))).stdout
+            missing = "\n".join(line.strip() for line in out.splitlines() if "not found" in line)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return "Linhas de backend/dispositivo do log:\n" + ("\n".join(lines) or "(nenhuma)") + ("\nBibliotecas não encontradas por libggml-cuda.so (sem o LD_LIBRARY_PATH do servidor):\n" + missing if missing else "")
 
 
 def log_tail(path, size=1800):
@@ -187,9 +218,9 @@ def start(base, key=DEFAULT, wait=300, require_gpu=True, **kwargs):
             raise RuntimeError("llama-server encerrou: " + log_tail(log))
         try:
             if requests.get(url + "/health", timeout=2).status_code == 200:
-                if require_gpu and kwargs.get("gpu_layers", 99) and not CUDA_LINE.search(log_tail(log, 400000)):
+                if require_gpu and kwargs.get("gpu_layers", 99) and not log_has_cuda(log):
                     process.terminate()
-                    raise RuntimeError("O llama-server subiu SEM o backend CUDA e rodaria na CPU (minutos por resposta). Últimas linhas do log:\n" + log_tail(log))
+                    raise RuntimeError("O llama-server subiu SEM o backend CUDA e rodaria na CPU (minutos por resposta).\n" + cuda_diagnosis(log, command[0]) + "\nFim do log:\n" + log_tail(log, 600))
                 os.environ["CLONFIELD_LLAMA_URL"] = url
                 return process
         except requests.RequestException:
