@@ -21,7 +21,7 @@ Máquina remota: Tesla T4, 15 GB de VRAM, 12,7 GB de RAM. Tempos são de parede,
 | Agente local → cadeia imagem→vídeo | TESTADO GPU | Qwen3.5-9B na T4 chamou `compose_chain`; o job gerou 832×480, 3 s; 122 s |
 | LLM local na GPU | TESTADO GPU | `llama-server --list-devices` → `CUDA0: Tesla T4` |
 | `POST /jobs` sem campos hidden | TESTADO API REAL | `animate` só com `image` + `prompt` concluiu (antes: `KeyError: 'mode'`) |
-| Receita «Personagem pronto» | TESTADO GPU (mecânica); fidelidade NÃO medida | gerou a folha 2700×1084 com 4 vistas em 2239 s (37 min; recorte 2 s, o resto é a folha com offload de 24 GB). A entrada foi uma foto de farol (erro do meu teste), então o modelo inventou pessoas diferentes por vista: não prova nada sobre identidade. Nova rodada com um retrato de personagem em andamento |
+| Receita «Personagem pronto» | TESTADO GPU | com um retrato de personagem (mulher ruiva de cabelo curto, jaqueta de couro verde, jeans, tênis brancos) como entrada: folha 2700×1084 com Frente, 3/4, Perfil e Costas, 2232 s (37 min, quase tudo na folha com offload de 24 GB). Olhando as 4 vistas, a identidade e a roupa se mantêm (cabelo, jaqueta, jeans, tênis; costas com bolsos e costura). Falha visual: faixas cinza claras em cima e embaixo de cada vista (a imagem 3:4 não preenche o painel). Fidelidade medida só por olho, em UMA personagem e UM conjunto (turnaround) |
 | Receita «Imagem em loop» / Wan A14B | BLOQUEADO | o worker do ComfyUI morre ao carregar o A14B (inferido falta de RAM); sem correção |
 | Fábrica de vídeo | NÃO RESOLVIDO | `metadata_errors` na primeira bateria; falta o traceback |
 
@@ -39,7 +39,7 @@ Máquina remota: Tesla T4, 15 GB de VRAM, 12,7 GB de RAM. Tempos são de parede,
 - Cliente de validação trocava a senha da sessão por token (`/clonfield/connect`) e aguardava a resposta assíncrona do agente.
 
 ## Pendente
-- «Personagem pronto» com um personagem de verdade como entrada: olhar se as 4 vistas mantêm a mesma pessoa/roupa.
+- «Personagem pronto»: faixas cinza em cada vista; testar outros conjuntos de vistas e outros personagens (só 1 foi olhado).
 - Wan A14B isolado e por último (derruba o worker).
 - Fábrica de vídeo: traceback do `metadata_errors`.
 - Medir Qwen 2.1 padrão × Turbo com cuidado (um run só por modo; o frio inclui download), Wan «Rápido» (só A14B), apps com offload.
