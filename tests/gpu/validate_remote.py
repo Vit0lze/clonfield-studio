@@ -407,7 +407,7 @@ def case_upscale_gpu(run):
 
 def case_animate(run):
     source = _need(run, "create_turbo")
-    params = {**run.defaults("animate"), "image": [source], "prompt": "slow gentle camera drift, subtle motion", "seconds": 2, "fast": True}
+    params = {**run.defaults("animate"), "image": [source], "prompt": "slow gentle camera drift, subtle motion", "seconds": 2, "fast": False}
     job, secs = run.run_job("animate", "animate", params)
     files = run.collect("animate", job)
     videos = [r for r in job["results"] if r["kind"] == "video"]
@@ -494,7 +494,7 @@ CASES = [
     ("create_turbo", "Criar imagem com Qwen 2.1 Turbo", case_create_turbo),
     ("create_std", "Criar imagem com Qwen 2.1 padrão", case_create_std),
     ("upscale_gpu", "Ampliar com upscaler de IA (GPU)", case_upscale_gpu),
-    ("animate", "Foto em movimento (Wan 5B Q6 rápido)", case_animate),
+    ("animate", "Foto em movimento (Wan 5B Q6)", case_animate),
     ("recipe_seeds", "Receita Melhor de N sementes", case_recipe_seeds),
     ("recipe_matrix", "Receita Cenários em matriz", case_recipe_matrix),
     ("recipe_loop", "Receita Imagem em loop perfeito", case_recipe_loop),
