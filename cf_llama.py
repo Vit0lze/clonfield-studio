@@ -206,7 +206,7 @@ def gpu_loaded(before, minimum=1500):
     return now - before >= minimum
 
 
-def cuda_diagnosis(path, exe):
+def cuda_diagnosis(path, exe, env=None):
     """What a person needs to see when CUDA is missing: the backend/device lines of the log plus any shared library the CUDA backend cannot resolve."""
     lines = []
     try:
@@ -219,11 +219,11 @@ def cuda_diagnosis(path, exe):
     if backend is not None:
         try:
             out = subprocess.run(["ldd", str(backend)], capture_output=True, text=True, timeout=20,
-                                 env=dict(os.environ, LD_LIBRARY_PATH=os.environ.get("LD_LIBRARY_PATH", ""))).stdout
+                                 env=env or os.environ).stdout
             missing = "\n".join(line.strip() for line in out.splitlines() if "not found" in line)
         except (OSError, subprocess.SubprocessError):
             pass
-    return "Linhas de backend/dispositivo do log:\n" + ("\n".join(lines) or "(nenhuma)") + ("\nBibliotecas não encontradas por libggml-cuda.so (sem o LD_LIBRARY_PATH do servidor):\n" + missing if missing else "")
+    return "Linhas de backend/dispositivo do log:\n" + ("\n".join(lines) or "(nenhuma)") + ("\nBibliotecas que libggml-cuda.so não encontra (com o LD_LIBRARY_PATH do servidor):\n" + missing if missing else "")
 
 
 def log_tail(path, size=1800):
@@ -247,7 +247,7 @@ def start(base, key=DEFAULT, wait=300, require_gpu=True, **kwargs):
         ran, devices, text = list_devices(command[0], env)
         if ran and not devices:  # the build answered and offers no CUDA device: stop before loading a 7 GB model onto the CPU
             raise RuntimeError("O llama-server não enxerga nenhum dispositivo CUDA e rodaria na CPU (minutos por resposta).\n"
-                               "`llama-server --list-devices` respondeu:\n" + text.strip()[-800:] + "\n" + cuda_diagnosis(log, command[0]))
+                               "`llama-server --list-devices` respondeu:\n" + text.strip()[-800:] + "\n" + cuda_diagnosis(log, command[0], env))
     vram_before = gpu_used_mib() if wants_gpu else None
     with log.open("w") as handle:
         process = subprocess.Popen(command, stdout=handle, stderr=subprocess.STDOUT, text=True, env=env)
@@ -259,7 +259,7 @@ def start(base, key=DEFAULT, wait=300, require_gpu=True, **kwargs):
             if requests.get(url + "/health", timeout=2).status_code == 200:
                 if wants_gpu and not devices and not log_has_cuda(log) and not gpu_loaded(vram_before):
                     process.terminate()
-                    raise RuntimeError("O llama-server subiu SEM o backend CUDA e rodaria na CPU (minutos por resposta).\n" + cuda_diagnosis(log, command[0]) + "\nFim do log:\n" + log_tail(log, 600))
+                    raise RuntimeError("O llama-server subiu SEM o backend CUDA e rodaria na CPU (minutos por resposta).\n" + cuda_diagnosis(log, command[0], env) + "\nFim do log:\n" + log_tail(log, 600))
                 os.environ["CLONFIELD_LLAMA_URL"] = url
                 return process
         except requests.RequestException:
