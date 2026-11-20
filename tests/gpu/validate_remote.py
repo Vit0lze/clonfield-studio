@@ -446,7 +446,9 @@ def case_recipe_animatic(run):
 
 
 def case_recipe_character(run):
-    source = _need(run, "create_turbo")
+    # a character recipe needs a character: a lighthouse (the other cases' source) made the model invent unrelated people per view
+    _create(run, "character_source", "qwen21-turbo", "retrato de corpo inteiro de uma mulher de cabelo curto ruivo, jaqueta de couro verde, camiseta branca e calça jeans, em pé, fundo cinza liso, fotografia de estúdio", aspect="3:4")
+    source = run.kept["character_source"]
     options = run.recipes["personagem_pronto"]["inputs"]
     sets = next(i for i in options if i["id"] == "set")["options"]
     job, secs = run.run_recipe("recipe_character", "personagem_pronto", dict(image=source, set=sets[0]))
