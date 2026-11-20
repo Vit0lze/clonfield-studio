@@ -125,7 +125,15 @@ def installed_binary(base):
     return next(iter(sorted((Path(base) / "llama").rglob("llama-server"))), None) if (Path(base) / "llama").is_dir() else None
 
 
-def server_command(base, key=DEFAULT, binary=None, port=PORT, ctx=16384, gpu_layers=99, threads=None):
+def sleep_seconds():
+    """Idle seconds after which llama-server unloads the model from VRAM and RAM (it reloads on the next request). CLONFIELD_LLM_SLEEP=0 disables."""
+    try:
+        return max(0, int(os.environ.get("CLONFIELD_LLM_SLEEP", "30")))
+    except ValueError:
+        return 30
+
+
+def server_command(base, key=DEFAULT, binary=None, port=PORT, ctx=16384, gpu_layers=99, threads=None, sleep_idle=None):
     """The llama-server command line. `--jinja` makes the model's own chat template drive native tool calls."""
     exe = binary or os.environ.get("CLONFIELD_LLAMA_BIN") or shutil.which("llama-server") or installed_binary(base)
     if not exe:
@@ -135,6 +143,9 @@ def server_command(base, key=DEFAULT, binary=None, port=PORT, ctx=16384, gpu_lay
         command += ["-ngl", str(gpu_layers), "-fa", "on"]
     if threads:
         command += ["-t", str(threads)]
+    idle = sleep_seconds() if sleep_idle is None else sleep_idle
+    if idle:
+        command += ["--sleep-idle-seconds", str(idle)]  # a resident 9B must not share the T4 and the 12 GB of RAM with a running video job
     return command
 
 

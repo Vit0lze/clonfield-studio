@@ -80,6 +80,10 @@ class OpenAICompatProvider:
         if self.name == "colibri":
             body["enable_thinking"] = False  # colibri's extension is top-level; chat_template_kwargs is llama.cpp's
         try:
+            cf_llm.ensure_gpu_free()
+        except cf_llm.LLMError as exc:
+            raise AgentError(str(exc)) from None
+        try:
             response = requests.post(f"{self.base}/v1/chat/completions", json=body, timeout=self.timeout)
             response.raise_for_status()
         except requests.RequestException as exc:
@@ -361,6 +365,10 @@ def run_agent(provider, toolbox, user_text, history=(), max_steps=MAX_STEPS, on_
             trace.append(entry)
             if on_step:
                 on_step(entry)
+        queued = next((t["result"] for t in trace[-len(reply["calls"]):] if '"status": "queued"' in t["result"] and '"lane": "gpu"' in t["result"]), None)
+        if queued:  # the text model is unloaded while a GPU job runs, so the turn ends here with a fixed answer
+            final, stop = "Iniciei o job de GPU. O modelo de texto fica descarregado enquanto ele roda; o resultado aparece no chat quando terminar.", "job de GPU iniciado"
+            break
         if time.monotonic() - started > 600:
             stop = "tempo"
             break

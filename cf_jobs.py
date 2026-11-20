@@ -74,6 +74,8 @@ class Manager:
         self.jobs, self.order = {}, deque(maxlen=500)
         self.queues = {"gpu": deque(), "cpu": deque()}
         self.cv = threading.Condition()
+        self.gpu_active = False  # True from the moment a GPU job is picked until it ends
+        self.before_gpu = None   # callable() -> True/False/None: unload the text model first (False = it is still loaded)
         self.save_lock = threading.Lock()
         self.runners = {}
         self._load()
@@ -166,7 +168,13 @@ class Manager:
             job.update(status="executando", started=time.time(), desc="Preparando")
             self._save(job)
             ctx = Context(job, self.out_dir, self)
+            if lane == "gpu":
+                self.gpu_active = True
             try:
+                if lane == "gpu" and self.before_gpu is not None:
+                    job.update(desc="Liberando a GPU do modelo de texto")
+                    if self.before_gpu() is False:
+                        raise JobError("O modelo de texto continua carregado na GPU e o job de vídeo/imagem poderia derrubar o worker por falta de memória. Espere alguns segundos e tente de novo.")
                 files = runner(ctx) or []
                 results = self._publish(job, files)
                 job.update(status="concluído", fraction=1.0, desc="Concluído", results=results)
@@ -176,6 +184,8 @@ class Manager:
                 import traceback
                 traceback.print_exc()
                 job.update(status="falhou", message=f"{type(exc).__name__}: {exc}", desc="Falhou")
+            if lane == "gpu":
+                self.gpu_active = False
             job.update(finished=time.time())
             self._save(job)
 

@@ -27,6 +27,48 @@ class LLMError(Exception):
     pass
 
 
+_gpu = {"busy": lambda: False}
+
+
+def set_gpu_guard(busy):
+    """`busy()` is True while a GPU job runs; the text model is then refused instead of being woken into the job's VRAM and RAM."""
+    _gpu["busy"] = busy
+
+
+def ensure_gpu_free():
+    if _gpu["busy"]():
+        raise LLMError("A GPU está ocupada com um job; o modelo de texto fica descarregado enquanto ele roda. Tente de novo quando terminar.")
+
+
+def is_asleep(url, timeout=3):
+    """True/False from llama-server's /props `is_sleeping` (model unloaded or not); None when the backend cannot say."""
+    try:
+        value = requests.get(url + "/props", timeout=timeout).json().get("is_sleeping")
+    except (requests.RequestException, ValueError):
+        return None
+    return value if isinstance(value, bool) else None
+
+
+def release_gpu(timeout=150, poll=2):
+    """Wait until the local text model is unloaded from the GPU. True: it is (or none is running); False: still loaded after `timeout`;
+    None: this backend cannot report its state, nothing is concluded."""
+    found = pick()
+    if found is None:
+        return True
+    if found[0] != "llama":
+        return None
+    deadline = time.monotonic() + timeout
+    while True:
+        state = is_asleep(found[1])
+        if state is None:
+            return None
+        if state:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(poll)
+
+
 def candidates():
     """[(backend, url)] in the order they are tried."""
     forced = (os.environ.get("CLONFIELD_LLM_BACKEND") or "").strip().lower()
@@ -89,6 +131,7 @@ def models():
 
 
 def generate(system, user, timeout=180, attempts=2):
+    ensure_gpu_free()
     """Final text from the local model, with any <think> block removed."""
     if not available():
         raise LLMError("Nenhum modelo local está rodando (llama-server ou colibri). Inicie-o na célula do Colab ou defina CLONFIELD_LLAMA_URL / CLONFIELD_COLIBRI_URL.")

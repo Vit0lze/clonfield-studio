@@ -73,6 +73,8 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
     cf_apps.configure(base, out_dir)
     cf_civitai.set_cover_cache(base / "cache" / "covers")
     manager = cf_jobs.Manager(out_dir)
+    manager.before_gpu = cf_llm.release_gpu
+    cf_llm.set_gpu_guard(lambda: manager.gpu_active)
     tier = cf_tiers.detect()
     secret = secret.encode() if isinstance(secret, str) else secret
 
