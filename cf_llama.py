@@ -175,6 +175,37 @@ def log_has_cuda(path):
         return False
 
 
+DEVICE_LINE = re.compile(r"^\s*(CUDA\d+)\s*:", re.M)
+
+
+def list_devices(exe, env):
+    """(ran, cuda_devices): what `llama-server --list-devices` reports. `ran` is False when the build cannot answer (then nothing is concluded from it).
+    This is the decisive check: the b12360 build logs NOTHING about the backend at its default verbosity, so the log cannot prove CUDA either way."""
+    try:
+        done = subprocess.run([str(exe), "--list-devices"], capture_output=True, text=True, timeout=90, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return False, [], ""
+    text = (done.stdout or "") + (done.stderr or "")
+    return done.returncode == 0, DEVICE_LINE.findall(text), text
+
+
+def gpu_used_mib():
+    """Used VRAM of GPU 0 in MiB, or None without nvidia-smi."""
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=20).stdout
+        return int(out.strip().splitlines()[0])
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
+
+
+def gpu_loaded(before, minimum=1500):
+    """True when VRAM use grew by at least `minimum` MiB since `before` (the model landed on the GPU). False when it cannot be measured."""
+    now = gpu_used_mib()
+    if before is None or now is None:
+        return False
+    return now - before >= minimum
+
+
 def cuda_diagnosis(path, exe):
     """What a person needs to see when CUDA is missing: the backend/device lines of the log plus any shared library the CUDA backend cannot resolve."""
     lines = []
@@ -210,6 +241,14 @@ def start(base, key=DEFAULT, wait=300, require_gpu=True, **kwargs):
     env = dict(os.environ, LD_LIBRARY_PATH=":".join([*library_dirs(base, command[0]), os.environ.get("LD_LIBRARY_PATH", "")]))
     log = Path(base) / "logs" / "llama-server.log"
     log.parent.mkdir(parents=True, exist_ok=True)
+    wants_gpu = bool(require_gpu and kwargs.get("gpu_layers", 99))
+    devices = []
+    if wants_gpu:
+        ran, devices, text = list_devices(command[0], env)
+        if ran and not devices:  # the build answered and offers no CUDA device: stop before loading a 7 GB model onto the CPU
+            raise RuntimeError("O llama-server não enxerga nenhum dispositivo CUDA e rodaria na CPU (minutos por resposta).\n"
+                               "`llama-server --list-devices` respondeu:\n" + text.strip()[-800:] + "\n" + cuda_diagnosis(log, command[0]))
+    vram_before = gpu_used_mib() if wants_gpu else None
     with log.open("w") as handle:
         process = subprocess.Popen(command, stdout=handle, stderr=subprocess.STDOUT, text=True, env=env)
     url = f"http://127.0.0.1:{kwargs['port']}"
@@ -218,7 +257,7 @@ def start(base, key=DEFAULT, wait=300, require_gpu=True, **kwargs):
             raise RuntimeError("llama-server encerrou: " + log_tail(log))
         try:
             if requests.get(url + "/health", timeout=2).status_code == 200:
-                if require_gpu and kwargs.get("gpu_layers", 99) and not log_has_cuda(log):
+                if wants_gpu and not devices and not log_has_cuda(log) and not gpu_loaded(vram_before):
                     process.terminate()
                     raise RuntimeError("O llama-server subiu SEM o backend CUDA e rodaria na CPU (minutos por resposta).\n" + cuda_diagnosis(log, command[0]) + "\nFim do log:\n" + log_tail(log, 600))
                 os.environ["CLONFIELD_LLAMA_URL"] = url

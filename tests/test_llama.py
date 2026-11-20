@@ -118,11 +118,11 @@ def test_start_launches_on_a_free_port_and_publishes_that_url(tmp_path, monkeypa
             cf_llama.stop(process)
 
 
-def _fake_server(tmp_path, monkeypatch, banner, filler=200000):
+def _fake_server(tmp_path, monkeypatch, banner, filler=200000, devices=None):
     import stat, sys
     server = tmp_path / "llama" / cf_llama.TAG / "llama-server"
     server.parent.mkdir(parents=True)
-    body = "import sys, http.server\n" + (f"print({banner!r}, flush=True)\n" if banner else "") + f"print('x' * {filler}, flush=True)\n"  # 200 KB of log: a PIPE nobody reads would block here
+    body = "import sys, http.server\n" + (f"if '--list-devices' in sys.argv:\n    print({devices!r}); sys.exit(0)\n" if devices is not None else "") + (f"print({banner!r}, flush=True)\n" if banner else "") + f"print('x' * {filler}, flush=True)\n"  # 200 KB of log: a PIPE nobody reads would block here
     body += "port = int(sys.argv[sys.argv.index('--port') + 1])\nclass H(http.server.BaseHTTPRequestHandler):\n    def do_GET(self):\n        self.send_response(200); self.end_headers(); self.wfile.write(b'ok')\n    def log_message(self, *a): pass\nhttp.server.HTTPServer(('127.0.0.1', port), H).serve_forever()\n"
     server.write_text(f"#!{sys.executable}\n" + body)
     server.chmod(server.stat().st_mode | stat.S_IEXEC)
@@ -169,3 +169,33 @@ def test_the_refusal_names_the_backend_lines_of_the_log(tmp_path, monkeypatch):
     _fake_server(tmp_path, monkeypatch, "load_backend: failed to load libggml-cuda.so", filler=1500000)
     with pytest.raises(RuntimeError, match="failed to load libggml-cuda.so"):
         cf_llama.start(tmp_path, wait=30)
+
+
+def test_a_build_that_lists_a_cuda_device_is_accepted_even_when_its_log_says_nothing_about_the_backend(tmp_path, monkeypatch):
+    """The real b12360 log has no backend line at all (783 bytes on the Colab), so --list-devices is what proves CUDA."""
+    _fake_server(tmp_path, monkeypatch, "", filler=10, devices="Available devices:\n  CUDA0: Tesla T4 (15102 MiB, 14999 MiB free)")
+    process = cf_llama.start(tmp_path, wait=20)
+    cf_llama.stop(process)
+
+
+def test_a_build_that_lists_no_cuda_device_is_refused_before_the_model_loads(tmp_path, monkeypatch):
+    _fake_server(tmp_path, monkeypatch, "ggml_cuda_init: found 1 CUDA devices", devices="Available devices:")
+    with pytest.raises(RuntimeError, match="nenhum dispositivo CUDA"):
+        cf_llama.start(tmp_path, wait=20)
+    assert not (tmp_path / "logs" / "llama-server.log").exists() or "listening" not in (tmp_path / "logs" / "llama-server.log").read_text()
+
+
+def test_vram_growth_proves_the_model_landed_on_the_gpu(tmp_path, monkeypatch):
+    _fake_server(tmp_path, monkeypatch, "", filler=10)
+    readings = iter([300, 7800])
+    monkeypatch.setattr(cf_llama, "gpu_used_mib", lambda: next(readings))
+    process = cf_llama.start(tmp_path, wait=20)
+    cf_llama.stop(process)
+
+
+def test_no_vram_growth_and_no_backend_line_is_refused(tmp_path, monkeypatch):
+    _fake_server(tmp_path, monkeypatch, "", filler=10)
+    readings = iter([300, 320])
+    monkeypatch.setattr(cf_llama, "gpu_used_mib", lambda: next(readings))
+    with pytest.raises(RuntimeError, match="SEM o backend CUDA"):
+        cf_llama.start(tmp_path, wait=20)
