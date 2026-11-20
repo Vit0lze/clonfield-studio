@@ -1,5 +1,6 @@
 """Pick defaults and ComfyUI flags from the GPU that is actually attached."""
 
+import dataclasses
 import os
 import shutil
 import subprocess
@@ -41,7 +42,19 @@ def read_gpu():
         return "Sem GPU", 0.0, 0.0
 
 
+def extra_flags():
+    """ComfyUI flags added by the user through CLONFIELD_COMFY_EXTRA (e.g. "--fast-disk"); only flags are accepted, never other words."""
+    import shlex
+    return tuple(word for word in shlex.split(os.environ.get("CLONFIELD_COMFY_EXTRA", "")) if word.startswith("--"))
+
+
 def detect():
+    tier = _detect()
+    extra = tuple(flag for flag in extra_flags() if flag not in tier.comfy_flags)
+    return dataclasses.replace(tier, comfy_flags=tier.comfy_flags + extra) if extra else tier
+
+
+def _detect():
     # No --lowvram/--normalvram: ComfyUI 0.44 manages VRAM dynamically, and forcing lowvram only hurts big cards.
     name, vram, capability = read_gpu()
     old_card = capability and capability < 8.0
