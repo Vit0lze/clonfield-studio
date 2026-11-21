@@ -225,7 +225,7 @@ def test_flf_app_forces_the_a14b_models_and_a_loop_reuses_the_first_picture(monk
     monkeypatch.setenv("CLONFIELD_FAKE_VRAM", "15")
     app = cf_apps.registry()["flf2v"]
     fields = {f["id"]: f for f in app.fields(cf_tiers.detect())}
-    assert {o["value"] for o in fields["model"]["options"]} == {"a14b-q6"} and fields["model"]["default"] == "a14b-q6" and fields["loop"]["type"] == "switch" and fields["end_image"]["min"] == 0
+    assert {o["value"] for o in fields["model"]["options"]} == {k for k, m in wan.MODELS.items() if m["kind"] == "a14b"} == {"a14b-q6", "a14b-q4", "a14b-q3"} and fields["model"]["default"] == "a14b-q6" and fields["loop"]["type"] == "switch" and fields["end_image"]["min"] == 0
     seen = {}
 
     def run(graph, out_dir, progress, **kwargs):
