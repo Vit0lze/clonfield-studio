@@ -484,7 +484,10 @@ def case_agent_chain(run):
     job_ids = [m.get("job") for m in body["messages"] if m.get("job")]
     if not tools:
         raise ValueError("o agente respondeu sem usar nenhuma ferramenta. " + note)
-    return [], note + (f" · jobs {job_ids}" if job_ids else "")
+    acted = [t for t in tools if t in ("compose_chain", "execute_graph", "run_recipe")]
+    if not job_ids or not acted:  # exploring the catalogue for ten steps is not building the chain
+        raise ValueError(f"o agente não montou nem executou a cadeia (parou por «{(last.get('agent') or {}).get('stop')}»). " + note[:300])
+    return [], note + f" · jobs {job_ids}"
 
 
 CASES = [

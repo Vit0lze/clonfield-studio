@@ -235,7 +235,9 @@ def test_the_api_wires_a_real_comfy_release_that_posts_free_to_the_worker(tmp_pa
     threading.Thread(target=server.serve_forever, daemon=True).start()
     monkeypatch.setattr(cf_workflows, "SERVER", f"http://127.0.0.1:{server.server_address[1]}")
     try:
-        cf_api.build_app(tmp_path, tmp_path / "out", lambda t: True, "s")
+        import cf_factory
+        base = cf_factory.data().parent if cf_factory._state["data"] is not None else tmp_path  # the Content Factory is configured once per session
+        cf_api.build_app(base, base / "out", lambda t: True, "s")
         cf_llm._gpu["free_comfy"]()
     finally:
         server.shutdown()
