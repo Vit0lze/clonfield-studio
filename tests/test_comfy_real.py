@@ -201,3 +201,36 @@ def test_agent_system_info_and_free_memory_against_the_real_worker(comfy, monkey
     info = box.system_info()
     assert info["worker"] and info["worker"]["ram_total_gb"] > 0 and info["worker"]["ram_free_gb"] > 0 and info["disk_free_gb"] > 0
     assert box.free_memory()["ok"] is True
+
+
+def test_a14b_stage_graphs_are_accepted_and_a_latent_survives_the_save_upload_load_roundtrip(comfy, tmp_path, monkeypatch):
+    """The A14B runs one expert per prompt. REAL ComfyUI: both stage graphs validate, and a latent saved by stage 1 is downloaded by the Studio's own
+    executor, uploaded back and loaded by LoadLatent in a second prompt. (No model is loaded here: the latent is an empty tiny one.)"""
+    import cf_seedvr2
+    import cf_workflows as workflows
+    graph = cf_wan.make_graph("a14b-q4", cf_wan.FLF_MODE, "x.png", "uma raposa", "", "Horizontal · 832 × 480", 3, 16, 20, 3.5, 7, None, None, 15, fast=True, end_image="x.png")
+    one, two = cf_wan.split_a14b(graph, "estagio1.latent")
+    assert {"37", "60", "48", "3", "70"} <= set(one) and not ({"47", "61", "49", "4", "8", "58"} & set(one))
+    assert {"47", "61", "49", "4", "8", "58", "71"} <= set(two) and not ({"37", "60", "48", "3"} & set(two))
+    assert ok(comfy, one) == []
+    sample = comfy["inputs"] / "estagio1.latent"
+    sample.parent.mkdir(parents=True, exist_ok=True)
+    sample.write_bytes(b"placeholder")  # only so the combo of LoadLatent has a value while the graph is validated
+    try:
+        assert ok(comfy, two) == [], explain(ok(comfy, two))
+    finally:
+        sample.unlink(missing_ok=True)
+    monkeypatch.setattr(workflows, "SERVER", comfy["url"])
+    monkeypatch.setattr(cf_seedvr2, "SERVER", comfy["url"])
+    save = {"1": {"class_type": "EmptyHunyuanLatentVideo", "inputs": {"width": 64, "height": 64, "length": 5, "batch_size": 1}},
+            "2": {"class_type": "SaveLatent", "inputs": {"samples": ["1", 0], "filename_prefix": "ClonField/teste-estagio"}}}
+    first = workflows.run(save, tmp_path, lambda *a, **k: None, title="latente 1", family="teste")
+    assert first["status"] == "concluído", first
+    latents = [tmp_path / first["id"] / name for name in first["results"] if name.endswith(".latent")]
+    assert len(latents) == 1 and latents[0].stat().st_size > 0
+    load = {"1": {"class_type": "LoadLatent", "inputs": {"latent": latents[0].name}},
+            "2": {"class_type": "SaveLatent", "inputs": {"samples": ["1", 0], "filename_prefix": "ClonField/teste-estagio-2"}}}
+    second = workflows.run(load, tmp_path, lambda *a, **k: None, title="latente 2", family="teste", files=[latents[0]])
+    assert second["status"] == "concluído", second
+    again = [tmp_path / second["id"] / name for name in second["results"] if name.endswith(".latent")]
+    assert len(again) == 1 and again[0].stat().st_size == latents[0].stat().st_size  # the same tensor came back out

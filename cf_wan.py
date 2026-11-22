@@ -238,6 +238,38 @@ def make_graph(model_key, mode, image, prompt, negative, size, seconds, fps, ste
     return graph
 
 
+def needed(graph, targets):
+    """Ids of every node the given outputs depend on (ComfyUI only executes what an output node needs)."""
+    seen, stack = set(), list(targets)
+    while stack:
+        node_id = stack.pop()
+        if node_id in seen:
+            continue
+        seen.add(node_id)
+        for value in graph[node_id]["inputs"].values():
+            if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str) and value[0] in graph:
+                stack.append(value[0])
+    return seen
+
+
+def split_a14b(graph, latent_name="estagio1.latent"):
+    """(stage 1, stage 2) of the two-expert graph. Stage 1 = text + high-noise expert + its sampler, saved with SaveLatent. Stage 2 = LoadLatent +
+    low-noise expert + its sampler + decode + video. Run as two prompts with ComfyUI's memory freed in between, so the two ~9 GB experts never
+    share the 12.7 GB RAM of the Colab (as one prompt the second expert's load killed the worker)."""
+    import copy
+    if "3" not in graph or "4" not in graph:
+        raise ValueError("O grafo não tem os dois samplers do A14B.")
+    one = copy.deepcopy(graph)
+    one["70"] = {"class_type": "SaveLatent", "inputs": {"samples": ["3", 0], "filename_prefix": "ClonField/wan-estagio1"}}
+    one = {key: one[key] for key in needed(one, ["70"])}
+    two = copy.deepcopy(graph)
+    two["71"] = {"class_type": "LoadLatent", "inputs": {"latent": latent_name}}
+    two["4"]["inputs"]["latent_image"] = ["71", 0]
+    del two["3"]
+    two = {key: two[key] for key in needed(two, ["58"])}
+    return one, two
+
+
 def downloads(model_key, mode, fast=False):
     """The files to fetch, as (key of the node input, folder, repo, filename, revision) for prepare()."""
     return [(f[0], f[1], f[2], f[3]) for f in files_for(model_key, mode, fast)]

@@ -15,9 +15,10 @@ IMAGE_SUFFIXES = {".png", ".jpeg", ".jpg", ".webp", ".gif", ".avif", ".bmp"}
 VIDEO_SUFFIXES = {".mp4", ".webm", ".mkv", ".mov", ".avi"}
 AUDIO_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".opus"}
 MODEL_3D_SUFFIXES = {".glb", ".gltf", ".obj", ".stl", ".fbx", ".usdz"}
-MEDIA_SUFFIXES = IMAGE_SUFFIXES | VIDEO_SUFFIXES | AUDIO_SUFFIXES | MODEL_3D_SUFFIXES
+LATENT_SUFFIXES = {".latent"}  # SaveLatent output: the Wan A14B runs one expert per prompt and hands the latent over
+MEDIA_SUFFIXES = IMAGE_SUFFIXES | VIDEO_SUFFIXES | AUDIO_SUFFIXES | MODEL_3D_SUFFIXES | LATENT_SUFFIXES
 _last_family = [None]
-MEDIA_INPUTS = {"LoadImage": "image", "LoadImageMask": "image", "LoadVideo": "file", "LoadAudio": "audio"}
+MEDIA_INPUTS = {"LoadImage": "image", "LoadImageMask": "image", "LoadVideo": "file", "LoadAudio": "audio", "LoadLatent": "latent"}
 
 
 def read_graph(path):
