@@ -233,4 +233,14 @@ def test_a14b_stage_graphs_are_accepted_and_a_latent_survives_the_save_upload_lo
     second = workflows.run(load, tmp_path, lambda *a, **k: None, title="latente 2", family="teste", files=[latents[0]])
     assert second["status"] == "concluído", second
     again = [tmp_path / second["id"] / name for name in second["results"] if name.endswith(".latent")]
-    assert len(again) == 1 and again[0].stat().st_size == latents[0].stat().st_size  # the same tensor came back out
+    assert len(again) == 1
+
+    def tensor_bytes(path):  # a .latent is a safetensors file; SaveLatent also embeds the prompt as metadata, so file sizes differ: compare the tensor itself
+        raw = path.read_bytes()
+        size = int.from_bytes(raw[:8], "little")
+        entry = json.loads(raw[8:8 + size])["latent_tensor"]
+        start, end = entry["data_offsets"]
+        return entry["shape"], raw[8 + size + start:8 + size + end]
+    shape_a, data_a = tensor_bytes(latents[0])
+    shape_b, data_b = tensor_bytes(again[0])
+    assert shape_a == shape_b == [1, 16, 2, 8, 8] and data_a == data_b and len(data_a) > 0

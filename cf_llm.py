@@ -35,6 +35,10 @@ def set_gpu_guard(busy):
     _gpu["busy"] = busy
 
 
+def gpu_busy():
+    return bool(_gpu["busy"]())
+
+
 def ensure_gpu_free():
     if _gpu["busy"]():
         raise LLMError("A GPU está ocupada com um job; o modelo de texto fica descarregado enquanto ele roda. Tente de novo quando terminar.")

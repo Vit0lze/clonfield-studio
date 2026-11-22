@@ -333,6 +333,9 @@ class Toolbox:
 
 
 # ---------------------------------------------------------------- the loop
+GPU_NOTE = "Iniciei o job de GPU. O modelo de texto fica descarregado enquanto ele roda; o resultado aparece no chat quando terminar."
+
+
 def run_agent(provider, toolbox, user_text, history=(), max_steps=MAX_STEPS, on_step=None):
     """Tool-calling loop. Returns dict(final, trace, steps, stop, provider). Never raises for a tool failure: the error goes back
     to the model as the tool result so it can correct itself."""
@@ -341,7 +344,13 @@ def run_agent(provider, toolbox, user_text, history=(), max_steps=MAX_STEPS, on_
     trace, stop, final = [], "limite de passos", ""
     for step in range(1, max_steps + 1):
         started = time.monotonic()
-        reply = provider.step(SYSTEM, messages, toolbox.tools)
+        try:
+            reply = provider.step(SYSTEM, messages, toolbox.tools)
+        except AgentError:
+            if trace and cf_llm.gpu_busy():  # the job started between the tool call and this step (the GPU lane picks it up in its own thread)
+                final, stop = GPU_NOTE, "job de GPU iniciado"
+                break
+            raise
         messages.append(dict(role="assistant", text=reply["text"], calls=reply["calls"], raw_parts=reply.get("raw_parts")))
         if not reply["calls"]:
             final, stop = reply["text"], "resposta final"
@@ -365,9 +374,8 @@ def run_agent(provider, toolbox, user_text, history=(), max_steps=MAX_STEPS, on_
             trace.append(entry)
             if on_step:
                 on_step(entry)
-        queued = next((t["result"] for t in trace[-len(reply["calls"]):] if '"status": "queued"' in t["result"] and '"lane": "gpu"' in t["result"]), None)
-        if queued:  # the text model is unloaded while a GPU job runs, so the turn ends here with a fixed answer
-            final, stop = "Iniciei o job de GPU. O modelo de texto fica descarregado enquanto ele roda; o resultado aparece no chat quando terminar.", "job de GPU iniciado"
+        if cf_llm.gpu_busy():  # a tool started a GPU job: the text model is unloaded while it runs, so the turn ends here with a fixed answer
+            final, stop = GPU_NOTE, "job de GPU iniciado"
             break
         if time.monotonic() - started > 600:
             stop = "tempo"

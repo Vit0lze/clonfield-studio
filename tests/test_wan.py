@@ -258,3 +258,39 @@ def test_the_q6_a14b_pair_is_refused_on_a_small_ram_machine_and_the_smaller_quan
     assert wan.memory_problem("a14b-q4", ram_gb=12.7) is None and wan.memory_problem("a14b-q3", ram_gb=12.7) is None
     assert wan.memory_problem("a14b-q6", ram_gb=64) is None and wan.memory_problem("5b-q6", ram_gb=12.7) is None
     assert wan.memory_problem("a14b-q6", ram_gb=0) is None  # RAM unreadable: do not block
+
+
+def test_a14b_runs_two_prompts_with_the_memory_freed_between_them_and_the_latent_handed_over(monkeypatch, tmp_path):
+    """The Q6_K pair, then even the Q4_K_S one, took the 12.7 GB Colab down when both experts shared one prompt."""
+    import cf_apps
+    import cf_tiers
+    monkeypatch.setenv("CLONFIELD_FAKE_VRAM", "15")
+    calls = []
+    latent = tmp_path / "estagio1.latent"
+    latent.write_bytes(b"x")
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"x")
+
+    def run(graph, out_dir, progress, **kwargs):
+        calls.append(("run", sorted(graph, key=int), kwargs.get("files"), kwargs.get("title")))
+        return {"status": "concluído", "id": "w", "results": []}
+    monkeypatch.setattr(cf_apps.workflows, "run", run)
+    monkeypatch.setattr(cf_apps.workflows, "free_models", lambda *a, **k: calls.append(("free",)))
+    monkeypatch.setattr(cf_apps, "collect_job", lambda ctx, job: [latent] if sum(1 for c in calls if c[0] == "run") == 1 else [clip])
+
+    class Ctx:
+        control = None
+        out_dir = tmp_path
+        class job:
+            id = "j"
+            @staticmethod
+            def update(**kw): pass
+        def progress(self, *a, **k): pass
+        def check(self): pass
+    out = cf_apps.run_wan(Ctx(), dict(mode=wan.FLF_MODE, model="a14b-q4", prompt="loop", size="Horizontal · 512 × 288 (rápido)", seconds=2, steps=20, seed=3,
+                                      image=["/x/a.png"], loop=True, fast=True), cf_tiers.detect())
+    assert [c[0] for c in calls] == ["run", "free", "run"]
+    first, second = calls[0], calls[2]
+    assert "70" in first[1] and "3" in first[1] and "4" not in first[1] and first[2] is None and "1/2" in first[3]
+    assert "71" in second[1] and "4" in second[1] and "3" not in second[1] and second[2] == [latent] and "2/2" in second[3]
+    assert out == [clip]  # the latent is an intermediate, never a result

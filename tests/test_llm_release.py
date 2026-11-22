@@ -146,17 +146,53 @@ def test_the_agent_provider_is_refused_while_a_gpu_job_runs(monkeypatch):
         cf_llm.set_gpu_guard(lambda: False)
 
 
-def test_the_agent_turn_ends_with_a_fixed_answer_once_it_has_started_a_gpu_job():
-    """Scripted model, clearly labelled: it asks for one tool call; after the tool reports a queued GPU job the loop must NOT call the model again."""
-    class Scripted:
-        name = "script"
-        calls = 0
+class Scripted:
+    """Scripted model, clearly labelled: it asks for one tool call per step."""
+    name = "script"
 
-        def step(self, system, messages, tools):
-            Scripted.calls += 1
-            return dict(text="", calls=[dict(id="1", name="start", args={})], model="x")
+    def __init__(self, refuse_after_tool=False):
+        self.calls, self.refuse = 0, refuse_after_tool
 
-    toolbox = type("TB", (), {"tools": [dict(name="start", description="d", parameters=dict(type="object", properties={}))],
-                              "by_name": {"start": dict(fn=lambda: dict(status="queued", job_id="job_1", lane="gpu"), parameters=dict(properties={}))}})()
-    out = cf_agent.run_agent(Scripted(), toolbox, "gere um vídeo")
-    assert Scripted.calls == 1 and out["stop"] == "job de GPU iniciado" and "descarregado" in out["final"]
+    def step(self, system, messages, tools):
+        self.calls += 1
+        if self.calls > 1 and self.refuse:
+            raise cf_agent.AgentError("A GPU está ocupada com um job; o modelo de texto fica descarregado enquanto ele roda.")
+        return dict(text="", calls=[dict(id="1", name="start", args={})], model="x")
+
+
+def toolbox(result, on_call=None):
+    def start():
+        if on_call:
+            on_call()
+        return result
+    return type("TB", (), {"tools": [dict(name="start", description="d", parameters=dict(type="object", properties={}))],
+                           "by_name": {"start": dict(fn=start, parameters=dict(properties={}))}})()
+
+
+def test_the_agent_turn_ends_with_a_fixed_answer_once_a_tool_has_started_a_gpu_job_whatever_shape_the_tool_returns():
+    state = {"busy": False}
+    cf_llm.set_gpu_guard(lambda: state["busy"])
+    try:
+        model = Scripted()
+        out = cf_agent.run_agent(model, toolbox({"started": True, "jobs": ["job_1"]}, on_call=lambda: state.update(busy=True)), "gere um vídeo")
+        assert model.calls == 1 and out["stop"] == "job de GPU iniciado" and "descarregado" in out["final"]
+    finally:
+        cf_llm.set_gpu_guard(lambda: False)
+
+
+def test_a_refusal_right_after_the_tool_is_read_as_the_gpu_job_having_started_not_as_a_failure():
+    """The GPU lane picks the job up in its own thread, so the flag can rise between the tool call and the next model step."""
+    readings = iter([False, True])  # 1st look (right after the tool): not up yet; 2nd (after the model refused): up
+    cf_llm.set_gpu_guard(lambda: next(readings))
+    try:
+        model = Scripted(refuse_after_tool=True)
+        out = cf_agent.run_agent(model, toolbox({"ok": True}), "gere um vídeo")
+        assert out["stop"] == "job de GPU iniciado" and model.calls == 2
+    finally:
+        cf_llm.set_gpu_guard(lambda: False)
+
+
+def test_a_refusal_without_a_gpu_job_is_a_real_error_and_is_raised():
+    cf_llm.set_gpu_guard(lambda: False)
+    with pytest.raises(cf_agent.AgentError, match="GPU está ocupada"):
+        cf_agent.run_agent(Scripted(refuse_after_tool=True), toolbox({"ok": True}), "gere um vídeo")

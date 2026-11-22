@@ -59,8 +59,12 @@ def test_loop_job_reports_the_measured_seam_in_the_job_message(tmp_path, monkeyp
     import cf_tiers
     monkeypatch.setenv("CLONFIELD_FAKE_VRAM", "15")
     good, bad = clip(tmp_path, "g", 1.0), clip(tmp_path, "b", 0.5)
-    made = iter([[good], [good], [bad]])
+    latent = tmp_path / "estagio1.latent"
+    latent.write_bytes(b"x")
+    # the A14B now runs two prompts per take (expert 1 saves a latent, expert 2 makes the clip): the replaced collect returns that pair each time
+    made = iter([[latent], [good], [latent], [good], [latent], [bad]])
     monkeypatch.setattr(cf_apps.workflows, "run", lambda *a, **k: {"status": "concluído"})
+    monkeypatch.setattr(cf_apps.workflows, "free_models", lambda *a, **k: None)
     monkeypatch.setattr(cf_apps, "collect_job", lambda ctx, job: next(made))
 
     class Job:

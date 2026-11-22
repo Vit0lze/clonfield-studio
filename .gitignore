@@ -16,3 +16,4 @@ node_modules/
 
 # remote GPU validation output (downloaded media + reports)
 tests/gpu/out*/
+tests/gpu/*.mp4
