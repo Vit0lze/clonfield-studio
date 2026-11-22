@@ -22,7 +22,7 @@ Máquina remota: Tesla T4, 15 GB de VRAM, 12,7 GB de RAM. Tempos são de parede,
 | LLM local na GPU | TESTADO GPU | `llama-server --list-devices` → `CUDA0: Tesla T4` |
 | `POST /jobs` sem campos hidden | TESTADO API REAL | `animate` só com `image` + `prompt` concluiu (antes: `KeyError: 'mode'`) |
 | Receita «Personagem pronto» | TESTADO GPU | com um retrato de personagem (mulher ruiva de cabelo curto, jaqueta de couro verde, jeans, tênis brancos) como entrada: folha 2700×1084 com Frente, 3/4, Perfil e Costas, 2232 s (37 min, quase tudo na folha com offload de 24 GB). Olhando as 4 vistas, a identidade e a roupa se mantêm (cabelo, jaqueta, jeans, tênis; costas com bolsos e costura). Falha visual: faixas cinza claras em cima e embaixo de cada vista (a imagem 3:4 não preenche o painel). Fidelidade medida só por olho, em UMA personagem e UM conjunto (turnaround) |
-| Receita «Imagem em loop» / Wan A14B | BLOQUEADO (reproduzido 2×) | o worker do ComfyUI morre logo após `Requested to load WAN21` (A14B Q6_K, F16 + Q6_K, ~12 GB), depois de carregar o codificador de texto (6,4 GB) e o VAE. O Colab tem 12,7 GB de RAM e o LLM de 9B continuava residente (VRAM e RAM). Causa NÃO confirmada: hipótese é memória; teste A/B sem o LLM pendente |
+| Wan A14B «Entre dois quadros» (loop) | TESTADO GPU com o Q4_K_S; Q6_K NÃO cabe | **Q4_K_S: 469 s**, 832×480, 33 quadros a 16 fps, sem o worker cair (download de ~17,5 GB em ~3 min a 120–140 MB/s; o job começou com «Liberando a GPU do modelo de texto» e baixou em < 6 s). Qualidade: farol quase parado (movimento 1,52), um risco de luz que aparece no meio e some, medidor de emenda «visível» (8,4× um passo normal, mas o passo normal é minúsculo). **Q6_K (12 GB por especialista) morreu 4×** ao carregar o segundo especialista, com `--fast-disk` (log confirmou `fast_disk=True`), com `--disable-pinned-memory` (derrubou o Studio inteiro) e sem flags. O Studio agora recusa o Q6_K com menos de 24 GB de RAM e o padrão do app é o Q4_K_S. A receita «Imagem em loop» herda esse padrão: ainda não rodei a receita inteira com ele |
 | Fábrica de vídeo | CÓDIGO ESCRITO (correção), NÃO validado na GPU | erro real: `open() got an unexpected keyword argument 'metadata_errors'` (98 s). Hipótese: faster-whisper decodifica o WAV com PyAV e passa `metadata_errors=`, que o PyAV do Colab rejeita. Correção: o provider entrega as amostras (mono 16 kHz), sem PyAV; teste local com faster-whisper falso. Falta rodar no Colab depois do pull + reinício do Studio |
 
 ## Qualidade (olhada nos quadros, sem métrica)
@@ -40,7 +40,8 @@ Máquina remota: Tesla T4, 15 GB de VRAM, 12,7 GB de RAM. Tempos são de parede,
 
 ## Pendente
 - «Personagem pronto»: faixas cinza em cada vista; testar outros conjuntos de vistas e outros personagens (só 1 foi olhado).
-- Wan A14B: teste A/B sem o LLM residente (pular a célula 7); se passar, descarregar o LLM (`--sleep-idle-seconds` do llama-server) antes de vídeo pesado; se não, `--cache-none`/quant menor.
+- Receita «Imagem em loop» inteira com o A14B Q4_K_S (o teste foi do app «Entre dois quadros» direto); Q3_K_S não foi testado.
+- Medir se o LLM descarregado de fato libera VRAM/RAM (hoje só vi que o job de GPU espera o sono do servidor e começa).
 - Fábrica de vídeo: rodar no Colab com a correção (célula 1 + reiniciar a 8).
 - Medir Qwen 2.1 padrão × Turbo com cuidado (um run só por modo; o frio inclui download), Wan «Rápido» (só A14B), apps com offload.
 - Repetir a foto em movimento com foto real.

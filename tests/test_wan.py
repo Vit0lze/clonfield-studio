@@ -225,7 +225,7 @@ def test_flf_app_forces_the_a14b_models_and_a_loop_reuses_the_first_picture(monk
     monkeypatch.setenv("CLONFIELD_FAKE_VRAM", "15")
     app = cf_apps.registry()["flf2v"]
     fields = {f["id"]: f for f in app.fields(cf_tiers.detect())}
-    assert {o["value"] for o in fields["model"]["options"]} == {k for k, m in wan.MODELS.items() if m["kind"] == "a14b"} == {"a14b-q6", "a14b-q4", "a14b-q3"} and fields["model"]["default"] == "a14b-q6" and fields["loop"]["type"] == "switch" and fields["end_image"]["min"] == 0
+    assert {o["value"] for o in fields["model"]["options"]} == {k for k, m in wan.MODELS.items() if m["kind"] == "a14b"} == {"a14b-q6", "a14b-q4", "a14b-q3"} and fields["model"]["default"] == "a14b-q4" and fields["loop"]["type"] == "switch" and fields["end_image"]["min"] == 0
     seen = {}
 
     def run(graph, out_dir, progress, **kwargs):
@@ -239,7 +239,7 @@ def test_flf_app_forces_the_a14b_models_and_a_loop_reuses_the_first_picture(monk
         class job: id = "j"
         def progress(self, *a, **k): pass
         def check(self): pass
-    job = dict(mode=wan.FLF_MODE, model="a14b-q6", prompt="loop", size="Horizontal · 512 × 288 (rápido)", seconds=2, steps=20, seed=3, image=["/x/a.png"])
+    job = dict(mode=wan.FLF_MODE, model="a14b-q4", prompt="loop", size="Horizontal · 512 × 288 (rápido)", seconds=2, steps=20, seed=3, image=["/x/a.png"])
     with pytest.raises(cf_jobs.JobError, match="parou"):
         cf_apps.run_wan(Ctx(), dict(job, loop=True), cf_tiers.detect())
     assert seen["prepare"].keywords["end_image"] == "/x/a.png"  # the loop's last frame is the first picture
@@ -250,3 +250,11 @@ def test_flf_app_forces_the_a14b_models_and_a_loop_reuses_the_first_picture(monk
         cf_apps.run_wan(Ctx(), job, cf_tiers.detect())
     with pytest.raises(cf_jobs.JobError, match="A14B"):
         cf_apps.run_wan(Ctx(), dict(job, model="ltxv-2b", loop=True), cf_tiers.detect())
+
+
+def test_the_q6_a14b_pair_is_refused_on_a_small_ram_machine_and_the_smaller_quants_are_not():
+    """Measured on the 12.7 GB Colab T4: Q6_K (12 GB per expert) killed the worker and then the session; Q4_K_S ran to the end."""
+    assert "12,7 GB".replace(",", ".") and wan.memory_problem("a14b-q6", ram_gb=12.7) and "Q4_K_S" in wan.memory_problem("a14b-q6", ram_gb=12.7)
+    assert wan.memory_problem("a14b-q4", ram_gb=12.7) is None and wan.memory_problem("a14b-q3", ram_gb=12.7) is None
+    assert wan.memory_problem("a14b-q6", ram_gb=64) is None and wan.memory_problem("5b-q6", ram_gb=12.7) is None
+    assert wan.memory_problem("a14b-q6", ram_gb=0) is None  # RAM unreadable: do not block

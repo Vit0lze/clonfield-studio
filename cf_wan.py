@@ -71,6 +71,29 @@ LIGHTNING = {
 }
 FAST_STEPS, FAST_CFG, FAST_SHIFT = 4, 1.0, 5  # the official template with the switch on: 4 steps (2 + 2), CFG 1, ModelSamplingSD3 shift 5
 DEFAULT_MODEL = "5b-q6"
+FLF_DEFAULT = "a14b-q4"  # the A14B that ran on the 12.7 GB Colab T4 (Q6_K, 12 GB per expert, killed it)
+
+
+def total_ram_gb():
+    """System RAM in GB (0 when it cannot be read)."""
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemTotal:"):
+                return int(line.split()[1]) / 1024 ** 2
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0.0
+
+
+def memory_problem(model_key, ram_gb=None):
+    """Why this model would take the machine down, or None. Two A14B experts take turns, and with the Q6_K pair (12 GB each) ComfyUI kept the
+    first one in RAM while loading the second: the worker, then the whole Colab session, died on a 12.7 GB machine. Measured; Q4_K_S ran."""
+    spec = MODELS.get(model_key)
+    ram = total_ram_gb() if ram_gb is None else ram_gb
+    if spec and spec["kind"] == "a14b" and spec["vram"] >= 12 and 0 < ram < 24:
+        return (f"{spec['label']} guarda ~{spec['vram']:g} GB por especialista e esta máquina tem {ram:.0f} GB de RAM: o ComfyUI foi derrubado nesse teste. "
+                "Use o A14B Q4_K_S ou o Q3_K_S.")
+    return None
 SIZES = {"Horizontal · 832 × 480": (832, 480), "Vertical · 480 × 832": (480, 832), "Quadrado · 640 × 640": (640, 640),
          "Horizontal · 512 × 288 (rápido)": (512, 288), "HD · 1280 × 704": (1280, 704), "Personalizado": None}
 FRAMES = {"33 quadros": 33, "49 quadros": 49}  # kept for the old two-field form and for old saved jobs

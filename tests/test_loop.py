@@ -74,7 +74,7 @@ def test_loop_job_reports_the_measured_seam_in_the_job_message(tmp_path, monkeyp
         job = Job()
         def progress(self, *a, **k): pass
         def check(self): pass
-    base = dict(mode="Entre dois quadros", model="a14b-q6", prompt="loop", size="Horizontal · 512 × 288 (rápido)", seconds=2, steps=20, seed=3, image=["/x/a.png"], loop=True)
+    base = dict(mode="Entre dois quadros", model="a14b-q4", prompt="loop", size="Horizontal · 512 × 288 (rápido)", seconds=2, steps=20, seed=3, image=["/x/a.png"], loop=True)
     ctx = Ctx()
     cf_apps.run_wan(ctx, dict(base), cf_tiers.detect())
     assert ctx.job.message.startswith("Emenda do loop: sem emenda visível")

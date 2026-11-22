@@ -716,6 +716,9 @@ def run_wan(ctx, p, tier):
         raise JobError("Escolha um modelo de vídeo da lista.")
     if spec["vram"] > tier.vram_gb + 0.5 and spec["kind"] == "a14b":
         raise JobError(f"{spec['label']} guarda ~{spec['vram']:g} GB de pesos por vez; esta placa tem {tier.vram_gb:.0f} GB. Use um modelo 5B.")
+    problem = wan.memory_problem(model_key)
+    if problem:
+        raise JobError(problem)
     fps = int(p.get("fps") or 0) or spec["fps"]  # 0 = the model's own rate
     seed = int(p.get("seed", -1))
     count = max(1, min(4, int(p.get("variations", 1))))
@@ -1268,9 +1271,9 @@ def build_registry():
                dict(id="loop", type="switch", label="Loop sem emenda: o último quadro é o primeiro", default=False,
                     help="Usa a mesma imagem como início e fim; o vídeo termina onde começou. Sem medição de emenda: confira a junção no resultado.")] if last_frame else []),
             dict(id="prompt", type="textarea", label="Cena e movimento", default="", required=True, rows=3 if with_image else 4),
-            dict(id="model", type="chips", label="Modelo", default="a14b-q6" if last_frame else wan.DEFAULT_MODEL,
+            dict(id="model", type="chips", label="Modelo", default=wan.FLF_DEFAULT if last_frame else wan.DEFAULT_MODEL,
                  options=[o for o in wan_model_options(mode) if o["value"].startswith("a14b")] if last_frame else wan_model_options(mode),
-                 help="A14B é a rota de alta qualidade (Q6_K); 5B é a leve. Nenhum foi medido em GPU ainda."),
+                 help="A14B é a rota de maior qualidade; o Q4_K_S rodou na T4 do Colab (12,7 GB de RAM), o Q6_K não coube lá. O 5B é o leve."),
             dict(id="size", type="chips", label="Proporção", default=next(iter(wan.SIZES)), options=wan_size_options()),
             dict(id="seconds", type="slider", label="Duração (s)", default=3, min=wan.SECONDS[0], max=wan.SECONDS[1], step=0.5,
                  help="Vira quadros pelo FPS; o Wan aceita 4n+1 quadros e o Studio arredonda."),
