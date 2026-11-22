@@ -75,6 +75,13 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
     manager = cf_jobs.Manager(out_dir)
     manager.before_gpu = cf_llm.release_gpu
     cf_llm.set_gpu_guard(lambda: manager.gpu_active)
+
+    def free_comfy():
+        import requests as _requests
+        with _requests.Session() as session:
+            session.trust_env = False
+            workflows.free_models(session)
+    cf_llm.set_comfy_release(free_comfy)
     tier = cf_tiers.detect()
     secret = secret.encode() if isinstance(secret, str) else secret
 

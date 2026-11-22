@@ -196,3 +196,49 @@ def test_a_refusal_without_a_gpu_job_is_a_real_error_and_is_raised():
     cf_llm.set_gpu_guard(lambda: False)
     with pytest.raises(cf_agent.AgentError, match="GPU está ocupada"):
         cf_agent.run_agent(Scripted(refuse_after_tool=True), toolbox({"ok": True}), "gere um vídeo")
+
+
+def test_comfyui_is_asked_to_free_its_models_right_before_a_sleeping_text_model_is_woken(llama):
+    freed = []
+    cf_llm.set_comfy_release(lambda: freed.append(1))
+    try:
+        llama.asleep = False
+        cf_llm.ensure_gpu_free()
+        assert freed == []  # awake already: nothing to make room for
+        llama.asleep = True
+        cf_llm.ensure_gpu_free()
+        assert freed == [1]
+        cf_llm.set_gpu_guard(lambda: True)
+        with pytest.raises(cf_llm.LLMError):
+            cf_llm.ensure_gpu_free()
+        assert freed == [1]  # while a job runs the model is refused, ComfyUI is left alone
+    finally:
+        cf_llm.set_gpu_guard(lambda: False)
+        cf_llm.set_comfy_release(None)
+
+
+def test_the_api_wires_a_real_comfy_release_that_posts_free_to_the_worker(tmp_path, monkeypatch):
+    """build_app registers the hook; calling it must reach ComfyUI's /free (a wrong module name would only show up at runtime)."""
+    import cf_api
+    import cf_workflows
+    posted = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            posted.append((self.path, json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")))
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setattr(cf_workflows, "SERVER", f"http://127.0.0.1:{server.server_address[1]}")
+    try:
+        cf_api.build_app(tmp_path, tmp_path / "out", lambda t: True, "s")
+        cf_llm._gpu["free_comfy"]()
+    finally:
+        server.shutdown()
+        cf_llm.set_comfy_release(None)
+        cf_llm.set_gpu_guard(lambda: False)
+    assert posted == [("/free", {"unload_models": True, "free_memory": True})]

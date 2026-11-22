@@ -27,12 +27,18 @@ class LLMError(Exception):
     pass
 
 
-_gpu = {"busy": lambda: False}
+_gpu = {"busy": lambda: False, "free_comfy": None}
 
 
 def set_gpu_guard(busy):
     """`busy()` is True while a GPU job runs; the text model is then refused instead of being woken into the job's VRAM and RAM."""
     _gpu["busy"] = busy
+
+
+def set_comfy_release(free):
+    """`free()` makes ComfyUI unload its models. Called right before a request wakes a sleeping text model, so the model reloads into a free GPU
+    (a Wan job leaves its models in VRAM, and the 9B did not fit next to them: llama-server died on wake-up)."""
+    _gpu["free_comfy"] = free
 
 
 def gpu_busy():
@@ -42,6 +48,10 @@ def gpu_busy():
 def ensure_gpu_free():
     if _gpu["busy"]():
         raise LLMError("A GPU está ocupada com um job; o modelo de texto fica descarregado enquanto ele roda. Tente de novo quando terminar.")
+    free = _gpu["free_comfy"]
+    found = pick() if free is not None else None
+    if found and found[0] == "llama" and is_asleep(found[1]) is True:
+        free()
 
 
 def is_asleep(url, timeout=3):
