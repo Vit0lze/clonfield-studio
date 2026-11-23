@@ -701,14 +701,14 @@ def run_ltxv(ctx, p, tier):
     return outputs
 
 
-def run_a14b_staged(ctx, graph, prepare, title):
+def run_a14b_staged(ctx, graph, prepare, title, family="wan"):
     """The A14B's two experts as two ComfyUI prompts: the high-noise expert saves its latent, ComfyUI frees its memory, the low-noise expert finishes."""
     import requests
     one, two = wan.split_a14b(graph)
 
     def part(low, high):
         return lambda fraction, desc=None, **kw: ctx.progress(low + (high - low) * fraction, desc=desc)
-    job = workflows.run(one, ctx.out_dir, part(0.0, 0.5), prepare=prepare, title=title + " · especialista 1/2", control=ctx.control, family="wan", stall=2400)
+    job = workflows.run(one, ctx.out_dir, part(0.0, 0.5), prepare=prepare, title=title + " · especialista 1/2", control=ctx.control, family=family, stall=2400)
     latents = [path for path in collect_job(ctx, job) if path.suffix == ".latent"]
     if not latents:
         raise JobError("O primeiro especialista terminou sem salvar o latente.")
@@ -718,7 +718,7 @@ def run_a14b_staged(ctx, graph, prepare, title):
         workflows.free_models(session)  # the whole point: the first expert must leave RAM before the second one loads
     latent = latents[0]
     two["71"]["inputs"]["latent"] = latent.name
-    job = workflows.run(two, ctx.out_dir, part(0.5, 1.0), prepare=prepare, title=title + " · especialista 2/2", control=ctx.control, family="wan", stall=2400, files=[latent])
+    job = workflows.run(two, ctx.out_dir, part(0.5, 1.0), prepare=prepare, title=title + " · especialista 2/2", control=ctx.control, family=family, stall=2400, files=[latent])
     return [path for path in collect_job(ctx, job) if path.suffix != ".latent"]
 
 
@@ -756,9 +756,10 @@ def run_wan(ctx, p, tier):
         prepare = partial(wan.prepare, image=image, model_key=model_key, mode=mode, fast=fast, end_image=end_image)
         title = f"{mode} · {spec['label']}"
         if spec["kind"] == "a14b":
-            outputs.extend(run_a14b_staged(ctx, graph, prepare, title))
+            outputs.extend(run_a14b_staged(ctx, graph, prepare, title, family=f"wan:{model_key}"))
             continue
-        job = workflows.run(graph, ctx.out_dir, ctx.progress, prepare=prepare, title=title, control=ctx.control, family="wan", stall=2400)
+        # the family is the model, not just "wan": ComfyUI keeps the last model in RAM (one 5B job left the worker at 6.5 GB of 12.7), so switching 5B -> A14B must free it first
+        job = workflows.run(graph, ctx.out_dir, ctx.progress, prepare=prepare, title=title, control=ctx.control, family=f"wan:{model_key}", stall=2400)
         outputs.extend(collect_job(ctx, job))
     if mode == wan.FLF_MODE and p.get("loop") and outputs:
         reports = []
