@@ -333,6 +333,8 @@ def run(graph, output_dir, progress, files=None, prepare=None, title=None, contr
         session.trust_env = False
         socket = None
         try:
+            import cf_worker
+            cf_worker.ensure_up(SERVER, progress=lambda text: progress(0.01, desc=text))  # a dead worker is started again; a live one is remembered
             if family is not None and family != _last_family[0]:
                 free_models(session)
             _last_family[0] = family

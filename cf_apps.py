@@ -704,18 +704,23 @@ def run_ltxv(ctx, p, tier):
 def run_a14b_staged(ctx, graph, prepare, title, family="wan"):
     """The A14B's two experts as two ComfyUI prompts: the high-noise expert saves its latent, ComfyUI frees its memory, the low-noise expert finishes."""
     import requests
+    import cf_worker
     one, two = wan.split_a14b(graph)
+    url = workflows.SERVER
 
     def part(low, high):
         return lambda fraction, desc=None, **kw: ctx.progress(low + (high - low) * fraction, desc=desc)
+    cf_worker.restart_if_bloated(url, progress=lambda text: ctx.progress(0.0, desc=text))  # a previous 5B job leaves the worker at 6.5-9 GB of the Colab's 12.7
     job = workflows.run(one, ctx.out_dir, part(0.0, 0.5), prepare=prepare, title=title + " · especialista 1/2", control=ctx.control, family=family, stall=2400)
     latents = [path for path in collect_job(ctx, job) if path.suffix == ".latent"]
     if not latents:
         raise JobError("O primeiro especialista terminou sem salvar o latente.")
     ctx.check()
-    with requests.Session() as session:
-        session.trust_env = False
-        workflows.free_models(session)  # the whole point: the first expert must leave RAM before the second one loads
+    # the whole point: the first expert must leave RAM before the second one loads. /free does not return the memory to the system, only a new process does
+    if not cf_worker.restart(url, progress=lambda text: ctx.progress(0.5, desc=text)):
+        with requests.Session() as session:
+            session.trust_env = False
+            workflows.free_models(session)
     latent = latents[0]
     two["71"]["inputs"]["latent"] = latent.name
     job = workflows.run(two, ctx.out_dir, part(0.5, 1.0), prepare=prepare, title=title + " · especialista 2/2", control=ctx.control, family=family, stall=2400, files=[latent])

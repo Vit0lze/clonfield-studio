@@ -66,22 +66,11 @@ class RevalidatedFiles(StaticFiles):
 
 
 def worker_rss_gb():
-    """Resident memory of the ComfyUI worker (the `main.py --listen` process) in GB, or None when it is not running or cannot be read."""
-    try:
-        for entry in Path("/proc").iterdir():
-            if not entry.name.isdigit():
-                continue
-            try:
-                argv = [part.decode("utf-8", "replace") for part in (entry / "cmdline").read_bytes().split(b"\0") if part]
-                if argv and "python" in Path(argv[0]).name and any(Path(part).name == "main.py" for part in argv[1:4]) and "--listen" in argv and "--port" in argv:
-                    for line in (entry / "status").read_text().splitlines():
-                        if line.startswith("VmRSS:"):
-                            return round(int(line.split()[1]) / 1024**2, 2)
-            except OSError:
-                continue
-    except OSError:
-        pass
-    return None
+    """Resident memory of the ComfyUI worker in GB, or None when it is not running."""
+    import cf_worker
+    import cf_workflows
+    found = cf_worker.find(cf_worker.port_of(cf_workflows.SERVER))
+    return cf_worker.rss_gb(found[0]) if found else None
 
 
 def build_app(base, out_dir, verify, secret, portal_dir=None):
@@ -93,6 +82,12 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
     cf_civitai.set_cover_cache(base / "cache" / "covers")
     manager = cf_jobs.Manager(out_dir)
     manager.before_gpu = cf_llm.release_gpu
+    try:
+        import cf_worker
+        import cf_workflows
+        cf_worker.capture(cf_workflows.SERVER)  # how the worker was started, so it can be restarted (memory only)
+    except Exception:
+        pass
     cf_llm.set_gpu_guard(lambda: manager.gpu_active)
 
     def free_comfy():
