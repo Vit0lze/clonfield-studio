@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import time
 import uuid
 from contextlib import ExitStack
@@ -335,6 +336,8 @@ def run(graph, output_dir, progress, files=None, prepare=None, title=None, contr
         try:
             import cf_worker
             cf_worker.ensure_up(SERVER, progress=lambda text: progress(0.01, desc=text))  # a dead worker is started again; a live one is remembered
+            # the worker keeps what it loaded (a 5B job leaves it at 8+ GB of the Colab's 12.7) and a bigger model then kills it: start over when it is bloated
+            cf_worker.restart_if_bloated(SERVER, float(os.environ.get("CLONFIELD_WORKER_RESTART_GB", "7")), progress=lambda text: progress(0.01, desc=text))
             if family is not None and family != _last_family[0]:
                 free_models(session)
             _last_family[0] = family
