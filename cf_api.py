@@ -137,6 +137,9 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         run = (data.get("params") or {}).get("run")
         if run:
             data["run"] = run  # the DAG run record the screen reads for the per-step timeline
+        plan = (data.get("params") or {}).get("plan")
+        if plan:
+            data["plan"] = plan  # the steps an agent job was built with (capability + params), available before the run record exists
         data.pop("params", None)
         return data
 
