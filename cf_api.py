@@ -65,6 +65,25 @@ class RevalidatedFiles(StaticFiles):
         return response
 
 
+def worker_rss_gb():
+    """Resident memory of the ComfyUI worker (the `main.py --listen` process) in GB, or None when it is not running or cannot be read."""
+    try:
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                argv = [part.decode("utf-8", "replace") for part in (entry / "cmdline").read_bytes().split(b"\0") if part]
+                if argv and "python" in Path(argv[0]).name and any(Path(part).name == "main.py" for part in argv[1:4]) and "--listen" in argv and "--port" in argv:
+                    for line in (entry / "status").read_text().splitlines():
+                        if line.startswith("VmRSS:"):
+                            return round(int(line.split()[1]) / 1024**2, 2)
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return None
+
+
 def build_app(base, out_dir, verify, secret, portal_dir=None):
     base, out_dir = Path(base), Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -139,6 +158,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
                 pass
             info["ram_gb"] = round(mem.get("MemTotal", 0) / 1024**2, 1)
             info["ram_free_gb"] = round(mem.get("MemAvailable", 0) / 1024**2, 1)
+            info["worker_rss_gb"] = worker_rss_gb()  # the ComfyUI process only: shows its memory growing job after job
             usage = shutil.disk_usage(base)
             info["disk_free_gb"] = round(usage.free / 1024**3, 1)
             info["credentials"] = {"hf": bool(os.environ.get("HF_TOKEN")), "civitai": bool(os.environ.get("CIVITAI_TOKEN"))}
