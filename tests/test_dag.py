@@ -189,3 +189,17 @@ def test_dag_runs_as_a_real_job_and_publishes_its_files(world, tmp_path):
     assert job.status == "concluído", job.message
     assert job.results and all(r["path"].startswith("dag/cache/") for r in job.results)
     assert {r["kind"] for r in job.results} <= {"image"}
+
+
+def test_a_required_param_that_is_empty_is_refused_by_validation_before_anything_runs():
+    """The agent built image -> enlarge -> video without the video's prompt; the job ran 4.5 minutes of GPU before the last step refused it."""
+    import cf_apps
+    import cf_capabilities as caps
+    import cf_tiers
+    registry = caps.Registry(cf_apps.registry(), cf_tiers.detect())
+    bad = {"nodes": [dict(id="mv", cap="app.animate", inputs={"image": {"media": "m1"}}, params=dict(model="5b-q6", seconds=3))]}
+    media = lambda ident: dict(type="image", path="/x.png", name="x.png")
+    errors = dag.validate(bad, registry, cf_tiers.detect(), media)["errors"]
+    assert any(e["code"] == "missing_param" and "prompt" in e["message"] for e in errors), errors
+    good = {"nodes": [dict(id="mv", cap="app.animate", inputs={"image": {"media": "m1"}}, params=dict(model="5b-q6", seconds=3, prompt="a mulher sorri"))]}
+    assert not [e for e in dag.validate(good, registry, cf_tiers.detect(), media)["errors"] if e["code"] == "missing_param"]

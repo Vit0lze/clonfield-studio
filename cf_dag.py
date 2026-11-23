@@ -174,6 +174,10 @@ def validate(graph, registry, tier=None, resolve_media=None):
         bound = node.get("bind") or {}
         for problem in caps.check_params(cap, {k: v for k, v in (node.get("params") or {}).items() if k not in bound}):
             errors.append(error(nid, "bad_param", f"{nid}: {problem}"))
+        given_params = node.get("params") or {}
+        for name, spec in cap.params.items():  # a required text (the prompt of a video step) must be there before any GPU time is spent on the steps before it
+            if spec.get("required") and name not in bound and str(given_params.get(name, spec.get("default")) or "").strip() == "":
+                errors.append(error(nid, "missing_param", f"{nid}: o parâmetro obrigatório «{name}» de {cap.id} está vazio; preencha em params (ex.: uma frase descrevendo a cena ou o movimento)"))
         given = node.get("inputs") or {}
         ports = {p.name: p for p in cap.inputs}
         each = node.get("each")
