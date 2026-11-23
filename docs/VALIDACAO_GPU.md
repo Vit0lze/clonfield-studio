@@ -1,47 +1,43 @@
-# Validação na GPU real (Colab, Tesla T4) — 2026-11-20
+# Validação na GPU real (Colab, Tesla T4) — 20 a 23/11/2026
 
-Rodado com `tests/gpu/validate_remote.py` contra o Studio de verdade (link gradio.live + senha da sessão, via API `/clonfield/api`).
-Cada resultado foi baixado e conferido (imagem não chapada, vídeo com `ffprobe` + movimento, áudio com duração); os quadros dos vídeos foram olhados.
-Máquina remota: Tesla T4, 15 GB de VRAM, 12,7 GB de RAM. Tempos são de parede, incluem fila e download de modelo quando houve.
+Rodado com `tests/gpu/validate_remote.py` e scripts auxiliares contra o Studio de verdade (link gradio.live + senha da sessão, API `/clonfield/api`).
+Cada resultado foi baixado e conferido (imagem não chapada, vídeo com `ffprobe` + movimento, áudio com duração) e os quadros dos vídeos foram olhados.
+Máquina remota: Tesla T4, 15 GB de VRAM, **12,7 GB de RAM**. Tempos são de parede (incluem fila, download de modelo e reinícios quando houve).
 
 ## Estado por item
 
 | Item | Estado | Evidência |
 |---|---|---|
-| Qwen 2.1 Turbo (criar imagem) | TESTADO GPU | 768×768 válida, 257–344 s (344 s com modelo frio, 257 s depois) |
-| Qwen 2.1 padrão | TESTADO GPU | 284 s |
-| Upscale RealESRGAN x4 | TESTADO GPU | 21,6 s |
-| Receita «Melhor de N sementes» | TESTADO GPU | 409 s; sementes por item geram imagens distintas |
-| Receita «Cenários em matriz» | TESTADO GPU | 39 s |
-| Receita «Animatic do storyboard» | TESTADO GPU | 9 s |
-| Remover fundo (U²-Net) | TESTADO GPU (CPU do Colab) | 7 s isolado, foto real |
-| Wan 2.2 5B Q6 (Foto em movimento) | TESTADO GPU | 832×480, 3,04 s, movimento 26,4; 470,6 s |
-| Receita «Planos prontos em filme» | TESTADO GPU | 1280×720, 4,08 s, 385 s |
-| Receita «Storyboard em filme» | TESTADO GPU | 1280×720, 4,08 s, 922 s (inclui 7,2 GB de download do FLUX.2 klein) |
-| Agente local → cadeia imagem→vídeo | TESTADO GPU | Qwen3.5-9B na T4 chamou `compose_chain`; o job gerou 832×480, 3 s; 122 s |
-| LLM local na GPU | TESTADO GPU | `llama-server --list-devices` → `CUDA0: Tesla T4` |
-| `POST /jobs` sem campos hidden | TESTADO API REAL | `animate` só com `image` + `prompt` concluiu (antes: `KeyError: 'mode'`) |
-| Receita «Personagem pronto» | TESTADO GPU | com um retrato de personagem (mulher ruiva de cabelo curto, jaqueta de couro verde, jeans, tênis brancos) como entrada: folha 2700×1084 com Frente, 3/4, Perfil e Costas, 2232 s (37 min, quase tudo na folha com offload de 24 GB). Olhando as 4 vistas, a identidade e a roupa se mantêm (cabelo, jaqueta, jeans, tênis; costas com bolsos e costura). Falha visual: faixas cinza claras em cima e embaixo de cada vista (a imagem 3:4 não preenche o painel). Fidelidade medida só por olho, em UMA personagem e UM conjunto (turnaround) |
-| Wan A14B «Entre dois quadros» (loop) | TESTADO GPU com o Q4_K_S; Q6_K NÃO cabe | **Q4_K_S: 469 s**, 832×480, 33 quadros a 16 fps, sem o worker cair (download de ~17,5 GB em ~3 min a 120–140 MB/s; o job começou com «Liberando a GPU do modelo de texto» e baixou em < 6 s). Qualidade: farol quase parado (movimento 1,52), um risco de luz que aparece no meio e some, medidor de emenda «visível» (8,4× um passo normal, mas o passo normal é minúsculo). **Q6_K (12 GB por especialista) morreu 4×** ao carregar o segundo especialista, com `--fast-disk` (log confirmou `fast_disk=True`), com `--disable-pinned-memory` (derrubou o Studio inteiro) e sem flags. O Studio agora recusa o Q6_K com menos de 24 GB de RAM e o padrão do app é o Q4_K_S. A receita «Imagem em loop» herda esse padrão: ainda não rodei a receita inteira com ele |
-| Fábrica de vídeo | CÓDIGO ESCRITO (correção), NÃO validado na GPU | erro real: `open() got an unexpected keyword argument 'metadata_errors'` (98 s). Hipótese: faster-whisper decodifica o WAV com PyAV e passa `metadata_errors=`, que o PyAV do Colab rejeita. Correção: o provider entrega as amostras (mono 16 kHz), sem PyAV; teste local com faster-whisper falso. Falta rodar no Colab depois do pull + reinício do Studio |
+| Qwen 2.1 Turbo / padrão | TESTADO GPU | Turbo 95–344 s (o primeiro, a frio, é o mais lento), padrão 284 s; 768×768 válidas |
+| Upscale RealESRGAN x4 | TESTADO GPU | 21,6 s. O «4x UltraSharp» que o agente escolheu levou 457 s |
+| Receitas «Melhor de N sementes», «Cenários em matriz», «Animatic» | TESTADO GPU | 409 s, 39 s, 9 s; sementes por item geram imagens distintas |
+| Remover fundo (U²-Net) | TESTADO GPU (CPU do Colab) | 7 s, foto real |
+| Wan 5B Q6 | TESTADO GPU | 350–478 s por 3 s de vídeo. Em retrato vertical (480×832) a identidade se mantém, mas quase não se mexe (movimento ~5) |
+| «Planos em filme» / «Storyboard em filme» | TESTADO GPU | 1280×720, 385 s / 922 s (este inclui 7,2 GB de download); alguns artefatos pequenos no céu |
+| «Personagem pronto» | TESTADO GPU | 37 min; folha 2700×1084 com 4 vistas; identidade mantida em UM personagem e UM conjunto (olhado a olho); faixas cinza nas vistas |
+| Fábrica de vídeo | TESTADO GPU | 1381 s; MP4 1080×1920, 31,8 s, narração e legenda palavra por palavra. QC acusou «MILLIONS OF YEARS» com 17 caracteres (máx. 12) |
+| Wan A14B Q6_K | **NÃO CABE** na máquina de 12,7 GB | morreu 4× ao carregar o segundo especialista (12 GB cada); o Studio o recusa com menos de 24 GB de RAM. Q6_K em dois estágios NÃO foi testado |
+| Wan A14B Q4_K_S, em dois prompts | TESTADO GPU | «Imagem em loop»: 361 s. Depois de um job 5B: 537 s. Segue o prompt melhor que o 5B (sorri, mexe o corpo) com a identidade preservada. Q3_K_S e 20 passos NÃO testados |
+| LLM local na GPU, dormindo durante jobs de GPU | TESTADO GPU | `--list-devices` → `CUDA0: Tesla T4`; o job de GPU espera o servidor dormir (< 6 s); o LLM acorda depois do job em 37–48 s |
+| Agente local (Qwen3.5-9B) monta imagem → ampliar → vídeo | TESTADO GPU, com ressalva | cadeia completa em 907 s, vídeo 832×480 de 3 s. **O resultado não bateu com o pedido**: pedi um farol com ondas e saiu um poste de rua ao entardecer, sem ondas |
+| `POST /jobs` com campos omitidos; validação de parâmetro obrigatório | TESTADO API REAL | sem `KeyError`; um vídeo sem `prompt` é recusado antes de gastar GPU |
+| Reinício do worker pelo Studio | TESTADO GPU | depois de um job 5B o ComfyUI chega a 8,1–9,1 GB; o reinício o leva a ~1,3 GB. A sequência 5B → A14B, que falhava 2×, passou |
 
-## Qualidade (olhada nos quadros, sem métrica)
-- Planos em filme (farol): movimento presente, mas aparecem pequenos objetos flutuantes/artefatos no céu.
-- Storyboard em filme: duas cenas coerentes (mulher abrindo uma porta; mulher escrevendo), movimento sutil.
-- Foto em movimento com imagem sintética (círculo): o modelo inventou uma câmera e uma mão. A imagem de teste era ruim; falta repetir com foto real.
-- Cadeia do agente: farol coerente, mas movimento baixo (6,6).
+## O que a máquina de 12,7 GB ensinou
+- O ComfyUI **não devolve a RAM** ao sistema depois de descarregar modelos (`/free` não adianta): um job 5B deixa o processo em 6,5–9 GB. Só um processo novo zera. Por isso o Studio reinicia o worker (antes do A14B, entre os dois estágios, e antes de qualquer job se passar de 7 GB).
+- O A14B roda um especialista por prompt (`SaveLatent` → reinício → `LoadLatent`). O ciclo do latente foi provado num ComfyUI real em CPU (tensor idêntico na volta).
+- O LLM de 9B não pode ficar carregado durante um job de GPU, e o ComfyUI não pode estar com os modelos do Wan na VRAM quando o LLM acorda: o Studio faz as duas trocas.
 
 ## Bugs achados pela GPU e corrigidos
-- `llama-server` não achava `libcudart`/`libcublas` (pasta irmã) → rodava na CPU; agora o `LD_LIBRARY_PATH` inclui todas as pastas com `.so`.
-- Trava de CUDA procurava uma linha no log que o build b12360 não escreve (log de 783 bytes) → falso alarme; agora pergunta ao build (`--list-devices`) e mede o crescimento de VRAM.
-- Receitas de vídeo juntavam modo rápido (LightX2V, só A14B) com o 5B → erro; agora `fast=False` com o 5B.
-- `POST /jobs` não preenchia campos omitidos → `KeyError`; agora usa o default do formulário.
-- Cliente de validação trocava a senha da sessão por token (`/clonfield/connect`) e aguardava a resposta assíncrona do agente.
+- `llama-server` rodava na CPU (faltava `libcudart` no `LD_LIBRARY_PATH`); depois a trava de CUDA dava falso alarme (este build não escreve nada sobre o backend no log): agora usa `--list-devices` e a variação de VRAM.
+- Receitas de vídeo juntavam o modo rápido (só A14B) com o 5B; `POST /jobs` não preenchia campos omitidos; a Fábrica falhava com `metadata_errors` (PyAV velho no Colab: o provider entrega as amostras ao faster-whisper).
+- O agente gastava todos os passos descobrindo capacidades (ids de atalho no prompt, 14 passos) e montava vídeo sem o prompt (validação de parâmetro obrigatório).
+- O worker morria por RAM (reinício pelo Studio) e o LLM morria ao acordar ao lado dos modelos do Wan (`/free` antes do despertar).
 
-## Pendente
-- «Personagem pronto»: faixas cinza em cada vista; testar outros conjuntos de vistas e outros personagens (só 1 foi olhado).
-- Receita «Imagem em loop» inteira com o A14B Q4_K_S (o teste foi do app «Entre dois quadros» direto); Q3_K_S não foi testado.
-- Medir se o LLM descarregado de fato libera VRAM/RAM (hoje só vi que o job de GPU espera o sono do servidor e começa).
-- Fábrica de vídeo: rodar no Colab com a correção (célula 1 + reiniciar a 8).
-- Medir Qwen 2.1 padrão × Turbo com cuidado (um run só por modo; o frio inclui download), Wan «Rápido» (só A14B), apps com offload.
-- Repetir a foto em movimento com foto real.
+## Não medido / pendente
+- A14B com 20 passos (sem o modo rápido), Q3_K_S, e o Q6_K em dois estágios.
+- Wan 5B com um prompt de movimento mais forte; foto em movimento com foto real.
+- `run_eval.py --chains` com o Qwen real; se `force` com semente fixa regenera a mesma saída; apps com offload; outros conjuntos de vistas e outros personagens.
+- Qualidade do plano do agente: ele ignorou «ondas» e interpretou «farol» como poste. Não há medição de aderência ao pedido.
+- Testes locais: a suíte inteira (419 passed, 0 falhas) rodou ANTES das últimas mudanças de reinício do worker, de validação e de família do Wan. Depois delas rodaram só arquivos isolados (`test_dag` 10, `test_llm_release` 14, `test_agent` 16, `test_worker_restart` 5). A suíte completa derrubou a máquina de 3,7 GB e não é mais executada aqui.
+- Itens do backlog nunca iniciados (cerca de 20) e legenda automática.
