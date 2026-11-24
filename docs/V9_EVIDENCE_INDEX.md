@@ -20,5 +20,8 @@
 | V9-P1-CINEMA-002 | Pela tela: troca de s04 refaz só s04 + junção; B nada | relatórios das 2 exportações | `docs/evidence/V9-P1-CINEMA-002/tela-*.json` | navegador do app, engine local CPU |
 | V9-P1-CINEMA-002 | A/B com imagem idêntica e mesmo volume | `ab.picture_identical` true, −15,9/−15,9 LUFS | idem | idem |
 | V9-P1-CINEMA-002 | Tela = API | 9 segmentos com o mesmo SHA-256 da prova pela API | `tela-2-troca-s04-v2.json` × `V9-P1-CINEMA-001/render-cut2-troca-s04.json` | idem |
+| V9-P1-CINEMA-005 | Só o ganho da pista de música (cópia do corte B) refaz só a mix | `rendered: ["mix"]`, 7 passos do cache | `docs/evidence/V9-P1-CINEMA-005/so-pista-musica.render.json` | navegador do app, engine local CPU |
+| V9-P1-CINEMA-005 | Projeto antigo (`mix: {}`) soa igual | nada refeito; mix com MD5 `d22c34c7…` igual ao export de CINEMA-004 | `projeto-antigo-com-musica.render.json` | idem |
+| V9-P1-CINEMA-005 | A/B só de música: recuo 12:1 × sem recuo | música −44,5 × −25,4 dBFS sob a fala; relé +8,2 × +0,6 dB sobre o resto; imagem idêntica; −16,0/−15,9 LUFS | `mix-medida.json`, `ab-recua-continua.ab.json` | idem |
 
 Arquivos-chave (sha256, 16 hex): `cf_worker.py` 6e308ef81e28ae13 · `cf_workflows.py` e0ed0e44c37faa94 · `cf_jobs.py` 2f96f298e9712105 · `tests/test_worker_lock.py` 989e8aa5e2568658.

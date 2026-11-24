@@ -372,3 +372,56 @@ def test_sound_is_edited_by_track_and_a_sound_only_change_reuses_the_whole_pictu
     assert renders["som-com-musica.render.json"]["rendered"] == ["stem:music", "mix"]  # voice and effects stems shared with A
     ab = client.get(next(r["url"] for r in pair["results"] if r["path"].endswith(".ab.json"))).json()
     assert ab["picture_identical"] and ab["loudness_spread_lu"] <= 0.5
+
+
+def test_the_mix_of_a_cut_is_shown_edited_and_a_mix_only_change_rerenders_only_the_mix(api):
+    """The mix on the screen: an old cut (`mix: {}`) shows the values the engine has always applied and keeps its render;
+    a copy of the cut changes only the music track gain and the ducking, and each export re-renders the mix step alone."""
+    client, ids = api
+    pid = client.post(f"{BASE}/cinema/projects", json={"title": "Mix"}).json()["id"]
+    for ident in (ids["a"], ids["b"]):
+        client.post(f"{BASE}/cinema/projects/{pid}/shots", json={"asset": ident, "dur": 2.0})
+    add = lambda body: client.post(f"{BASE}/cinema/projects/{pid}/audio", json=body)
+    add({"track": "voice", "asset": ids["voice"], "at": 0.5})
+    add({"track": "music", "asset": ids["music"], "at": 0, "gain_db": 4})
+    project = add({"track": "sfx", "asset": ids["sea"], "at": 0, "gain_db": -6}).json()
+    view = project["cuts_view"]["principal"]
+    assert view["mix"] == {} and view["mix_changed"] == []
+    assert view["mix_values"] == cf_cinema.MIX_DEFAULT and view["mix_values"]["music"] == -12.0  # what an old project already sounds like
+    first = wait(client, client.post(f"{BASE}/cinema/projects/{pid}/export", json={}).json()["id"])
+    assert first["status"] == "concluído", first.get("message")
+
+    mix = lambda body: client.post(f"{BASE}/cinema/projects/{pid}/mix", json=body)
+    same = mix({"mix": {"music": -12}}).json()  # typing the default changes nothing: same revision, same signature
+    assert same["revision"] == project["revision"] and same["cuts"]["principal"]["mix"] == {}
+    assert mix({"mix": {"music": 40}}).status_code == 400 and mix({"mix": {"reverb": 1}}).status_code == 400
+    assert mix({"mix": {"duck": "sim"}}).status_code == 400
+
+    copy = client.post(f"{BASE}/cinema/projects/{pid}/cuts", json={"label": "Cópia B"}).json()
+    assert copy["cut"] == "copia-b" and copy["cuts_view"]["copia-b"]["signature"] == copy["cuts_view"]["principal"]["signature"]
+    again = wait(client, client.post(f"{BASE}/cinema/projects/{pid}/export", json={"cuts": ["copia-b"]}).json()["id"])
+    render = lambda job: client.get(next(r["url"] for r in job["results"] if r["path"].endswith(".render.json"))).json()
+    assert render(again)["rendered"] == []  # an untouched copy is the same render
+
+    edited = mix({"mix": {"music": -6}, "cut": "copia-b"}).json()
+    assert edited["revision"] == copy["revision"] + 1 and "pista de música −12 dB → −6 dB" in edited["history"][-1]["what"]
+    reopened = client.get(f"{BASE}/cinema/projects/{pid}").json()
+    assert reopened["cuts_view"]["copia-b"]["mix_values"]["music"] == -6 and reopened["cuts_view"]["copia-b"]["mix_changed"] == ["music"]
+    assert reopened["cuts_view"]["principal"]["mix"] == {}  # the other cut is untouched
+    louder = wait(client, client.post(f"{BASE}/cinema/projects/{pid}/export", json={"cuts": ["copia-b"]}).json()["id"])
+    record = render(louder)
+    assert record["rendered"] == ["mix"]  # every shot, the picture and all three stems come from the cache
+    assert {"video:s01", "video:s02", "picture", "stem:voice", "stem:music", "stem:sfx"} <= set(record["reused"])
+    entry = next(e for e in client.get(f"{BASE}/cinema/projects/{pid}").json()["exports"] if e["job_id"] == louder["id"])
+    assert entry["revision"] == edited["revision"]
+
+    ducked = mix({"mix": {"duck_ratio": 12, "duck_release": 400}, "cut": "copia-b"}).json()
+    assert ducked["cuts"]["copia-b"]["mix"] == {"music": -6, "duck_ratio": 12.0, "duck_release": 400.0}
+    deeper = wait(client, client.post(f"{BASE}/cinema/projects/{pid}/export", json={"cuts": ["copia-b"]}).json()["id"])
+    assert render(deeper)["rendered"] == ["mix"]
+    film = lambda job: hashlib.sha256(client.get(next(r["url"] for r in job["results"] if r["path"].endswith(".mp4"))).content).hexdigest()
+    assert film(deeper) != film(louder)  # the new ducking is in the delivered film
+
+    assert cf_cinema.mix_heard({"duck": False, "duck_ratio": 12.0}) == cf_cinema.mix_heard({"duck": False}) == {"duck": False}
+    back = mix({"mix": {"music": None, "duck_ratio": None, "duck_release": None}, "cut": "copia-b"}).json()
+    assert back["cuts"]["copia-b"]["mix"] == {} and back["cuts_view"]["copia-b"]["signature"] == back["cuts_view"]["principal"]["signature"]

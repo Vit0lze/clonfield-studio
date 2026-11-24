@@ -20,7 +20,8 @@ Máquina de teste desta sessão: PC local, CPU, 3,7 GB de RAM (≈0,8 GB livres)
 | P1 | Cinema alfa (60 s) V9-P1-CINEMA-001 | Asset Graph | Opus (motor, direção) + Haiku (fontes) | TESTADO CPU / API real; exibição humana do corte PENDENTE; T4 PENDENTE |
 | P1 | Cinema na tela V9-P1-CINEMA-002 | CINEMA-001 | Opus | TESTADO CPU / API real / navegador real; decisão A/B do dono PENDENTE |
 | P1 | Cinema do zero + versões/falha V9-P1-CINEMA-003 | CINEMA-002 | Opus | TESTADO CPU / API real / navegador real; aceite no preview Vercel em CINEMA-004 |
-| P1 | Preview Vercel + som pela tela V9-P1-CINEMA-004 | CINEMA-003 | Opus | TESTADO preview Vercel (beff82f) + navegador local; decisão A/B de Vigília pelo dono PENDENTE |
+| P1 | Preview Vercel + som pela tela V9-P1-CINEMA-004 | CINEMA-003 | Opus | TESTADO preview Vercel (beff82f) + navegador local; aceito pelo dono |
+| P1 | Mix por corte na tela V9-P1-CINEMA-005 | CINEMA-004 | Opus | TESTADO CPU / API real / navegador local; escolha entre «Música recua» e «Música contínua» pelo dono PENDENTE |
 | P1 | Matriz das 93 reconciliada (12 fora da matriz) | — | Haiku | NÃO INICIADO |
 
 ## V9-P0-001..004 — prestação de contas

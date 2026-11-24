@@ -928,6 +928,10 @@ dialog.save-flow .row{justify-content:flex-end;gap:8px}
 .cine-clip-title { font-size: 13px; overflow-wrap: anywhere; }
 .cine-clip-fields { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; font-size: 12.5px; color: var(--muted); }
 .cine-clip-fields label { display: inline-flex; gap: 5px; align-items: center; }
+.cine-track-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 12px; }
+.cine-track-gain { display: inline-flex; gap: 5px; align-items: center; font-size: 12.5px; color: var(--muted); }
+.cine-duck { display: grid; gap: 6px; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 8px; font-size: 12.5px; }
+.cine-duck > label { font-weight: 600; }
 .cine-num { width: 66px; padding: 4px 6px; border-radius: 7px; border: 1px solid var(--line2); background: var(--s1); color: var(--text); font: 500 12.5px var(--mono); }
 .cine-anchor { max-width: 100%; min-width: 0; padding: 4px 6px; border-radius: 7px; border: 1px solid var(--line2); background: var(--s1); color: var(--text); font: inherit; font-size: 12.5px; }
 .cine-audio { width: 100%; max-width: 360px; height: 32px; }

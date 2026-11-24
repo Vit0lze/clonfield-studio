@@ -137,8 +137,60 @@ Evidência: `docs/evidence/V9-P1-CINEMA-004/`.
 ## O que a sonorização mostrou que falta
 | Achado | Estado |
 |---|---|
-| Os níveis da mix por pista (música −12 dB e efeitos −4 dB por padrão) não aparecem na tela; na primeira tentativa, a música de B ficou enterrada sob o mar | **pendente**: mostrar e editar a mix do corte |
+| Os níveis da mix por pista (música −12 dB e efeitos −4 dB por padrão) não aparecem na tela; na primeira tentativa, a música de B ficou enterrada sob o mar | feito em CINEMA-005 (mix do corte na tela) |
 | O histórico usava nomes crus («gain_db») | corrigido: «ganho −8 dB → −14 dB» |
 | A entrada aparecia arredondada (9,3 s em vez de 9,25 s) | corrigido |
 | Sem forma de onda: o encaixe no plano ajuda, mas a sincronia fina ainda é por número | pendente |
 | O som adicionado entra em 0 s; seria melhor entrar no plano selecionado | pendente |
+
+
+# V9-P1-CINEMA-005 — a mix de cada corte na tela
+
+## O que mudou
+- **Ganho da pista** no cabeçalho de Voz, Música e Efeitos, por corte (−30 a +12 dB).
+- **Ganho do clipe junto do da pista:** cada som mostra «clipe +6 dB + pista −6 dB = 0 dB».
+- **Recuo da música sob a voz** (sidechain da voz sobre a música), na pista de música: ligado/desligado, intensidade (razão), limiar (dBFS da voz), ataque e retorno (ms), e «Recuo padrão» para voltar.
+- **Projeto antigo:** um corte com `mix: {}` mostra os valores que a engine sempre aplicou (voz 0, música −12, efeitos −4 dB; recuo 6:1, −30,5 dBFS, 80 ms, 900 ms) com a marca «padrão da engine»; o que foi mexido diz «ajustado».
+- **Som preservado:** só o que difere do padrão é gravado (`cf_cinema.mix_stored`). Digitar o próprio padrão não cria revisão; a assinatura e a chave da mix de um projeto antigo não mudam. Com o recuo desligado, os ajustes dele ficam guardados (religar devolve) mas saem da chave (`mix_heard`).
+- **Exportar com mais de dois cortes:** «Exportar A/B com…» exporta este corte (A) contra outro (B); o botão do conjunto diz «Exportar os N cortes».
+- **API:** `POST /cinema/projects/{id}/mix` com `{"mix": {"music": -6, "duck_ratio": 12, …}, "cut": "…"}` (`null` volta ao padrão). O projeto público traz `mix_values`, `mix_changed`, `mix_default` e `mix_range`.
+
+## Prova pela tela (engine local, navegador do app, «Vigília»)
+| Passo | Resultado |
+|---|---|
+| «Novo corte a partir deste» sobre «Com música» → «Música recua» | revisão 24; a mesma música, mar e relé |
+| Só o ganho da pista de música: −12 → −8 dB | revisão 25; histórico «pista de música −12 dB → −8 dB» |
+| Recarregar | o campo volta −8, marcado «ajustado»; recuo «padrão da engine» |
+| Exportar este corte | **refez só a mix**; 3 planos, junção da imagem e as três trilhas do cache (7 passos); player «revisão 25» |
+| «Com música» (mix `{}`, de antes desta tela) exportado de novo | nada refeito, 8 do cache; o áudio da mix tem o mesmo MD5 (`d22c34c7…`) do export da rodada anterior |
+
+## Direção: a música entra e recua sob a fala
+- **O que o padrão fazia:** media-se com `tests/demo/cinema_mix_measure.py`, que renderiza cada som sozinho com os construtores da engine. A música só cedia no começo da fala (−15 dB em 6,5–7,25 s), voltava no meio da frase, na pausa depois de «Mas toda tarde,», e chegava ao pico em 9,25–10 s, em cima do relé.
+- **O ajuste em «Música recua»:** pista −6 dB (a música se ouve entrar antes da fala), recuo 12:1, limiar −40 dBFS (a pausa da frase não solta a música), ataque 40 ms e retorno 1,5 s (a música segue baixa quando o poste acende e volta enquanto a luz fica).
+- **«Música contínua»:** cópia dela com o recuo desligado. Mar, relé, voz e música são os mesmos; as trilhas têm o mesmo MD5 nos dois.
+
+| Medida (antes da normalização; o 2º passo do loudnorm é linear) | Música recua | Música contínua | Com música (padrão) |
+|---|---|---|---|
+| Música antes da fala, 4,5–6,0 s | −32,9 dBFS | −32,9 | −38,9 |
+| Música sob a fala | −44,5 (11,6 dB abaixo de antes; 19 dB abaixo de sem recuo) | −25,4 (sobe 7,5 dB, o pad cresce) | −38,8 |
+| Música 0,5 s depois da fala | −40,4 | −29,0 | −35,4 |
+| Relé, janela 9,25–9,75 s, sobre todo o resto | +8,2 dB | +0,6 dB | +6,2 dB |
+| Relé na faixa 1–6 kHz sobre o resto | +28,9 dB | +29,0 dB | +28,7 dB |
+
+- **Envelope da música em «Música recua»:** −33 dBFS antes da fala, −61 a −41 sob a fala, −40 a 9,25 s, −31 a 9,75 s, −28 a 10–10,25 s; depois o fade de saída.
+- **Em «Música contínua»:** sobe até −22,5 a 8,25 s, no meio da frase.
+- **O relé:** legível nos dois na própria faixa (o pad é grave); em «Música recua» também ganha espaço no volume total.
+
+Export A/B pela tela: as duas exportações refizeram só a mix. A imagem é idêntica (mesmo MD5 do vídeo) e o volume é −16,0 / −15,9 LUFS. São 290 quadros e 12,083 s, com 4 trilhas de áudio (mix, voz, musica, efeitos).
+A trilha «musica» do MP4 é a da pista antes da mix (sem o recuo), igual nos dois; a diferença está só na trilha «mix».
+
+Evidência: `docs/evidence/V9-P1-CINEMA-005/`. Contém `so-pista-musica.render.json` (`rendered: ["mix"]`), `ab-*.render.json`, `ab-recua-continua.ab.json`, `projeto-antigo-com-musica.render.json` (`rendered: []`), `mix-medida.json` e o projeto.
+
+Teste: `tests/test_cinema.py::test_the_mix_of_a_cut_is_shown_edited_and_a_mix_only_change_rerenders_only_the_mix`. Ele cobre o padrão sem revisão, a recusa de valores fora da faixa, a cópia intacta igual ao original, a mudança só da pista refazendo só a mix, o recuo mudando o filme entregue e o retorno ao padrão voltando à assinatura original.
+
+## Pendente
+- **Decisão do dono** depois de ouvir «Música recua» × «Música contínua».
+- **Próxima melhoria:** inserir um som na posição do cursor.
+- **Depois:** a forma de onda.
+- Faixa do relé: a medida de 1–6 kHz é um corte retangular por FFT, não um modelo de mascaramento.
+- O true peak medido no MP4 ficou em −1,3/−1,4 dBTP, contra −1,5 no WAV mestre: a codificação AAC sobe o pico; a margem não foi mexida nesta rodada.

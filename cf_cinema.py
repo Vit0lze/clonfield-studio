@@ -15,6 +15,7 @@ Nothing here uses the GPU. Remotion is not used (licence decision pending); Open
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import subprocess
@@ -236,12 +237,39 @@ def _stem_args(timeline, track, sources, total, target):
     return [*args, "-filter_complex", ";".join(chains), "-map", "[out]", "-c:a", "pcm_f32le", "-ar", 48000, "-f", "wav", target]
 
 
+# What the mix of a cut applies when the cut says nothing. A project saved before the mix had a screen has `mix: {}` and
+# therefore sounds exactly like this; the screen shows these values instead of hiding them.
+MIX_DEFAULT = dict(voice=0.0, music=-12.0, sfx=-4.0, duck=True, duck_ratio=6.0, duck_threshold=0.03, duck_attack=80.0, duck_release=900.0)
+GAIN_TRACK = (-30.0, 12.0)  # a whole track, in the mix of one cut
+MIX_RANGE = dict(voice=GAIN_TRACK, music=GAIN_TRACK, sfx=GAIN_TRACK, duck_ratio=(1.0, 20.0),
+                 duck_threshold=(0.001, 0.5), duck_attack=(5.0, 2000.0), duck_release=(20.0, 5000.0))
+
+
+def mix_values(mix):
+    """The full set of mix values a cut renders with (its own over the defaults)."""
+    return {**MIX_DEFAULT, **(mix or {})}
+
+
+def mix_stored(mix):
+    """Only what differs from the defaults: an untouched (or reset) value adds nothing to the cache key nor to the signature,
+    so an old `mix: {}` and a mix whose values equal the defaults are the same render."""
+    return {k: v for k, v in mix_values(mix).items() if k not in MIX_DEFAULT or v != MIX_DEFAULT[k]}
+
+
+def mix_heard(mix):
+    """What the mix key depends on: the stored mix minus the ducking settings when the ducking is off (kept so that turning it
+    back on restores them, but they change nothing that is heard)."""
+    stored = mix_stored(mix)
+    return stored if mix_values(mix)["duck"] else {k: v for k, v in stored.items() if not k.startswith("duck_")}
+
+
 def _mix_args(timeline, stems, target):
-    mix = {"voice": 0.0, "music": -12.0, "sfx": -4.0, "duck": True, **timeline.get("mix", {})}
+    mix = mix_values(timeline.get("mix"))
     v, m, s = stems["voice"], stems["music"], stems["sfx"]
     graph = [f"[0:a]volume={mix['voice']}dB,asplit=2[v][key]", f"[1:a]volume={mix['music']}dB[m0]", f"[2:a]volume={mix['sfx']}dB[s]"]
     if mix["duck"]:  # the music steps back while someone speaks
-        graph.append("[m0][key]sidechaincompress=threshold=0.03:ratio=6:attack=80:release=900[m]")
+        graph.append(f"[m0][key]sidechaincompress=threshold={mix['duck_threshold']:g}:ratio={mix['duck_ratio']:g}"
+                     f":attack={mix['duck_attack']:g}:release={mix['duck_release']:g}[m]")
     else:
         graph.append("[key]anullsink;[m0]anull[m]")
     graph.append("[v][m][s]amix=inputs=3:normalize=0:dropout_transition=0[out]")
@@ -355,7 +383,7 @@ def render(timeline, base, out_dir, progress=None, control=None):
         stems[track] = folder / "stems" / f"{track}-{key}.wav"
         say(0.75, desc=f"Trilha {STREAM_TITLES[track]}")
         _step(stems[track], key, lambda part, t=track: _stem_args(timeline, t, sources, total, part), control, report, f"stem:{track}")
-    mix_key = cache.digest(_settings(timeline), AUDIO_VERSION, LOUDNESS, timeline.get("mix", {}), [stems[t].name for t in TRACKS])
+    mix_key = cache.digest(_settings(timeline), AUDIO_VERSION, LOUDNESS, mix_heard(timeline.get("mix")), [stems[t].name for t in TRACKS])
     mixed = folder / "stems" / f"mix-{mix_key}.wav"
     say(0.85, desc="Mixando (música abaixa sob a voz) e acertando o volume")
 
@@ -430,7 +458,7 @@ def compose(project, cut_id):
         raise ValueError(f"Corte «{cut_id}» não existe neste projeto.")
     timeline = json.loads(json.dumps(project["timeline"]))
     timeline["audio"] = {"voice": timeline.get("audio", {}).get("voice", []), "music": cut.get("music", []), "sfx": cut.get("sfx", [])}
-    timeline["mix"] = cut.get("mix", timeline.get("mix", {}))
+    timeline["mix"] = mix_stored(cut.get("mix", timeline.get("mix", {})))
     timeline["name"] = f"{project['slug']}-{cut_id}"
     timeline["title"] = f"{project['title']} · {cut.get('label', cut_id)}"
     return timeline
@@ -728,6 +756,59 @@ def add_cut(base, project_id, label, from_cut=None):
         project["cuts"][ident] = dict(json.loads(json.dumps({k: v for k, v in source.items() if k in ("music", "sfx", "mix")})), label=label)
         project["cut"] = ident
         return dict(what=f"corte novo «{label}» (cópia de «{source.get('label')}»)")
+    return _edit(base, project_id, change)
+
+
+MIX_LABEL = dict(voice="pista de voz", music="pista de música", sfx="pista de efeitos", duck="música recua sob a voz",
+                 duck_ratio="intensidade do recuo", duck_threshold="limiar do recuo", duck_attack="ataque do recuo", duck_release="retorno do recuo")
+
+
+def _mix_show(key, value):
+    if key == "duck":
+        return "ligado" if value else "desligado"
+    if key == "duck_threshold":
+        return f"{20 * math.log10(value):.1f} dBFS".replace("-", "−")
+    if key == "duck_ratio":
+        return f"{value:g}:1"
+    if key in ("duck_attack", "duck_release"):
+        return f"{value:g} ms"
+    return f"{value:+g} dB".replace("-", "−").replace("+0 ", "0 ")
+
+
+def set_mix(base, project_id, fields, cut_id=None):
+    """Change the mix of one cut: track gains (dB), whether the music ducks under the voice and how. `null` resets a value to
+    the default. Only values that differ from the defaults are stored (see mix_stored)."""
+    def change(project):
+        ident = cut_id or project["cut"]
+        cut = project["cuts"].get(ident)
+        if cut is None:
+            raise ValueError(f"Corte «{ident}» não existe.")
+        before = mix_values(cut.get("mix"))
+        after = dict(before)
+        for key, value in fields.items():
+            if key not in MIX_DEFAULT:
+                raise ValueError(f"Mix: «{key}» não é um ajuste da mix.")
+            if value is None:
+                after[key] = MIX_DEFAULT[key]
+            elif key == "duck":
+                if not isinstance(value, bool):
+                    raise ValueError("Mix: o recuo é ligado ou desligado.")
+                after[key] = value
+            else:
+                low, high = MIX_RANGE[key]
+                try:
+                    number = float(value)
+                except (TypeError, ValueError):
+                    raise ValueError(f"Mix: {MIX_LABEL[key]}: número inválido.") from None
+                number = round(number, 6 if key == "duck_threshold" else 1)
+                if not math.isfinite(number) or not low <= number <= high:
+                    raise ValueError(f"Mix: {MIX_LABEL[key]}: de {_mix_show(key, low)} a {_mix_show(key, high)}.".replace(".", ","))
+                after[key] = number
+        if after == before:
+            return None
+        cut["mix"] = mix_stored(after)
+        changed = ", ".join(f"{MIX_LABEL[k]} {_mix_show(k, before[k])} → {_mix_show(k, after[k])}" for k in MIX_DEFAULT if after[k] != before[k])
+        return dict(what=f"mix do corte «{cut.get('label', ident)}»: {changed}".replace(".", ","), track="mix")
     return _edit(base, project_id, change)
 
 

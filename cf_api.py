@@ -431,10 +431,12 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             return out
 
         cuts = {cid: dict(label=cut.get("label", cid), note=cut.get("note"), mix=cut.get("mix", {}),
+                          mix_values=cf_cinema.mix_values(cut.get("mix")), mix_changed=sorted(cf_cinema.mix_stored(cut.get("mix"))),
                           signature=cf_cinema.signature(project, cid),
                           lanes={track: lane(clips) for track, clips in cf_cinema.compose(project, cid)["audio"].items()})
                 for cid, cut in project["cuts"].items()}
-        return dict(project, shots=shots, cuts_view=cuts, duration_s=round(start, 3), shot_limits=list(cf_cinema.SHOT_DUR))
+        return dict(project, shots=shots, cuts_view=cuts, duration_s=round(start, 3), shot_limits=list(cf_cinema.SHOT_DUR),
+                    mix_default=cf_cinema.MIX_DEFAULT, mix_range=cf_cinema.MIX_RANGE)
 
     def cinema_call(change, status=200):
         """Run one project change in a worker thread and answer with the whole project (or the reason it was refused)."""
@@ -468,6 +470,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
     cinema_project_order = cinema_call(lambda p, b: cf_cinema.reorder(base, p["id"], b.get("order")))
     cinema_project_cut = cinema_call(lambda p, b: cf_cinema.set_cut(base, p["id"], b.get("cut")))
     cinema_project_cuts = cinema_call(lambda p, b: cf_cinema.add_cut(base, p["id"], b.get("label"), b.get("from")))
+    cinema_project_mix = cinema_call(lambda p, b: cf_cinema.set_mix(base, p["id"], b.get("mix") or {}, b.get("cut")))
     cinema_project_audio_add = cinema_call(lambda p, b: cf_cinema.add_clip(base, p["id"], b.get("track"), b.get("asset"), b.get("at", 0),
                                                                            b.get("gain_db", 0), b.get("cut")))
 
@@ -1295,6 +1298,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/cinema/projects/{{id}}/order", guard(cinema_project_order), methods=["POST"]),
         Route(f"{PREFIX}/cinema/projects/{{id}}/cut", guard(cinema_project_cut), methods=["POST"]),
         Route(f"{PREFIX}/cinema/projects/{{id}}/cuts", guard(cinema_project_cuts), methods=["POST"]),
+        Route(f"{PREFIX}/cinema/projects/{{id}}/mix", guard(cinema_project_mix), methods=["POST"]),
         Route(f"{PREFIX}/cinema/projects/{{id}}/audio", guard(cinema_project_audio_add), methods=["POST"]),
         Route(f"{PREFIX}/cinema/projects/{{id}}/audio/{{track}}/{{index}}", guard(cinema_project_audio), methods=["POST"]),
         Route(f"{PREFIX}/cinema/projects/{{id}}/export", guard(cinema_project_export), methods=["POST"]),

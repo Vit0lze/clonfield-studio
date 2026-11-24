@@ -117,8 +117,15 @@ async function editor(root, projectId) {
     const blocked = !project.shots.length || !!running;
     const add = h("button", { class: "btn", type: "button", "data-act": "add", "aria-expanded": String(picking), onclick: () => { picking = !picking; paintPicker(); paintBar(); } }, icon("plus", "sm"), "Adicionar planos");
     const one = h("button", { class: "btn primary", type: "button", "data-act": "export-one", disabled: blocked, onclick: () => exportCuts([project.cut]) }, icon("download", "sm"), cuts.length > 1 ? "Exportar este corte" : "Exportar");
-    const both = cuts.length > 1 ? h("button", { class: "btn", type: "button", "data-act": "export-ab", disabled: blocked, onclick: () => exportCuts(cuts.map(([id]) => id)) }, icon("layers", "sm"), "Exportar A e B") : null;
-    fill(bar, h("div", { class: "cine-cut" }, choose, h("p", { class: "muted" }, cut().note || "")), h("div", { class: "row" }, add, one, both));
+    const both = cuts.length > 1 ? h("button", { class: "btn", type: "button", "data-act": "export-ab", disabled: blocked, onclick: () => exportCuts(cuts.map(([id]) => id)) }, icon("layers", "sm"), cuts.length > 2 ? `Exportar os ${cuts.length} cortes` : "Exportar A e B") : null;
+    // More than two cuts: an A/B session is this cut (A) against one other (B), chosen here.
+    let pair = null;
+    if (cuts.length > 2) {
+      pair = h("select", { class: "cine-anchor", "data-act": "export-pair", disabled: blocked, "aria-label": "Exportar A/B: este corte e outro" },
+        h("option", { value: "" }, "Exportar A/B com…"), cuts.filter(([id]) => id !== project.cut).map(([id, c]) => h("option", { value: id }, `${cut().label} × ${c.label}`)));
+      pair.addEventListener("change", () => pair.value && exportCuts([project.cut, pair.value]));
+    }
+    fill(bar, h("div", { class: "cine-cut" }, choose, h("p", { class: "muted" }, cut().note || "")), h("div", { class: "row" }, add, one, pair, both));
   }
 
   async function paintPicker() {
@@ -329,10 +336,34 @@ async function editor(root, projectId) {
       return input;
     };
     const update = (track, index, fields) => edit(`/audio/${track}/${index}`, { ...fields, cut: project.cut });
+    // The mix of this cut: what the engine applies, shown even when the cut never set it (an old project shows the defaults it
+    // has always rendered with). A value equal to the default is not stored, so it does not change how an old project renders.
+    const mix = c.mix_values, changedMix = new Set(c.mix_changed);
+    const setMix = fields => edit("/mix", { mix: fields, cut: project.cut });
+    const origin = key => changedMix.has(key) ? h("span", { class: "badge", "data-mix-origin": key }, "ajustado") : h("span", { class: "muted", "data-mix-origin": key }, "padrão da engine");
+    const db = v => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} dB`;
+    const [gLow, gHigh] = project.mix_range.voice;
+    const trackGain = track => h("label", { class: "cine-track-gain" }, "pista",
+      num(mix[track], { step: 0.5, min: gLow, max: gHigh, "data-mix": track, "aria-label": `Ganho da pista ${TRACKS[track][0]} neste corte (dB)` },
+        v => setMix({ [track]: v === "" ? null : v })), "dB", origin(track));
+    const duckKeys = ["duck", "duck_ratio", "duck_threshold", "duck_attack", "duck_release"];
+    const toDb = lin => Math.round(200 * Math.log10(lin)) / 10;
+    const ducking = () => h("div", { class: "cine-duck", "data-duck": String(mix.duck) },
+      h("label", null, h("input", { type: "checkbox", checked: mix.duck, "data-mix": "duck", onchange: e => setMix({ duck: e.target.checked }) }), " música recua sob a voz"),
+      duckKeys.some(k => changedMix.has(k)) ? h("span", { class: "badge", "data-mix-origin": "duck" }, "ajustado") : h("span", { class: "muted", "data-mix-origin": "duck" }, "padrão da engine"),
+      mix.duck ? h("div", { class: "cine-clip-fields" },
+        h("label", null, "intensidade", num(mix.duck_ratio, { step: 0.5, min: 1, max: 20, "data-mix": "duck_ratio", "aria-label": "Intensidade do recuo (razão)" }, v => setMix({ duck_ratio: v === "" ? null : v })), ":1"),
+        h("label", null, "limiar", num(toDb(mix.duck_threshold), { step: 0.5, min: -60, max: -6, "data-mix": "duck_threshold", "aria-label": "Limiar do recuo (dBFS da voz)" },
+          v => setMix({ duck_threshold: v === "" ? null : Number(Math.pow(10, v / 20).toFixed(6)) })), "dBFS"),
+        h("label", null, "ataque", num(mix.duck_attack, { step: 10, min: 5, max: 2000, "data-mix": "duck_attack", "aria-label": "Ataque do recuo (ms)" }, v => setMix({ duck_attack: v === "" ? null : v })), "ms"),
+        h("label", null, "retorno", num(mix.duck_release, { step: 50, min: 20, max: 5000, "data-mix": "duck_release", "aria-label": "Retorno do recuo (ms)" }, v => setMix({ duck_release: v === "" ? null : v })), "ms")) : null,
+      duckKeys.some(k => changedMix.has(k))
+        ? h("button", { class: "btn sm", type: "button", "data-act": "duck-reset", onclick: () => setMix({ duck: null, duck_ratio: null, duck_threshold: null, duck_attack: null, duck_release: null }) }, "Recuo padrão") : null);
     const tracks = Object.entries(TRACKS).map(([track, [name, scope]]) => {
       const clips = c.lanes[track] || [];
       return h("div", { class: "cine-track-edit", "data-track": track },
-        h("h4", null, name, h("span", { class: "muted" }, ` · ${scope}`)),
+        h("div", { class: "cine-track-head" }, h("h4", null, name, h("span", { class: "muted" }, ` · ${scope}`)), trackGain(track)),
+        track === "music" ? ducking() : null,
         clips.length ? clips.map(clip => {
           const anchor = h("select", { class: "cine-anchor", "aria-label": `Encaixar ${clip.title} no início de um plano`, "data-anchor": `${track}:${clip.index}` },
             h("option", { value: "" }, "encaixar no início de…"), anchors.map(a => h("option", { value: a.at }, a.label)));
@@ -343,7 +374,8 @@ async function editor(root, projectId) {
             h("div", { class: "cine-clip-fields" },
               h("label", null, "entra em", num(clip.at, { step: 0.1, min: 0, "data-field": "at", "aria-label": "Entra em (s)" }, v => update(track, clip.index, { at: v })), "s"),
               anchor,
-              h("label", null, "ganho", num(clip.gain_db, { step: 0.5, min: -40, max: 12, "data-field": "gain_db", "aria-label": "Ganho (dB)" }, v => update(track, clip.index, { gain_db: v === "" ? 0 : v })), "dB"),
+              h("label", null, "clipe", num(clip.gain_db, { step: 0.5, min: -40, max: 12, "data-field": "gain_db", "aria-label": "Ganho do clipe (dB)" }, v => update(track, clip.index, { gain_db: v === "" ? 0 : v })), "dB",
+                h("span", { class: "muted", "data-clip-total": `${track}:${clip.index}` }, ` + pista ${db(mix[track])} = ${db((clip.gain_db || 0) + mix[track])}`)),
               h("label", null, "dura", num(clip.set_dur, { step: 0.1, min: 0.1, placeholder: clip.natural_s ? secs(clip.natural_s) : "inteira", "data-field": "dur", "aria-label": "Duração (s, vazio = o arquivo inteiro)" }, v => update(track, clip.index, { dur: v })), "s"),
               h("label", null, "fade", num(clip.fade_in, { step: 0.1, min: 0, placeholder: "0", "data-field": "fade_in", "aria-label": "Fade de entrada (s)" }, v => update(track, clip.index, { fade_in: v })),
                 "/", num(clip.fade_out, { step: 0.1, min: 0, placeholder: "0", "data-field": "fade_out", "aria-label": "Fade de saída (s)" }, v => update(track, clip.index, { fade_out: v })), "s"),
@@ -360,7 +392,7 @@ async function editor(root, projectId) {
       h("div", { class: "row" }, Object.entries(TRACKS).map(([track, [name]]) => h("button", { class: "btn sm", type: "button", "data-add-to": track,
         onclick: () => { soundPicking = false; edit("/audio", { track, asset: a.asset_id, at: 0, cut: project.cut }, `«${a.title}» entrou em ${name.toLowerCase()} no início; ajuste a entrada.`); } }, `→ ${name}`)))))) : null;
     fill(sound, h("div", { class: "cine-sound-head" }, h("div", null, h("h3", null, `Som · ${c.label}`),
-      h("p", { class: "muted" }, "Mudar só o som reaproveita a imagem inteira na próxima exportação.")),
+      h("p", { class: "muted" }, "Mudar só o som reaproveita a imagem inteira; mudar só a mix reaproveita também as trilhas.")),
       h("div", { class: "row" },
         h("button", { class: "btn sm", type: "button", "data-act": "add-sound", "aria-expanded": String(soundPicking), onclick: async () => { soundPicking = !soundPicking; if (soundPicking) await loadAudio(); paintSound(); } }, icon("plus", "sm"), "Adicionar som"),
         h("button", { class: "btn sm", type: "button", "data-act": "new-cut", onclick: () => { newCut = true; paintSound(); } }, icon("layers", "sm"), "Novo corte a partir deste"))),

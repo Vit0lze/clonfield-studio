@@ -1,0 +1,69 @@
+{
+  "schema": "Timeline.v1",
+  "fps": 24,
+  "size": [
+    1280,
+    720
+  ],
+  "video": [
+    {
+      "id": "s03",
+      "src": "v_451986f009205db2",
+      "dur": 6.0,
+      "note": "Farol no azul, luz acendendo (loop)",
+      "loop": true
+    },
+    {
+      "id": "s01",
+      "src": "v_1e6715c1767cf384",
+      "dur": 3.04,
+      "note": "Farol no píer ao pôr do sol"
+    },
+    {
+      "id": "s02",
+      "src": "v_d05fef018342a2d5",
+      "dur": 3.04,
+      "note": "Poste acendendo ao entardecer"
+    }
+  ],
+  "audio": {
+    "voice": [
+      {
+        "src": "v_c1db07458a7e168c",
+        "at": 6.5
+      }
+    ],
+    "music": [
+      {
+        "src": "v_bd7844e862a07752",
+        "at": 0.0,
+        "dur": 12.0,
+        "fade_in": 2.0,
+        "fade_out": 2.5,
+        "gain_db": 6.0
+      }
+    ],
+    "sfx": [
+      {
+        "src": "v_bfe435a875220ead",
+        "at": 0.0,
+        "gain_db": -14.0,
+        "fade_in": 1.5
+      },
+      {
+        "src": "v_5347b432161bba02",
+        "at": 9.25,
+        "gain_db": -4.0
+      }
+    ]
+  },
+  "mix": {
+    "music": -6.0,
+    "duck_ratio": 12.0,
+    "duck_threshold": 0.01,
+    "duck_attack": 40.0,
+    "duck_release": 1500.0
+  },
+  "name": "vigilia-musica-recua",
+  "title": "Vigília · Música recua"
+}

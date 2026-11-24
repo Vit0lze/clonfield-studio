@@ -1,0 +1,789 @@
+{
+ "schema": "CinemaProject.v1",
+ "id": "p_c0c0109665b1",
+ "title": "Vigília",
+ "slug": "vigilia",
+ "timeline": {
+  "schema": "Timeline.v1",
+  "fps": 24,
+  "size": [
+   1280,
+   720
+  ],
+  "video": [
+   {
+    "id": "s03",
+    "src": "v_451986f009205db2",
+    "dur": 6.0,
+    "note": "Farol no azul, luz acendendo (loop)",
+    "loop": true
+   },
+   {
+    "id": "s01",
+    "src": "v_1e6715c1767cf384",
+    "dur": 3.04,
+    "note": "Farol no píer ao pôr do sol"
+   },
+   {
+    "id": "s02",
+    "src": "v_d05fef018342a2d5",
+    "dur": 3.04,
+    "note": "Poste acendendo ao entardecer"
+   }
+  ],
+  "audio": {
+   "voice": [
+    {
+     "src": "v_c1db07458a7e168c",
+     "at": 6.5
+    }
+   ]
+  }
+ },
+ "cuts": {
+  "principal": {
+   "label": "Corte 1",
+   "music": [],
+   "sfx": [
+    {
+     "src": "v_bfe435a875220ead",
+     "at": 0.0,
+     "gain_db": -8.0,
+     "fade_in": 1.5
+    },
+    {
+     "src": "v_5347b432161bba02",
+     "at": 9.25,
+     "gain_db": -4.0
+    }
+   ],
+   "mix": {}
+  },
+  "com-musica": {
+   "music": [
+    {
+     "src": "v_bd7844e862a07752",
+     "at": 0.0,
+     "dur": 12.0,
+     "fade_in": 2.0,
+     "fade_out": 2.5,
+     "gain_db": 6.0
+    }
+   ],
+   "sfx": [
+    {
+     "src": "v_bfe435a875220ead",
+     "at": 0.0,
+     "gain_db": -14.0,
+     "fade_in": 1.5
+    },
+    {
+     "src": "v_5347b432161bba02",
+     "at": 9.25,
+     "gain_db": -4.0
+    }
+   ],
+   "mix": {},
+   "label": "Com música"
+  },
+  "musica-recua": {
+   "music": [
+    {
+     "src": "v_bd7844e862a07752",
+     "at": 0.0,
+     "dur": 12.0,
+     "fade_in": 2.0,
+     "fade_out": 2.5,
+     "gain_db": 6.0
+    }
+   ],
+   "sfx": [
+    {
+     "src": "v_bfe435a875220ead",
+     "at": 0.0,
+     "gain_db": -14.0,
+     "fade_in": 1.5
+    },
+    {
+     "src": "v_5347b432161bba02",
+     "at": 9.25,
+     "gain_db": -4.0
+    }
+   ],
+   "mix": {
+    "music": -6.0,
+    "duck_ratio": 12.0,
+    "duck_threshold": 0.01,
+    "duck_attack": 40.0,
+    "duck_release": 1500.0
+   },
+   "label": "Música recua"
+  },
+  "musica-continua": {
+   "music": [
+    {
+     "src": "v_bd7844e862a07752",
+     "at": 0.0,
+     "dur": 12.0,
+     "fade_in": 2.0,
+     "fade_out": 2.5,
+     "gain_db": 6.0
+    }
+   ],
+   "sfx": [
+    {
+     "src": "v_bfe435a875220ead",
+     "at": 0.0,
+     "gain_db": -14.0,
+     "fade_in": 1.5
+    },
+    {
+     "src": "v_5347b432161bba02",
+     "at": 9.25,
+     "gain_db": -4.0
+    }
+   ],
+   "mix": {
+    "music": -6.0,
+    "duck": false,
+    "duck_ratio": 12.0,
+    "duck_threshold": 0.01,
+    "duck_attack": 40.0,
+    "duck_release": 1500.0
+   },
+   "label": "Música contínua"
+  }
+ },
+ "cut": "musica-recua",
+ "revision": 32,
+ "history": [
+  {
+   "at": 1795526517,
+   "revision": 1,
+   "what": "projeto criado"
+  },
+  {
+   "at": 1795526526,
+   "revision": 2,
+   "what": "s01: adicionado «Farol no píer ao pôr do sol» v1",
+   "shot": "s01",
+   "after": "v_1e6715c1767cf384"
+  },
+  {
+   "at": 1795526527,
+   "revision": 3,
+   "what": "s02: adicionado «Poste acendendo ao entardecer» v1",
+   "shot": "s02",
+   "after": "v_d05fef018342a2d5"
+  },
+  {
+   "at": 1795526529,
+   "revision": 4,
+   "what": "s03: adicionado «Farol no azul, luz acendendo (loop)» v1",
+   "shot": "s03",
+   "after": "v_451986f009205db2"
+  },
+  {
+   "at": 1795526535,
+   "revision": 5,
+   "what": "ordem: s01 s03 s02"
+  },
+  {
+   "at": 1795526537,
+   "revision": 6,
+   "what": "ordem: s03 s01 s02"
+  },
+  {
+   "at": 1795526538,
+   "revision": 7,
+   "what": "s03: 2.06 s → 6 s",
+   "shot": "s03"
+  },
+  {
+   "at": 1795528188,
+   "revision": 8,
+   "what": "efeitos: «Mar (sintetizado)» entra em 0 s (corte «Corte 1»)",
+   "track": "sfx"
+  },
+  {
+   "at": 1795528199,
+   "revision": 9,
+   "what": "efeitos: som 1: gain_db – → -8,0",
+   "track": "sfx"
+  },
+  {
+   "at": 1795528205,
+   "revision": 10,
+   "what": "efeitos: som 1: fade_in – → 1,5",
+   "track": "sfx"
+  },
+  {
+   "at": 1795528212,
+   "revision": 11,
+   "what": "efeitos: «Relé e zumbido do poste (sintetizado)» entra em 0 s (corte «Corte 1»)",
+   "track": "sfx"
+  },
+  {
+   "at": 1795528225,
+   "revision": 12,
+   "what": "efeitos: som 2: at 0,0 → 9,04",
+   "track": "sfx"
+  },
+  {
+   "at": 1795528233,
+   "revision": 13,
+   "what": "efeitos: som 2: at 9,04 → 9,25",
+   "track": "sfx"
+  },
+  {
+   "at": 1795528239,
+   "revision": 14,
+   "what": "efeitos: som 2: gain_db – → -4,0",
+   "track": "sfx"
+  },
+  {
+   "at": 1795528247,
+   "revision": 15,
+   "what": "voz: «Voz 5» entra em 0 s (todos os cortes)",
+   "track": "voice"
+  },
+  {
+   "at": 1795528255,
+   "revision": 16,
+   "what": "voz: som 1: at 0,0 → 6,5",
+   "track": "voice"
+  },
+  {
+   "at": 1795528281,
+   "revision": 17,
+   "what": "corte novo «Com música» (cópia de «Corte 1»)"
+  },
+  {
+   "at": 1795528284,
+   "revision": 18,
+   "what": "música: «Música · pad em ré menor (sintetizada)» entra em 0 s (corte «Com música»)",
+   "track": "music"
+  },
+  {
+   "at": 1795528297,
+   "revision": 19,
+   "what": "música: som 1: dur – → 12,0",
+   "track": "music"
+  },
+  {
+   "at": 1795528299,
+   "revision": 20,
+   "what": "música: som 1: fade_in – → 2,0",
+   "track": "music"
+  },
+  {
+   "at": 1795528300,
+   "revision": 21,
+   "what": "música: som 1: fade_out – → 2,5",
+   "track": "music"
+  },
+  {
+   "at": 1795528349,
+   "revision": 22,
+   "what": "música: som 1: gain_db – → 6,0",
+   "track": "music"
+  },
+  {
+   "at": 1795528350,
+   "revision": 23,
+   "what": "efeitos: som 1: gain_db -8,0 → -14,0",
+   "track": "sfx"
+  },
+  {
+   "at": 1795562859,
+   "revision": 24,
+   "what": "corte novo «Música recua» (cópia de «Com música»)"
+  },
+  {
+   "at": 1795562866,
+   "revision": 25,
+   "what": "mix do corte «Música recua»: pista de música −12 dB → −8 dB",
+   "track": "mix"
+  },
+  {
+   "at": 1795562979,
+   "revision": 26,
+   "what": "mix do corte «Música recua»: pista de música −8 dB → −6 dB",
+   "track": "mix"
+  },
+  {
+   "at": 1795562999,
+   "revision": 27,
+   "what": "mix do corte «Música recua»: intensidade do recuo 6:1 → 12:1",
+   "track": "mix"
+  },
+  {
+   "at": 1795563004,
+   "revision": 28,
+   "what": "mix do corte «Música recua»: limiar do recuo −30,5 dBFS → −40,0 dBFS",
+   "track": "mix"
+  },
+  {
+   "at": 1795563012,
+   "revision": 29,
+   "what": "mix do corte «Música recua»: ataque do recuo 80 ms → 40 ms",
+   "track": "mix"
+  },
+  {
+   "at": 1795563027,
+   "revision": 30,
+   "what": "mix do corte «Música recua»: retorno do recuo 900 ms → 1500 ms",
+   "track": "mix"
+  },
+  {
+   "at": 1795563041,
+   "revision": 31,
+   "what": "corte novo «Música contínua» (cópia de «Música recua»)"
+  },
+  {
+   "at": 1795563050,
+   "revision": 32,
+   "what": "mix do corte «Música contínua»: música recua sob a voz ligado → desligado",
+   "track": "mix"
+  }
+ ],
+ "exports": [
+  {
+   "job_id": "job_d8d67b3959f345e7",
+   "status": "concluído",
+   "at": 1795526553,
+   "revision": 7,
+   "cuts": [
+    "principal"
+   ],
+   "signatures": {
+    "principal": "7549603f8d62ac26"
+   },
+   "versions": {
+    "s03": "v_451986f009205db2",
+    "s01": "v_1e6715c1767cf384",
+    "s02": "v_d05fef018342a2d5"
+   },
+   "finished": 1795526558,
+   "summary": {
+    "principal": {
+     "rendered": [
+      "video:s03",
+      "video:s01",
+      "video:s02",
+      "picture",
+      "stem:voice",
+      "stem:music",
+      "stem:sfx",
+      "mix"
+     ],
+     "reused": [],
+     "seconds": 4.7,
+     "loudness": {
+      "I": -70.0,
+      "true_peak": null
+     }
+    }
+   },
+   "message": null
+  },
+  {
+   "job_id": "job_f764da5fd5d8495d",
+   "status": "concluído",
+   "at": 1795528264,
+   "revision": 16,
+   "cuts": [
+    "principal"
+   ],
+   "signatures": {
+    "principal": "3d0bebd03229ec6c"
+   },
+   "versions": {
+    "s03": "v_451986f009205db2",
+    "s01": "v_1e6715c1767cf384",
+    "s02": "v_d05fef018342a2d5"
+   },
+   "shots": {
+    "s03": "b8385f382de1",
+    "s01": "d9f39d97d6bb",
+    "s02": "a366675e95cd"
+   },
+   "finished": 1795528267,
+   "summary": {
+    "principal": {
+     "rendered": [
+      "stem:voice",
+      "stem:sfx",
+      "mix"
+     ],
+     "reused": [
+      "video:s03",
+      "video:s01",
+      "video:s02",
+      "picture",
+      "stem:music"
+     ],
+     "seconds": 2.47,
+     "loudness": {
+      "I": -16.2,
+      "true_peak": -1.4
+     }
+    }
+   },
+   "message": null
+  },
+  {
+   "job_id": "job_307f72f9a8284d3d",
+   "status": "concluído",
+   "at": 1795528305,
+   "revision": 21,
+   "cuts": [
+    "principal",
+    "com-musica"
+   ],
+   "signatures": {
+    "principal": "3d0bebd03229ec6c",
+    "com-musica": "972dcee6e9625c94"
+   },
+   "versions": {
+    "s03": "v_451986f009205db2",
+    "s01": "v_1e6715c1767cf384",
+    "s02": "v_d05fef018342a2d5"
+   },
+   "shots": {
+    "s03": "b8385f382de1",
+    "s01": "d9f39d97d6bb",
+    "s02": "a366675e95cd"
+   },
+   "finished": 1795528310,
+   "summary": {
+    "principal": {
+     "rendered": [],
+     "reused": [
+      "video:s03",
+      "video:s01",
+      "video:s02",
+      "picture",
+      "stem:voice",
+      "stem:music",
+      "stem:sfx",
+      "mix"
+     ],
+     "seconds": 1.6,
+     "loudness": {
+      "I": -16.2,
+      "true_peak": -1.4
+     }
+    },
+    "com-musica": {
+     "rendered": [
+      "stem:music",
+      "mix"
+     ],
+     "reused": [
+      "video:s03",
+      "video:s01",
+      "video:s02",
+      "picture",
+      "stem:voice",
+      "stem:sfx"
+     ],
+     "seconds": 2.77,
+     "loudness": {
+      "I": -16.2,
+      "true_peak": -1.4
+     }
+    }
+   },
+   "message": null
+  },
+  {
+   "job_id": "job_af1c2673718241f4",
+   "status": "concluído",
+   "at": 1795528352,
+   "revision": 23,
+   "cuts": [
+    "principal",
+    "com-musica"
+   ],
+   "signatures": {
+    "principal": "3d0bebd03229ec6c",
+    "com-musica": "4f67f1adf6cd192d"
+   },
+   "versions": {
+    "s03": "v_451986f009205db2",
+    "s01": "v_1e6715c1767cf384",
+    "s02": "v_d05fef018342a2d5"
+   },
+   "shots": {
+    "s03": "b8385f382de1",
+    "s01": "d9f39d97d6bb",
+    "s02": "a366675e95cd"
+   },
+   "finished": 1795528356,
+   "summary": {
+    "principal": {
+     "rendered": [],
+     "reused": [
+      "video:s03",
+      "video:s01",
+      "video:s02",
+      "picture",
+      "stem:voice",
+      "stem:music",
+      "stem:sfx",
+      "mix"
+     ],
+     "seconds": 1.26,
+     "loudness": {
+      "I": -16.2,
+      "true_peak": -1.4
+     }
+    },
+    "com-musica": {
+     "rendered": [
+      "stem:music",
+      "stem:sfx",
+      "mix"
+     ],
+     "reused": [
+      "video:s03",
+      "video:s01",
+      "video:s02",
+      "picture",
+      "stem:voice"
+     ],
+     "seconds": 2.77,
+     "loudness": {
+      "I": -16.0,
+      "true_peak": -1.5
+     }
+    }
+   },
+   "message": null
+  },
+  {
+   "job_id": "job_12ccaedea02a406f",
+   "status": "concluído",
+   "at": 1795562884,
+   "revision": 25,
+   "cuts": [
+    "musica-recua"
+   ],
+   "signatures": {
+    "musica-recua": "dcc8fea219db95d5"
+   },
+   "versions": {
+    "s03": "v_451986f009205db2",
+    "s01": "v_1e6715c1767cf384",
+    "s02": "v_d05fef018342a2d5"
+   },
+   "shots": {
+    "s03": "b8385f382de1",
+    "s01": "d9f39d97d6bb",
+    "s02": "a366675e95cd"
+   },
+   "finished": 1795562888,
+   "summary": {
+    "musica-recua": {
+     "rendered": [
+      "mix"
+     ],
+     "reused": [
+      "video:s03",
+      "video:s01",
+      "video:s02",
+      "picture",
+      "stem:voice",
+      "stem:music",
+      "stem:sfx"
+     ],
+     "seconds": 3.47,
+     "loudness": {
+      "I": -16.0,
+      "true_peak": -1.5
+     }
+    }
+   },
+   "message": null
+  },
+  {
+   "job_id": "job_e3e7183906724e91",
+   "status": "concluído",
+   "at": 1795563180,
+   "revision": 32,
+   "cuts": [
+    "musica-recua",
+    "musica-continua"
+   ],
+   "signatures": {
+    "musica-recua": "4891a880e4e75043",
+    "musica-continua": "93418b8c15b953be"
+   },
+   "versions": {
+    "s03": "v_451986f009205db2",
+    "s01": "v_1e6715c1767cf384",
+    "s02": "v_d05fef018342a2d5"
+   },
+   "shots": {
+    "s03": "b8385f382de1",
+    "s01": "d9f39d97d6bb",
+    "s02": "a366675e95cd"
+   },
+   "finished": 1795563188,
+   "summary": {
+    "musica-recua": {
+     "rendered": [
+      "mix"
+     ],
+     "reused": [
+      "video:s03",
+      "video:s01",
+      "video:s02",
+      "picture",
+      "stem:voice",
+      "stem:music",
+      "stem:sfx"
+     ],
+     "seconds": 4.21,
+     "loudness": {
+      "I": -16.0,
+      "true_peak": -1.3
+     }
+    },
+    "musica-continua": {
+     "rendered": [
+      "mix"
+     ],
+     "reused": [
+      "video:s03",
+      "video:s01",
+      "video:s02",
+      "picture",
+      "stem:voice",
+      "stem:music",
+      "stem:sfx"
+     ],
+     "seconds": 3.27,
+     "loudness": {
+      "I": -15.9,
+      "true_peak": -1.4
+     }
+    }
+   },
+   "message": null
+  },
+  {
+   "job_id": "job_58f2695709b54611",
+   "status": "concluído",
+   "at": 1795563199,
+   "revision": 32,
+   "cuts": [
+    "com-musica"
+   ],
+   "signatures": {
+    "com-musica": "4f67f1adf6cd192d"
+   },
+   "versions": {
+    "s03": "v_451986f009205db2",
+    "s01": "v_1e6715c1767cf384",
+    "s02": "v_d05fef018342a2d5"
+   },
+   "shots": {
+    "s03": "b8385f382de1",
+    "s01": "d9f39d97d6bb",
+    "s02": "a366675e95cd"
+   },
+   "finished": 1795563201,
+   "summary": {
+    "com-musica": {
+     "rendered": [],
+     "reused": [
+      "video:s03",
+      "video:s01",
+      "video:s02",
+      "picture",
+      "stem:voice",
+      "stem:music",
+      "stem:sfx",
+      "mix"
+     ],
+     "seconds": 1.98,
+     "loudness": {
+      "I": -16.0,
+      "true_peak": -1.5
+     }
+    }
+   },
+   "message": null
+  },
+  {
+   "job_id": "job_7a496e36c3824614",
+   "status": "concluído",
+   "at": 1795563210,
+   "revision": 32,
+   "cuts": [
+    "musica-recua",
+    "musica-continua"
+   ],
+   "signatures": {
+    "musica-recua": "4891a880e4e75043",
+    "musica-continua": "93418b8c15b953be"
+   },
+   "versions": {
+    "s03": "v_451986f009205db2",
+    "s01": "v_1e6715c1767cf384",
+    "s02": "v_d05fef018342a2d5"
+   },
+   "shots": {
+    "s03": "b8385f382de1",
+    "s01": "d9f39d97d6bb",
+    "s02": "a366675e95cd"
+   },
+   "finished": 1795563214,
+   "summary": {
+    "musica-recua": {
+     "rendered": [],
+     "reused": [
+      "video:s03",
+      "video:s01",
+      "video:s02",
+      "picture",
+      "stem:voice",
+      "stem:music",
+      "stem:sfx",
+      "mix"
+     ],
+     "seconds": 2.01,
+     "loudness": {
+      "I": -16.0,
+      "true_peak": -1.3
+     }
+    },
+    "musica-continua": {
+     "rendered": [],
+     "reused": [
+      "video:s03",
+      "video:s01",
+      "video:s02",
+      "picture",
+      "stem:voice",
+      "stem:music",
+      "stem:sfx",
+      "mix"
+     ],
+     "seconds": 1.99,
+     "loudness": {
+      "I": -15.9,
+      "true_peak": -1.4
+     }
+    }
+   },
+   "message": null
+  }
+ ],
+ "last_export": "job_7a496e36c3824614",
+ "last_good": "job_7a496e36c3824614",
+ "created": 1795526517,
+ "updated": 1795563214
+}
