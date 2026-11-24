@@ -1,0 +1,110 @@
+{
+ "ids": {
+  "farol_pier": "v_1e6715c1767cf384",
+  "farol_feixe": "v_4ef2730c242e4ca3",
+  "farol_azul": "v_451986f009205db2",
+  "poste": "v_d05fef018342a2d5",
+  "maos": "v_9a271e3c689c7ef2",
+  "lembranca_v1": "v_27cb42bfdf1888f6",
+  "lembranca_v2": "v_e21344e615f3a95d",
+  "v1": "v_65971e9c50572b13",
+  "v2": "v_5a8ad40674480040",
+  "v3": "v_cceb989d343b4116",
+  "v4": "v_974fcd901d67a25c",
+  "v5": "v_c1db07458a7e168c",
+  "music": "v_bd7844e862a07752",
+  "sea": "v_bfe435a875220ead",
+  "foghorn": "v_8d3510689631d7c0",
+  "lamp": "v_5347b432161bba02"
+ },
+ "1_cut_killed": {
+  "killed": true,
+  "new_stamps": 3,
+  "left_parts": [
+   "aaa29bab9fe997b5.mp4.part"
+  ],
+  "seconds": 6.8
+ },
+ "2_resume": {
+  "rendered": [
+   "video:s04",
+   "video:s05",
+   "video:s06",
+   "video:s07",
+   "video:s08",
+   "video:s09",
+   "picture",
+   "stem:voice",
+   "stem:music",
+   "stem:sfx",
+   "mix"
+  ],
+  "reused": [
+   "video:s01",
+   "video:s02",
+   "video:s03"
+  ],
+  "seconds": 30.32,
+  "children_peak_rss_mb": 227,
+  "film_sha256": "60b018e945a1a6826e5a77869a582e37e1d55af45f44970a483065dfff4d56fa",
+  "segments": {
+   "s01": "dd503750c638add4",
+   "s02": "98990b6a9de31415",
+   "s03": "1d0a2a8755fcc7f5",
+   "s04": "2db84935836c980f",
+   "s05": "6276e2407e95950a",
+   "s06": "00ddcfbb29e78804",
+   "s07": "2fa3ed850995c739",
+   "s08": "6cb2204a4cdfadfd",
+   "s09": "e0d0eb23bc140956"
+  }
+ },
+ "3_swap_s04_to_v2": {
+  "rendered": [
+   "video:s04",
+   "picture"
+  ],
+  "reused": [
+   "video:s01",
+   "video:s02",
+   "video:s03",
+   "video:s05",
+   "video:s06",
+   "video:s07",
+   "video:s08",
+   "video:s09",
+   "stem:voice",
+   "stem:music",
+   "stem:sfx",
+   "mix"
+  ],
+  "seconds": 12.72,
+  "children_peak_rss_mb": 227,
+  "film_sha256": "e48d27b2b34caa4cc3f833f4d92c45a72de3bfaf4a8f5943903c476c0fe070aa",
+  "segments": {
+   "s01": "dd503750c638add4",
+   "s02": "98990b6a9de31415",
+   "s03": "1d0a2a8755fcc7f5",
+   "s04": "e482da4e5f981bd2",
+   "s05": "6276e2407e95950a",
+   "s06": "00ddcfbb29e78804",
+   "s07": "2fa3ed850995c739",
+   "s08": "6cb2204a4cdfadfd",
+   "s09": "e0d0eb23bc140956"
+  }
+ },
+ "same_bytes": [
+  "s01",
+  "s02",
+  "s03",
+  "s05",
+  "s06",
+  "s07",
+  "s08",
+  "s09"
+ ],
+ "changed": [
+  "s04"
+ ],
+ "v1_still_selectable": true
+}

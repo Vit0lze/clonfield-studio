@@ -1,0 +1,213 @@
+"""Cinema alfa (cf_cinema.py): real FFmpeg on small real clips, the real Asset Graph store, the vendored Content Factory stage cache,
+and the real Starlette engine app on the CPU lane. No stubs: every clip, stem and film below is encoded and probed for real."""
+import hashlib
+import json
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import pytest
+from starlette.testclient import TestClient
+
+import cf_api
+import cf_apps
+import cf_asset_graph as ag
+import cf_cinema
+
+BASE = "/clonfield/api"
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def ff(*args):
+    subprocess.run(["ffmpeg", "-v", "error", "-y", *map(str, args)], check=True)
+
+
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def probe(path):
+    return json.loads(subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-show_entries",
+                                      "format=duration:stream=codec_type,nb_read_frames,width,height,r_frame_rate:stream_tags=handler_name:stream_disposition=default",
+                                      "-of", "json", str(path)], capture_output=True, check=True, text=True).stdout)
+
+
+@pytest.fixture()
+def world(tmp_path):
+    media = tmp_path / "outputs"
+    media.mkdir()
+    ff("-f", "lavfi", "-i", "testsrc2=s=200x120:r=16:d=1.5", "-pix_fmt", "yuv420p", media / "a.mp4")
+    ff("-f", "lavfi", "-i", "mandelbrot=s=120x200:r=24", "-t", "1", "-pix_fmt", "yuv420p", media / "b.mp4")
+    ff("-f", "lavfi", "-i", "testsrc=s=200x120:r=24:d=1", "-vf", "hue=h=90", "-pix_fmt", "yuv420p", media / "b2.mp4")
+    ff("-f", "lavfi", "-i", "sine=f=440:d=1.2:r=44100", "-af", "volume=0.5", media / "voice.wav")
+    ff("-f", "lavfi", "-i", "sine=f=110:d=3:r=48000", "-af", "volume=0.3", media / "music.wav")
+    ff("-f", "lavfi", "-i", "anoisesrc=c=pink:d=4:a=0.3:r=48000", media / "sea.wav")
+    roots = [media]
+    pub = lambda name, kind: ag.publish(tmp_path, media / name, roots, kind=kind, title=name)
+    a, b, voice, music, sea = pub("a.mp4", "video"), pub("b.mp4", "video"), pub("voice.wav", "audio"), pub("music.wav", "audio"), pub("sea.wav", "audio")
+    b2 = ag.add_version(tmp_path, b["asset"]["asset_id"], media / "b2.mp4", roots)
+    ids = dict(a=a["version"]["version_id"], b=b["version"]["version_id"], b2=b2["version"]["version_id"], b_asset=b["asset"]["asset_id"],
+               voice=voice["version"]["version_id"], music=music["version"]["version_id"], sea=sea["version"]["version_id"])
+    return tmp_path, ids
+
+
+def timeline(ids, second="b"):
+    return {
+        "schema": "Timeline.v1", "name": "teste", "fps": 12, "size": [320, 180],
+        "video": [dict(id="s1", src={"color": "black"}, dur=0.5),
+                  dict(id="s2", src=ids["a"], dur=2.0, speed=0.5, look="dusk", fade_in=0.3),
+                  dict(id="s3", src=ids[second], dur=1.5, pingpong=True, crop=[0, 0.1, 1, 0.5], look="memory"),
+                  dict(id="s4", src=ids["a"], dur=1.0, loop=True, push=0.1, fade_out=0.5)],
+        "audio": {"voice": [dict(src=ids["voice"], at=1.0)],
+                  "music": [dict(src=ids["music"], at=0.0, dur=3.0, fade_out=1.0)],
+                  "sfx": [dict(src=ids["sea"], at=0.0, dur=5.0, loop=True)]},
+    }
+
+
+def test_the_timeline_must_pin_asset_versions(world):
+    base, ids = world
+    t = timeline(ids)
+    t["video"][1]["src"] = ids["b_asset"]  # "the current version" would change under the cut
+    with pytest.raises(ValueError, match="fixe a versão"):
+        cf_cinema.validate(t, base)
+    t = timeline(ids)
+    t["video"][1]["src"] = "v_" + "0" * 16
+    with pytest.raises(ValueError, match="não encontrada"):
+        cf_cinema.validate(t, base)
+    t = timeline(ids)
+    t["audio"]["voice"][0]["src"] = ids["a"]  # a video in the voice track
+    with pytest.raises(ValueError, match="não serve"):
+        cf_cinema.validate(t, base)
+    t = timeline(ids)
+    t["video"][0]["id"] = "s2"
+    with pytest.raises(ValueError, match="único"):
+        cf_cinema.validate(t, base)
+    with pytest.raises(ValueError, match="schema"):
+        cf_cinema.validate({**timeline(ids), "schema": "x"}, base)
+
+
+def test_render_gives_exact_frames_four_titled_audio_streams_and_separate_stems(world):
+    base, ids = world
+    out = base / "cut"
+    record = cf_cinema.render(timeline(ids), base, out)
+    film = out / "teste.mp4"
+    info = probe(film)
+    video = [s for s in info["streams"] if s["codec_type"] == "video"][0]
+    audio = [s for s in info["streams"] if s["codec_type"] == "audio"]
+    assert (video["width"], video["height"], video["r_frame_rate"]) == (320, 180, "12/1")
+    assert int(video["nb_read_frames"]) == 60 == record["frames"]  # 0.5 + 2 + 1.5 + 1 s at 12 fps
+    assert abs(float(info["format"]["duration"]) - 5.0) < 0.05
+    assert [s["tags"]["handler_name"] for s in audio] == ["mix", "voz", "musica", "efeitos"]
+    assert [s["disposition"]["default"] for s in audio] == [1, 0, 0, 0]
+    for name in ("teste-voz.wav", "teste-musica.wav", "teste-efeitos.wav"):
+        assert abs(float(probe(out / name)["format"]["duration"]) - 5.0) < 0.01
+    # the voice stem is silent before its clip starts at 1.0 s and carries the tone after it
+    quiet = subprocess.run(["ffmpeg", "-nostats", "-i", str(out / "teste-voz.wav"), "-af", "atrim=0:0.9,astats=measure_perchannel=none", "-f", "null", "-"],
+                           capture_output=True, text=True).stderr
+    loud = subprocess.run(["ffmpeg", "-nostats", "-i", str(out / "teste-voz.wav"), "-af", "atrim=1.1:2.1,astats=measure_perchannel=none", "-f", "null", "-"],
+                          capture_output=True, text=True).stderr
+    assert "RMS level dB: -inf" in quiet and "RMS level dB: -inf" not in loud
+    assert all(p is not None and p < 0 for p in record["stem_peaks_db"].values())
+    assert -18 < record["film"]["loudness"]["I"] < -14 and record["film"]["loudness"]["true_peak"] < 0
+    assert set(record["rendered"]) == {"video:s1", "video:s2", "video:s3", "video:s4", "picture", "stem:voice", "stem:music", "stem:sfx", "mix"}
+
+
+def test_swapping_one_take_rerenders_only_that_shot_and_the_old_version_stays(world):
+    base, ids = world
+    first = cf_cinema.render(timeline(ids, "b"), base, base / "cut1")
+    second = cf_cinema.render(timeline(ids, "b2"), base, base / "cut2")
+    assert second["rendered"] == ["video:s3", "picture"]  # the stems and the mix do not depend on the picture
+    before = {s["shot"]: s["sha256"] for s in first["segments"]}
+    after = {s["shot"]: s["sha256"] for s in second["segments"]}
+    assert [s for s in before if before[s] != after[s]] == ["s3"]
+    assert ag.verify(base, ids["b"]) and ag.resolve(base, ids["b"]).is_file()  # v1 still there and selectable
+    third = cf_cinema.render(timeline(ids, "b"), base, base / "cut3")  # back to v1: even the v1 join is still in the cache
+    assert third["rendered"] == [] and third["film"]["sha256"] == first["film"]["sha256"]
+    renamed = timeline(ids, "b")
+    renamed["video"][2]["note"] = "só uma anotação"
+    assert cf_cinema.render(renamed, base, base / "cut4")["rendered"] == []
+
+
+def test_a_cancelled_render_resumes_from_the_finished_shots(world):
+    base, ids = world
+
+    class StopAfter:
+        def __init__(self):
+            self.cancelled = False
+
+    control = StopAfter()
+    seen = []
+
+    def progress(value, desc=""):
+        seen.append(desc)
+        if desc == "Plano s3":  # s1 and s2 are done and stamped; stop before s3 is rendered
+            control.cancelled = True
+
+    with pytest.raises(cf_cinema.Cancelled):
+        cf_cinema.render(timeline(ids), base, base / "cut", progress=progress, control=control)
+    segments = base / "cinema" / "cache" / "segments"
+    assert len(list(segments.glob("*.key"))) == 2 and not list(segments.glob("*.part"))
+    record = cf_cinema.render(timeline(ids), base, base / "cut")
+    assert record["reused"][:2] == ["video:s1", "video:s2"] and "video:s3" in record["rendered"]
+
+
+def test_a_killed_render_leaves_no_stale_stamp_and_resumes(world, tmp_path):
+    """A crash, not a cancel: SIGKILL the renderer while it encodes. A half-written segment is a .part without a stamp, so the next
+    run cannot mistake it for a finished one."""
+    base, ids = world
+    t = timeline(ids)
+    t["video"][1]["dur"] = 20.0  # long enough to be killed mid-encode
+    path = tmp_path / "t.json"
+    path.write_text(json.dumps(t))
+    proc = subprocess.Popen([sys.executable, str(ROOT / "cf_cinema.py"), str(base), str(path), str(base / "cut")], cwd=ROOT,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    segments = base / "cinema" / "cache" / "segments"
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline and not (list(segments.glob("*.part")) if segments.exists() else []):
+        time.sleep(0.02)
+    proc.send_signal(signal.SIGKILL)
+    proc.wait()
+    subprocess.run(["pkill", "-KILL", "-f", str(base / "cinema")], check=False)  # the orphaned ffmpeg child of this test only
+    stamps = {p.name[:-4] for p in segments.glob("*.key")}
+    assert all((segments / s).is_file() for s in stamps)
+    assert not any(p.name.replace(".part", "") in stamps for p in segments.glob("*.part"))
+    record = cf_cinema.render(t, base, base / "cut")
+    assert "video:s1" in record["reused"] and "video:s2" in record["rendered"]
+    assert int(probe(base / "cut" / "teste.mp4")["streams"][0]["nb_read_frames"]) == record["frames"]
+
+
+@pytest.fixture()
+def api(world):
+    base, ids = world
+    mp = pytest.MonkeyPatch()
+    mp.setenv("CLONFIELD_FAKE_VRAM", "15")
+    mp.setenv("CLONFIELD_COMFY_MODELS", str(base / "models"))
+    cf_apps.configure(base, base / "outputs")
+    client = TestClient(cf_api.build_app(base, base / "outputs", lambda t: t == "pw", "secret"), headers={"Authorization": "Bearer pw"})
+    yield client, ids
+    mp.undo()
+
+
+def test_the_api_renders_a_timeline_as_a_cpu_job_with_its_provenance(api):
+    client, ids = api
+    bad = timeline(ids)
+    bad["video"][1]["src"] = ids["b_asset"]
+    assert client.post(f"{BASE}/cinema/validate", json={"timeline": bad}).status_code == 400
+    assert client.post(f"{BASE}/cinema/render", json={"timeline": bad}).status_code == 400
+    ok = client.post(f"{BASE}/cinema/validate", json={"timeline": timeline(ids)}).json()
+    assert ok["ok"] and ok["duration_s"] == 5.0 and ok["shots"] == 4
+    job = client.post(f"{BASE}/cinema/render", json={"timeline": timeline(ids)})
+    assert job.status_code == 202, job.text
+    for _ in range(400):
+        done = client.get(f"{BASE}/jobs/{job.json()['id']}").json()
+        if done["status"] in ("concluído", "falhou", "cancelado"):
+            break
+        time.sleep(0.3)
+    assert done["status"] == "concluído", done.get("message")
+    names = sorted(Path(r["path"]).name for r in done["results"])
+    assert names == ["render.json", "teste-efeitos.wav", "teste-musica.wav", "teste-voz.wav", "teste.mp4", "teste.timeline.json"]
+    assert set(done["asset_versions"]) == {ids["a"], ids["b"], ids["voice"], ids["music"], ids["sea"]}
+    film = next(r for r in done["results"] if r["path"].endswith(".mp4"))
+    assert client.get(film["url"]).status_code == 200

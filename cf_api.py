@@ -38,6 +38,7 @@ import cf_recipes
 import cf_contracts
 import cf_cast
 import cf_asset_graph
+import cf_cinema
 import cf_env
 import cf_favorites
 import cf_library
@@ -367,6 +368,36 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             return cf_dag.job_result(cf_dag.execute(graph, registry, env, ctx, run_id=run_id, force=force))
 
         job = manager.submit("dag", title, {"run": run_id}, report["resources"]["lane"], runner)
+        return JSONResponse(public_job(job), 202)
+
+    async def cinema_validate(request):
+        body = await request.json()
+        timeline = body.get("timeline")
+        try:
+            sources = cf_cinema.validate(timeline, base)
+        except ValueError as exc:
+            return JSONResponse({"ok": False, "detail": str(exc)}, 400)
+        return JSONResponse({"ok": True, "duration_s": round(cf_cinema.duration(timeline), 3), "shots": len(timeline["video"]),
+                             "versions": sorted(sources)})
+
+    async def cinema_render(request):
+        """Renders a Timeline.v1 on the CPU lane. Unchanged shots, stems and mix come from <base>/cinema/cache."""
+        body = await request.json()
+        timeline = body.get("timeline")
+        try:
+            sources = cf_cinema.validate(timeline, base)
+        except ValueError as exc:
+            return JSONResponse({"detail": str(exc)}, 400)
+
+        def runner(ctx):
+            try:
+                record = cf_cinema.render(timeline, base, ctx.out_dir, ctx.progress, ctx.control)
+            except cf_cinema.Cancelled:
+                raise cf_jobs.JobError("Cancelado por você.", "cancelado")
+            return cf_cinema.result_files(record, ctx.out_dir)
+
+        title = "Cinema · " + str(timeline.get("title") or timeline.get("name") or "curta")[:60]
+        job = manager.submit("cinema", title, {"_asset_versions": {v: v for v in sorted(sources)}}, "cpu", runner)
         return JSONResponse(public_job(job), 202)
 
     async def dag_run_get(request):
@@ -1134,6 +1165,8 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/uploads/{{ident}}", guard(upload_info)),
         Route(f"{PREFIX}/upload", guard(upload), methods=["POST"]),
         Route(f"{PREFIX}/import", guard(import_result), methods=["POST"]),
+        Route(f"{PREFIX}/cinema/validate", guard(cinema_validate), methods=["POST"]),
+        Route(f"{PREFIX}/cinema/render", guard(cinema_render), methods=["POST"]),
         Route(f"{PREFIX}/assets", guard(assets_create), methods=["POST"]),
         Route(f"{PREFIX}/assets", guard(assets_list), methods=["GET"]),
         Route(f"{PREFIX}/assets/versions/{{version_id}}", guard(assets_version)),

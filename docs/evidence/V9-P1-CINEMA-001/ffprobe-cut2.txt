@@ -1,0 +1,6 @@
+stream|index=0|codec_name=h264|codec_type=video|width=1280|height=720|r_frame_rate=24/1|nb_frames=1440|disposition:default=1|tag:handler_name=VideoHandler
+stream|index=1|codec_name=aac|codec_type=audio|sample_rate=48000|channels=2|r_frame_rate=0/0|nb_frames=2814|disposition:default=1|tag:handler_name=mix
+stream|index=2|codec_name=aac|codec_type=audio|sample_rate=48000|channels=2|r_frame_rate=0/0|nb_frames=2814|disposition:default=0|tag:handler_name=voz
+stream|index=3|codec_name=aac|codec_type=audio|sample_rate=48000|channels=2|r_frame_rate=0/0|nb_frames=2814|disposition:default=0|tag:handler_name=musica
+stream|index=4|codec_name=aac|codec_type=audio|sample_rate=48000|channels=2|r_frame_rate=0/0|nb_frames=2814|disposition:default=0|tag:handler_name=efeitos
+format|duration=60.000000|size=47708657

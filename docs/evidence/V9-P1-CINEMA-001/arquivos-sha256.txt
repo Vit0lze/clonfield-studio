@@ -1,0 +1,6 @@
+60b018e945a1a6826e5a77869a582e37e1d55af45f44970a483065dfff4d56fa  cut1/a-ultima-luz.mp4
+e48d27b2b34caa4cc3f833f4d92c45a72de3bfaf4a8f5943903c476c0fe070aa  cut2/a-ultima-luz.mp4
+7cf07e239750ec1ce16ec75b74d305aa75c37c2c93bc5bb1f05cf9e143321244  cut2/a-ultima-luz-efeitos.wav
+875c0e4b1e5ffd854512621d77d377bd21d4729c8bbb98b9cbfd85ad3bc7a3f2  cut2/a-ultima-luz-musica.wav
+1278d7f97a39d424d6525539781c528c550a217e462a31ea753529cd678f70c6  cut2/a-ultima-luz-voz.wav
+86d66942c1dfb4ea6b115c45bb4e532cf702c98ba694dff5edf5a21b61a21449  cutB/a-ultima-luz-B-musica-ate-o-fim.mp4

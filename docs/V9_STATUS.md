@@ -14,9 +14,10 @@ Máquina de teste desta sessão: PC local, CPU, 3,7 GB de RAM (≈0,8 GB livres)
 | P0 | V9-P0-005 recibos das 15 fontes aprovadas | — | Haiku (subagente, só leitura web); pins conferidos por Opus com `curl` | FONTE LIDA / LICENÇA AVALIADA (ver `docs/sources/INDEX.md`) |
 | P0 | V9-P0-006 docs com números corrigidos (`/free`, Turbo, 408/19, sementes) | auditoria | Opus | feito em `docs/VALIDACAO_GPU.md`, `CLAUDE.md` |
 | P0 | V9-P0-007 linha de base do agente (`plan_eval.py`) | LLM no Colab | humano + Sonnet | **BLOQUEADO**: `plan_eval.py` sumiu do `/tmp`; só `agent_full.py` foi recuperado (`tests/agent_eval/agent_full.py`) |
+| P0 | Delta da revisão do dono (4 itens) | P0 | Opus | TESTADO CPU (`7c303a0`); patch anexo não chegou, itens refeitos pela descrição |
 | P0 | Suíte completa no HEAD | máquina ≥ 8 GB (Colab CPU) | humano/Colab | NÃO EXECUTADO |
 | P1 | Asset Graph (V9-P1-ASSET-001) | P0 aceito | Sonnet + Opus | TESTADO CPU / API real / navegador real |
-| P1 | Cinema alfa (60 s) | Asset Graph; voz/transcrição | Sonnet Cinema | NÃO INICIADO |
+| P1 | Cinema alfa (60 s) V9-P1-CINEMA-001 | Asset Graph | Opus (motor, direção) + Haiku (fontes) | TESTADO CPU / API real; exibição humana do corte PENDENTE; T4 PENDENTE |
 | P1 | Matriz das 93 reconciliada (12 fora da matriz) | — | Haiku | NÃO INICIADO |
 
 ## V9-P0-001..004 — prestação de contas
@@ -110,8 +111,34 @@ Limites: lock do índice é por processo; blob 0444 não impede root (Colab roda
 Estado: TESTADO CPU / API real / navegador real (engine local)
 ```
 
-**Delta da revisão do dono** (corridas: cancelar durante o POST /prompt; reabrir SeedVR2 com fallback 3B fora da trava; HTTP para DAG só texto/JSON; duração do animatic): **não encontrado** nesta máquina nem em `origin` (`v9/integration` = `c314f6a` em 24/11). Aguarda push do dono para integrar.
+**Delta da revisão do dono** — o arquivo anexo não chegou a esta máquina; os quatro itens descritos foram corrigidos em `7c303a0`:
+
+```text
+V9-P0-R3 — cancelar enquanto o POST /prompt está em voo: collect interrompe o próprio prompt pelo id antes de dar «cancelado»
+V9-P0-R4 — cf_seedvr2.reopen segura cf_worker.hold() (pode postar o fallback 3B)
+V9-P0-R5 — DAG só JSON pela rota HTTP: outcome "json", valor lido de /dag/runs
+V9-P0-R6 — animatic com duração exata (antes 3 × 1,5 s = 109 quadros / 4,54 s; 3 × 0,7 s = 52 quadros)
+Testes: test_worker_lock 13 (R3/R4 falham com a correção revertida); test_agent_api 7 (+1 skip); test_storyboard 11
+Pendente: A14B e SeedVR2 na T4
+```
+
+```text
+V9-P1-CINEMA-001 — curta editável de 60 s, trilhas separadas, troca de tomada que reaproveita o resto
+Mudança: cf_cinema.py (Timeline.v1, cache por plano com digest/fresh/mark do Content Factory, concat sem recodificar,
+         3 trilhas WAV float, mix com ducking e loudness em 2 passadas, MP4 com 4 áudios nomeados),
+         cf_api.py (POST /cinema/validate, POST /cinema/render na fila de CPU, asset_versions no job)
+Contrato e direção: docs/V9_CINEMA_ALFA.md · recibos: docs/sources/V9-P1-CINEMA-001-recibos.md
+Testes (PC local CPU, um por vez): test_cinema 6 passed; test_asset_graph 11; test_agent_api 7 (+1 skip); test_recipes_api 4
+Demo (tests/demo/cinema_alfa_demo.py, tomadas reais do Studio na T4): render morto por SIGKILL após 3 planos → retomada reaproveita
+         s01–s03 → troca de s04 (v1→v2) refaz só s04 e a junção; 8 segmentos com os mesmos bytes; trilhas e mix reaproveitados
+Medido: 46,9 s de parede para as 3 rodadas; pico 232 MB (processo) / 227 MB (filhos); filme −15,9 LUFS, −1,5 dBTP; 1440 quadros, 60,000 s
+Evidência: docs/evidence/V9-P1-CINEMA-001/
+GPU: NÃO TESTADO (montagem é CPU; geração de novas tomadas e Stable Audio ficam para a T4)
+Pendente: exibição humana do corte inteiro; tela no portal; OpenTimelineIO
+Estado: TESTADO CPU / API real
+```
 
 ## Pendências que dependem do humano
-1. Suíte completa no Colab em CPU (`pytest tests -q --ignore=...`, ver `CLAUDE.md`) para cobrir o HEAD inteiro.
-2. Linha de base do agente: reescrever `plan_eval.py` (perdido) e rodar com o LLM no ar — 6 pedidos, sem GPU de vídeo.
+1. Assistir «A última luz» com som (`../cinema-alfa/cut2/a-ultima-luz.mp4`, fora do repositório).
+2. Suíte completa no Colab em CPU (`pytest tests -q --ignore=...`, ver `CLAUDE.md`) para cobrir o HEAD inteiro.
+3. Linha de base do agente: reescrever `plan_eval.py` (perdido) e rodar com o LLM no ar — 6 pedidos, sem GPU de vídeo.

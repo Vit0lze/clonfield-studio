@@ -1,0 +1,28 @@
+{
+ "ids": {
+  "farol_pier": "v_1e6715c1767cf384",
+  "farol_feixe": "v_4ef2730c242e4ca3",
+  "farol_azul": "v_451986f009205db2",
+  "poste": "v_d05fef018342a2d5",
+  "maos": "v_9a271e3c689c7ef2",
+  "lembranca_v1": "v_27cb42bfdf1888f6",
+  "lembranca_v2": "v_e21344e615f3a95d",
+  "v1": "v_65971e9c50572b13",
+  "v2": "v_5a8ad40674480040",
+  "v3": "v_cceb989d343b4116",
+  "v4": "v_974fcd901d67a25c",
+  "v5": "v_c1db07458a7e168c",
+  "music": "v_bd7844e862a07752",
+  "sea": "v_bfe435a875220ead",
+  "foghorn": "v_8d3510689631d7c0",
+  "lamp": "v_5347b432161bba02"
+ },
+ "assets": {
+  "farol_pier": "a_c7c89dbd4b1132bf",
+  "farol_feixe": "a_9c259b22de30356b",
+  "farol_azul": "a_960c9ee26426c6cf",
+  "poste": "a_b143047a1895d54f",
+  "maos": "a_4e902b6cb6dcbd82",
+  "lembranca_v1": "a_e24da8a525913c68"
+ }
+}

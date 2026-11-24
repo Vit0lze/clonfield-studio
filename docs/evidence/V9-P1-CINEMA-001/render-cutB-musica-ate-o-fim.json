@@ -1,0 +1,444 @@
+{
+  "schema": "CinemaRender.v1",
+  "timeline": {
+    "schema": "Timeline.v1",
+    "name": "a-ultima-luz-B-musica-ate-o-fim",
+    "title": "A última luz",
+    "fps": 24,
+    "size": [
+      1280,
+      720
+    ],
+    "video": [
+      {
+        "id": "s01",
+        "src": {
+          "color": "black"
+        },
+        "dur": 3.0,
+        "note": "escuro: só o mar"
+      },
+      {
+        "id": "s02",
+        "src": "v_1e6715c1767cf384",
+        "dur": 6.0,
+        "speed": 0.5,
+        "look": "dusk",
+        "push": 0.04,
+        "fade_in": 1.5
+      },
+      {
+        "id": "s03",
+        "src": "v_4ef2730c242e4ca3",
+        "dur": 7.0,
+        "loop": true,
+        "look": "dusk"
+      },
+      {
+        "id": "s04",
+        "src": "v_e21344e615f3a95d",
+        "dur": 5.0,
+        "speed": 0.6,
+        "pingpong": true,
+        "crop": [
+          0,
+          0.02,
+          1,
+          0.3245
+        ],
+        "look": "memory",
+        "fade_in": 0.4,
+        "note": "lembrança: rosto"
+      },
+      {
+        "id": "s05",
+        "src": "v_9a271e3c689c7ef2",
+        "dur": 4.0,
+        "speed": 0.5,
+        "look": "memory",
+        "crop": [
+          0.1,
+          0.25,
+          0.8,
+          0.75
+        ]
+      },
+      {
+        "id": "s06",
+        "src": "v_d05fef018342a2d5",
+        "dur": 6.0,
+        "speed": 0.5,
+        "look": "dusk"
+      },
+      {
+        "id": "s07",
+        "src": "v_451986f009205db2",
+        "dur": 12.0,
+        "loop": true,
+        "push": 0.1,
+        "note": "seguro: sem música, sem voz"
+      },
+      {
+        "id": "s08",
+        "src": "v_4ef2730c242e4ca3",
+        "dur": 9.0,
+        "loop": true,
+        "look": "dusk",
+        "fade_out": 3.0
+      },
+      {
+        "id": "s09",
+        "src": {
+          "color": "black"
+        },
+        "dur": 8.0,
+        "note": "escuro: a buzina"
+      }
+    ],
+    "audio": {
+      "voice": [
+        {
+          "src": "v_65971e9c50572b13",
+          "at": 4.0
+        },
+        {
+          "src": "v_5a8ad40674480040",
+          "at": 10.0
+        },
+        {
+          "src": "v_cceb989d343b4116",
+          "at": 17.0
+        },
+        {
+          "src": "v_974fcd901d67a25c",
+          "at": 26.5
+        },
+        {
+          "src": "v_c1db07458a7e168c",
+          "at": 45.5
+        }
+      ],
+      "music": [
+        {
+          "src": "v_bd7844e862a07752",
+          "at": 3.0,
+          "dur": 32.13,
+          "gain_db": 6,
+          "fade_in": 3.0,
+          "fade_out": 4.0
+        },
+        {
+          "src": "v_bd7844e862a07752",
+          "at": 27.0,
+          "dur": 25.0,
+          "gain_db": 6,
+          "fade_in": 8.0,
+          "fade_out": 6.0
+        }
+      ],
+      "sfx": [
+        {
+          "src": "v_bfe435a875220ead",
+          "at": 0.0,
+          "dur": 33.0,
+          "gain_db": -13,
+          "fade_in": 2.5,
+          "fade_out": 3.0
+        },
+        {
+          "src": "v_bfe435a875220ead",
+          "at": 30.0,
+          "in": 30.0,
+          "dur": 30.0,
+          "gain_db": -13,
+          "fade_in": 3.0,
+          "fade_out": 6.0
+        },
+        {
+          "src": "v_5347b432161bba02",
+          "at": 25.4,
+          "dur": 5.0,
+          "gain_db": -6
+        },
+        {
+          "src": "v_8d3510689631d7c0",
+          "at": 53.5,
+          "dur": 6.0,
+          "gain_db": -9
+        }
+      ]
+    },
+    "mix": {
+      "voice": 0,
+      "music": -3,
+      "sfx": -3,
+      "duck": true
+    }
+  },
+  "duration_s": 60.0,
+  "frames": 1440,
+  "segments": [
+    {
+      "shot": "s01",
+      "src": {
+        "color": "black"
+      },
+      "key": "39253d923b623127",
+      "frames": 72,
+      "sha256": "dd503750c638add4603e499a0bbc61f115d4d2ae7afaeb385108c03ed53f4f08"
+    },
+    {
+      "shot": "s02",
+      "src": "v_1e6715c1767cf384",
+      "key": "8b2f733b611e9b4d",
+      "frames": 144,
+      "sha256": "98990b6a9de31415bec3151bf57680a695830276c48ce0668740038ec8cc8063"
+    },
+    {
+      "shot": "s03",
+      "src": "v_4ef2730c242e4ca3",
+      "key": "6f1ee398f22ee992",
+      "frames": 168,
+      "sha256": "1d0a2a8755fcc7f5219372ae16c02e33ba908bb06de31a358cded405085b2e42"
+    },
+    {
+      "shot": "s04",
+      "src": "v_e21344e615f3a95d",
+      "key": "20da81c963c76aec",
+      "frames": 120,
+      "sha256": "e482da4e5f981bd271d513613d8190e568ffdb1855faea9fad4bf03a06b88a2e"
+    },
+    {
+      "shot": "s05",
+      "src": "v_9a271e3c689c7ef2",
+      "key": "9978a565e7cc3394",
+      "frames": 96,
+      "sha256": "6276e2407e95950a247aba3f8d883b75d6402d00ca37a69c5d1f16812380018f"
+    },
+    {
+      "shot": "s06",
+      "src": "v_d05fef018342a2d5",
+      "key": "345437a64d5b3039",
+      "frames": 144,
+      "sha256": "00ddcfbb29e788045883b3d311f8460ead514576fe887aec2c3cab766f0137cb"
+    },
+    {
+      "shot": "s07",
+      "src": "v_451986f009205db2",
+      "key": "f7bd756bbb879386",
+      "frames": 288,
+      "sha256": "2fa3ed850995c7399d854c5bb8eb7ea7621c0d4bd6d1dde0e457c8b8e95cdfb8"
+    },
+    {
+      "shot": "s08",
+      "src": "v_4ef2730c242e4ca3",
+      "key": "e5db55a32bcf998c",
+      "frames": 216,
+      "sha256": "6cb2204a4cdfadfd0eba2cd8f45d54c6f92846080bbccf39c4d83b5cf0058726"
+    },
+    {
+      "shot": "s09",
+      "src": {
+        "color": "black"
+      },
+      "key": "5a27f85eb9739bf5",
+      "frames": 192,
+      "sha256": "e0d0eb23bc1409569b9f8c63fbaabe3d3f381cd7ae52415a8bf74d2bb12ac663"
+    }
+  ],
+  "steps": [
+    {
+      "step": "video:s01",
+      "key": "39253d923b623127",
+      "status": "reused",
+      "file": "39253d923b623127.mp4"
+    },
+    {
+      "step": "video:s02",
+      "key": "8b2f733b611e9b4d",
+      "status": "reused",
+      "file": "8b2f733b611e9b4d.mp4"
+    },
+    {
+      "step": "video:s03",
+      "key": "6f1ee398f22ee992",
+      "status": "reused",
+      "file": "6f1ee398f22ee992.mp4"
+    },
+    {
+      "step": "video:s04",
+      "key": "20da81c963c76aec",
+      "status": "reused",
+      "file": "20da81c963c76aec.mp4"
+    },
+    {
+      "step": "video:s05",
+      "key": "9978a565e7cc3394",
+      "status": "reused",
+      "file": "9978a565e7cc3394.mp4"
+    },
+    {
+      "step": "video:s06",
+      "key": "345437a64d5b3039",
+      "status": "reused",
+      "file": "345437a64d5b3039.mp4"
+    },
+    {
+      "step": "video:s07",
+      "key": "f7bd756bbb879386",
+      "status": "reused",
+      "file": "f7bd756bbb879386.mp4"
+    },
+    {
+      "step": "video:s08",
+      "key": "e5db55a32bcf998c",
+      "status": "reused",
+      "file": "e5db55a32bcf998c.mp4"
+    },
+    {
+      "step": "video:s09",
+      "key": "5a27f85eb9739bf5",
+      "status": "reused",
+      "file": "5a27f85eb9739bf5.mp4"
+    },
+    {
+      "step": "picture",
+      "key": "3aa0afedee6cc41b",
+      "status": "reused",
+      "file": "picture-3aa0afedee6cc41b.mp4"
+    },
+    {
+      "step": "stem:voice",
+      "key": "7068a05fa4a035b6",
+      "status": "reused",
+      "file": "voice-7068a05fa4a035b6.wav"
+    },
+    {
+      "step": "stem:music",
+      "key": "fe68160d1ef93dbe",
+      "status": "rendered",
+      "file": "music-fe68160d1ef93dbe.wav",
+      "seconds": 0.11
+    },
+    {
+      "step": "stem:sfx",
+      "key": "f9973d77c5e389ab",
+      "status": "rendered",
+      "file": "sfx-f9973d77c5e389ab.wav",
+      "seconds": 0.16
+    },
+    {
+      "step": "mix",
+      "key": "2dd99bc57447993b",
+      "status": "rendered",
+      "file": "mix-2dd99bc57447993b.wav",
+      "seconds": 4.46
+    }
+  ],
+  "rendered": [
+    "stem:music",
+    "stem:sfx",
+    "mix"
+  ],
+  "reused": [
+    "video:s01",
+    "video:s02",
+    "video:s03",
+    "video:s04",
+    "video:s05",
+    "video:s06",
+    "video:s07",
+    "video:s08",
+    "video:s09",
+    "picture",
+    "stem:voice"
+  ],
+  "film": {
+    "file": "a-ultima-luz-B-musica-ate-o-fim.mp4",
+    "sha256": "86d66942c1dfb4ea6b115c45bb4e532cf702c98ba694dff5edf5a21b61a21449",
+    "probe": {
+      "programs": [],
+      "streams": [
+        {
+          "index": 0,
+          "codec_name": "h264",
+          "codec_type": "video",
+          "width": 1280,
+          "height": 720,
+          "r_frame_rate": "24/1",
+          "nb_frames": "1440",
+          "tags": {
+            "handler_name": "VideoHandler"
+          }
+        },
+        {
+          "index": 1,
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "sample_rate": "48000",
+          "channels": 2,
+          "r_frame_rate": "0/0",
+          "nb_frames": "2814",
+          "tags": {
+            "handler_name": "mix"
+          }
+        },
+        {
+          "index": 2,
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "sample_rate": "48000",
+          "channels": 2,
+          "r_frame_rate": "0/0",
+          "nb_frames": "2814",
+          "tags": {
+            "handler_name": "voz"
+          }
+        },
+        {
+          "index": 3,
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "sample_rate": "48000",
+          "channels": 2,
+          "r_frame_rate": "0/0",
+          "nb_frames": "2814",
+          "tags": {
+            "handler_name": "musica"
+          }
+        },
+        {
+          "index": 4,
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "sample_rate": "48000",
+          "channels": 2,
+          "r_frame_rate": "0/0",
+          "nb_frames": "2814",
+          "tags": {
+            "handler_name": "efeitos"
+          }
+        }
+      ],
+      "format": {
+        "duration": "60.000000",
+        "size": "48200658"
+      }
+    },
+    "loudness": {
+      "I": -15.9,
+      "true_peak": -1.4
+    }
+  },
+  "stems": [
+    "a-ultima-luz-B-musica-ate-o-fim-voz.wav",
+    "a-ultima-luz-B-musica-ate-o-fim-musica.wav",
+    "a-ultima-luz-B-musica-ate-o-fim-efeitos.wav"
+  ],
+  "stem_peaks_db": {
+    "voice": -6.668914,
+    "music": -11.651758,
+    "sfx": -5.962194
+  },
+  "seconds": 17.43
+}

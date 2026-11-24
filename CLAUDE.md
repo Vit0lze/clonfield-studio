@@ -37,6 +37,8 @@ python tests/gpu/validate_remote.py --list       # remote validation of a runnin
 
 **Local agent.** `cf_agent.py` is a tool-calling loop (`list_capabilities`, `inspect_capability`, `compose_chain`, `validate_graph`, `execute_graph`, ...) over the DAG; the model is a local llama.cpp server (`cf_llama.py` installs and starts it, `cf_llm.py` talks to it; Qwen3.5-9B abliterated Q6_K). Chat and agent are 100% local by design (no Google/Gemma API); the adult filter is on by default. The reply to a chat message is produced asynchronously (`pending: true` until done), so clients poll `/sessions/{id}`. `cf_router.py` is only a keyword heuristic.
 
+**Cinema.** `cf_cinema.py` renders a `Timeline.v1` (pinned `v_` asset versions, `docs/V9_CINEMA_ALFA.md`) on CPU with FFmpeg: one cached segment per shot (Content Factory `digest`/`fresh`/`mark`), concat without re-encode, three float stems (voice/music/sfx), ducked mix at -16 LUFS, MP4 with four named audio streams. Swapping a take re-renders that shot only. API: `POST /cinema/validate`, `POST /cinema/render` (CPU lane).
+
 **Video.** `cf_wan.py` holds the Wan 2.2 catalogue (`MODELS`: 5B Q6/Q8/FP16, A14B Q6_K/Q4_K_S/Q3_K_S, each file pinned by repo revision, size and SHA-256 prefix) and `make_graph`. "Entre dois quadros" (first/last frame, also the seamless loop) exists only on the A14B; the LightX2V "fast" mode (4 steps) also only on the A14B.
 
 ## Memory rules that shape the code (12.7 GB RAM + 15 GB VRAM on the Colab T4)
