@@ -258,6 +258,12 @@ def _loudness(path):
 
 def _master_args(premix, target):
     m = _loudness(premix)
+    try:
+        silent = float(m["input_i"]) < -70  # no sound at all (a film that has no tracks yet): nothing to normalize
+    except ValueError:  # "-inf"
+        silent = True
+    if silent:
+        return ["-i", premix, "-c:a", "pcm_s16le", "-ar", 48000, "-f", "wav", target]
     norm = ("loudnorm=I={I}:TP={TP}:LRA={LRA}".format(**LOUDNESS) +
             f":measured_I={m['input_i']}:measured_TP={m['input_tp']}:measured_LRA={m['input_lra']}:measured_thresh={m['input_thresh']}"
             f":offset={m['target_offset']}:linear=true")
@@ -268,15 +274,21 @@ def peak_db(path):
     out = subprocess.run(["ffmpeg", "-nostats", "-hide_banner", "-i", str(path), "-af", "astats=measure_overall=Peak_level:measure_perchannel=none",
                           "-f", "null", "-"], capture_output=True, text=True).stderr
     line = [x for x in out.splitlines() if "Peak level dB" in x]
-    return float(line[-1].rsplit(":", 1)[1]) if line else None
+    return _finite(float(line[-1].rsplit(":", 1)[1])) if line else None
 
 
 def integrated_lufs(path, stream="0:a:0"):
     out = subprocess.run(["ffmpeg", "-nostats", "-hide_banner", "-i", str(path), "-map", stream, "-af", "ebur128=peak=true", "-f", "null", "-"],
                          capture_output=True, text=True).stderr
     summary = out[out.rfind("Summary:"):]
-    get = lambda label: float(summary.split(label + ":", 1)[1].split()[0])
+    get = lambda label: _finite(float(summary.split(label + ":", 1)[1].split()[0]))
     return dict(I=get("I"), true_peak=get("Peak"))
+
+
+def _finite(value):
+    """Silence measures as -inf, which JSON (and the browser) cannot read: None instead."""
+    import math
+    return value if value is not None and math.isfinite(value) else None
 
 
 # ------------------------------------------------------------------ render
@@ -400,10 +412,15 @@ def result_files(record, out_dir):
 PROJECT_ID = re.compile(r"p_[0-9a-f]{12}")
 CUT_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 _projects_lock = threading.Lock()
+SHOT_DUR = (0.5, 60.0)  # what the screen lets a shot last
 
 
 def projects_dir(base):
     return Path(base) / "cinema" / "projects"
+
+
+def blank_timeline(fps=24, size=(1280, 720)):
+    return {"schema": SCHEMA, "fps": fps, "size": list(size), "video": [], "audio": {"voice": []}}
 
 
 def compose(project, cut_id):
@@ -419,13 +436,26 @@ def compose(project, cut_id):
     return timeline
 
 
+def signature(project, cut_id):
+    """What the render of one cut depends on (notes, names and titles left out). Equal signature = the export shows this timeline."""
+    import hashlib
+    timeline = compose(project, cut_id)
+    for key in ("name", "title"):
+        timeline.pop(key, None)
+    strip = lambda items: [{k: v for k, v in i.items() if k != "note"} for i in items]
+    timeline["video"] = strip(timeline["video"])
+    timeline["audio"] = {k: strip(v) for k, v in timeline["audio"].items()}
+    return hashlib.sha256(json.dumps(timeline, sort_keys=True).encode()).hexdigest()[:16]
+
+
 def _check(project, base):
     if not project.get("cuts"):
         raise ValueError("O projeto precisa de pelo menos um corte.")
     for cut_id in project["cuts"]:
         if not CUT_ID.fullmatch(cut_id):
             raise ValueError(f"Nome de corte inválido: «{cut_id}» (minúsculas, números e hífen).")
-        validate(compose(project, cut_id), base)
+        if project["timeline"]["video"]:  # an empty project is allowed; it only cannot be exported
+            validate(compose(project, cut_id), base)
     if project.get("cut") not in project["cuts"]:
         project["cut"] = next(iter(project["cuts"]))
 
@@ -441,11 +471,17 @@ def _write_project(base, project):
     return project
 
 
-def create_project(base, title, timeline, cuts, cut=None):
+def create_project(base, title, timeline=None, cuts=None, cut=None):
+    """A new project. Without a timeline it starts empty (no shots) with one silent cut, «Corte 1»."""
     import secrets
-    slug = re.sub(r"[^a-z0-9]+", "-", unicodedata.normalize("NFKD", str(title)).encode("ascii", "ignore").decode().lower()).strip("-")[:40] or "curta"
-    project = dict(schema="CinemaProject.v1", id="p_" + secrets.token_hex(6), title=str(title)[:80], slug=slug,
-                   timeline=timeline, cuts=cuts, cut=cut, history=[], last_export=None, created=int(time.time()))
+    title = str(title or "").strip()[:80] or "Sem título"
+    slug = re.sub(r"[^a-z0-9]+", "-", unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode().lower()).strip("-")[:40] or "curta"
+    project = dict(schema="CinemaProject.v1", id="p_" + secrets.token_hex(6), title=title, slug=slug,
+                   timeline=timeline or blank_timeline(), cuts=cuts or {"principal": dict(label="Corte 1", music=[], sfx=[], mix={})},
+                   cut=cut, revision=1, history=[dict(at=int(time.time()), revision=1, what="projeto criado")], exports=[],
+                   last_export=None, last_good=None, created=int(time.time()))
+    if not isinstance(project["timeline"].get("video"), list):
+        raise ValueError("A timeline precisa de uma lista \"video\".")
     _check(project, base)
     with _projects_lock:
         return _write_project(base, project)
@@ -457,7 +493,11 @@ def load_project(base, project_id):
     path = projects_dir(base) / f"{project_id}.json"
     if not path.is_file():
         raise KeyError(project_id)
-    return json.loads(path.read_text(encoding="utf-8"))
+    project = json.loads(path.read_text(encoding="utf-8"))
+    project.setdefault("revision", 1)  # projects saved before revisions existed
+    project.setdefault("exports", [])
+    project.setdefault("last_good", None)
+    return project
 
 
 def list_projects(base):
@@ -465,17 +505,35 @@ def list_projects(base):
     for path in sorted(projects_dir(base).glob("p_*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
         p = json.loads(path.read_text(encoding="utf-8"))
         out.append(dict(id=p["id"], title=p["title"], shots=len(p["timeline"]["video"]), cuts=list(p["cuts"]),
-                        duration_s=round(duration(p["timeline"]), 3), updated=p.get("updated")))
+                        duration_s=round(duration(p["timeline"]), 3) if p["timeline"]["video"] else 0, updated=p.get("updated"),
+                        revision=p.get("revision", 1)))
     return out
+
+
+def _edit(base, project_id, change):
+    """Apply one change to the timeline: `change(project)` returns what to log; the project gets a new revision."""
+    with _projects_lock:
+        project = load_project(base, project_id)
+        what = change(project)
+        if what is None:  # nothing changed: same revision
+            return project
+        _check(project, base)
+        project["revision"] += 1
+        project["history"] = [*project.get("history", []), dict(at=int(time.time()), revision=project["revision"], **what)][-80:]
+        return _write_project(base, project)
+
+
+def _shot(project, shot_id):
+    shot = next((s for s in project["timeline"]["video"] if s["id"] == shot_id), None)
+    if shot is None:
+        raise ValueError(f"Plano {shot_id} não existe.")
+    return shot
 
 
 def set_shot_version(base, project_id, shot_id, version_id):
     """Swap the take of one shot for another VERSION OF THE SAME ASSET (the gesture is «trocar a tomada», not «trocar o plano»)."""
-    with _projects_lock:
-        project = load_project(base, project_id)
-        shot = next((s for s in project["timeline"]["video"] if s["id"] == shot_id), None)
-        if shot is None:
-            raise ValueError(f"Plano {shot_id} não existe.")
+    def change(project):
+        shot = _shot(project, shot_id)
         if not isinstance(shot["src"], str):
             raise ValueError(f"Plano {shot_id} não tem tomada para trocar.")
         if not isinstance(version_id, str) or not cf_asset_graph.VERSION_ID.fullmatch(version_id):
@@ -483,16 +541,85 @@ def set_shot_version(base, project_id, shot_id, version_id):
         old, new = cf_asset_graph.get_version(base, shot["src"]), cf_asset_graph.get_version(base, version_id)
         if old["asset_id"] != new["asset_id"]:
             raise ValueError("Essa versão é de outro ativo; aqui só se troca a tomada do mesmo plano.")
-        if shot["src"] != version_id:
-            project["history"].append(dict(at=int(time.time()), shot=shot_id, before=shot["src"], after=version_id,
-                                           numbers=[old["number"], new["number"]]))
-            project["history"] = project["history"][-50:]
-            shot["src"] = version_id
-        _check(project, base)
-        return _write_project(base, project)
+        if shot["src"] == version_id:
+            return None
+        shot["src"] = version_id
+        return dict(what=f"{shot_id}: tomada v{old['number']} → v{new['number']}", shot=shot_id, before=old["version_id"], after=version_id,
+                    numbers=[old["number"], new["number"]])
+    return _edit(base, project_id, change)
+
+
+def add_shot(base, project_id, ident, dur=None):
+    """Append a shot made from a Library asset. An `a_` id is pinned to that asset's current version right here."""
+    found = cf_asset_graph.resolve_ref(base, ident)
+    if found is None:
+        raise ValueError("Ativo ou versão não encontrado.")
+    version = found[1]
+    if version["kind"] not in ("video", "image", "character"):
+        raise ValueError("Só imagem ou vídeo viram plano.")
+    asset = cf_asset_graph.get(base, version["asset_id"])
+    natural = (version.get("media") or {}).get("duration_s")
+    seconds = float(dur) if dur is not None else (round(min(max(float(natural), SHOT_DUR[0]), 8.0), 2) if version["kind"] == "video" and natural else 3.0)
+
+    def change(project):
+        if not SHOT_DUR[0] <= seconds <= SHOT_DUR[1]:
+            raise ValueError(f"Duração de {SHOT_DUR[0]:g} a {SHOT_DUR[1]:g} s.")
+        taken = {s["id"] for s in project["timeline"]["video"]}
+        n = 1
+        while f"s{n:02d}" in taken:
+            n += 1
+        shot = dict(id=f"s{n:02d}", src=version["version_id"], dur=seconds, note=asset.get("title"))
+        if version["kind"] == "video" and natural and seconds > float(natural):
+            shot["loop"] = True  # longer than the take: loop it instead of freezing the last frame
+        project["timeline"]["video"].append(shot)
+        return dict(what=f"{shot['id']}: adicionado «{asset.get('title')}» v{version['number']}", shot=shot["id"], after=version["version_id"])
+    return _edit(base, project_id, change)
+
+
+def remove_shot(base, project_id, shot_id):
+    def change(project):
+        shot = _shot(project, shot_id)
+        project["timeline"]["video"].remove(shot)
+        return dict(what=f"{shot_id}: removido", shot=shot_id, before=shot["src"] if isinstance(shot["src"], str) else None)
+    return _edit(base, project_id, change)
+
+
+def set_shot_duration(base, project_id, shot_id, dur):
+    def change(project):
+        shot = _shot(project, shot_id)
+        try:
+            seconds = round(float(dur), 2)
+        except (TypeError, ValueError):
+            raise ValueError("Duração inválida.") from None
+        if not SHOT_DUR[0] <= seconds <= SHOT_DUR[1]:
+            raise ValueError(f"Duração de {SHOT_DUR[0]:g} a {SHOT_DUR[1]:g} s.")
+        if shot["dur"] == seconds:
+            return None
+        before = shot["dur"]
+        shot["dur"] = seconds
+        if isinstance(shot["src"], str):
+            ref = cf_asset_graph.get_version(base, shot["src"])
+            natural = (ref.get("media") or {}).get("duration_s")
+            if ref["kind"] == "video" and natural and not shot.get("speed") and not shot.get("pingpong"):
+                shot["loop"] = seconds > float(natural) + 0.05
+        return dict(what=f"{shot_id}: {before:g} s → {seconds:g} s", shot=shot_id)
+    return _edit(base, project_id, change)
+
+
+def reorder(base, project_id, order):
+    def change(project):
+        shots = {s["id"]: s for s in project["timeline"]["video"]}
+        if not isinstance(order, list) or sorted(order) != sorted(shots):
+            raise ValueError("A nova ordem precisa ter exatamente os mesmos planos.")
+        if order == [s["id"] for s in project["timeline"]["video"]]:
+            return None
+        project["timeline"]["video"] = [shots[i] for i in order]
+        return dict(what="ordem: " + " ".join(order))
+    return _edit(base, project_id, change)
 
 
 def set_cut(base, project_id, cut_id):
+    """Which cut is the chosen one. Not a timeline change: no new revision."""
     with _projects_lock:
         project = load_project(base, project_id)
         if cut_id not in project["cuts"]:
@@ -501,10 +628,28 @@ def set_cut(base, project_id, cut_id):
         return _write_project(base, project)
 
 
-def set_last_export(base, project_id, job_id):
+def begin_export(base, project_id, job_id, cut_ids):
+    """Record an export attempt with the revision and the signature of each cut it renders."""
     with _projects_lock:
         project = load_project(base, project_id)
+        entry = dict(job_id=job_id, status="na fila", at=int(time.time()), revision=project["revision"], cuts=cut_ids,
+                     signatures={c: signature(project, c) for c in cut_ids}, versions={s["id"]: s["src"] for s in project["timeline"]["video"]
+                                                                                    if isinstance(s["src"], str)})
+        project["exports"] = [*project["exports"], entry][-20:]
         project["last_export"] = job_id
+        return _write_project(base, project)
+
+
+def finish_export(base, project_id, job_id, status, summary=None, message=None):
+    """Close an export entry. Only a finished one becomes `last_good`: a failed export never hides the last pair that worked."""
+    with _projects_lock:
+        project = load_project(base, project_id)
+        entry = next((e for e in project["exports"] if e["job_id"] == job_id), None)
+        if entry is None:
+            return project
+        entry.update(status=status, finished=int(time.time()), summary=summary, message=message)
+        if status == "concluído":
+            project["last_good"] = job_id
         return _write_project(base, project)
 
 

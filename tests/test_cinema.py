@@ -189,6 +189,7 @@ def api(world):
     mp.setitem(cf_factory._state, "data", None)  # each test gets its own data folder; the Content Factory guard is per process
     cf_apps.configure(base, base / "outputs")
     client = TestClient(cf_api.build_app(base, base / "outputs", lambda t: t == "pw", "secret"), headers={"Authorization": "Bearer pw"})
+    client.base = base
     yield client, ids
     mp.undo()
 
@@ -273,3 +274,60 @@ def test_a_saved_project_opens_swaps_a_take_and_exports_two_cuts_with_the_same_p
     assert first_files["teste-a-b-mar.mp4"] != second_files["teste-a-b-mar.mp4"]
     old = client.get(next(r["url"] for r in first["results"] if r["path"].endswith("mar.render.json"))).json()
     assert "video:s3" in old["rendered"] and len(old["rendered"]) > 2
+
+
+def test_a_film_starts_empty_and_reaches_a_first_cut_through_the_api(api):
+    """The second-film path: empty project, three Library assets, reorder, one duration, reopen, export."""
+    client, ids = api
+    made = client.post(f"{BASE}/cinema/projects", json={"title": "Segundo filme"})
+    assert made.status_code == 201, made.text
+    pid = made.json()["id"]
+    assert made.json()["shots"] == [] and made.json()["revision"] == 1
+    assert client.post(f"{BASE}/cinema/projects/{pid}/export", json={}).status_code == 400  # nothing to export yet
+    assert client.post(f"{BASE}/cinema/projects/{pid}/shots", json={"asset": ids["voice"]}).status_code == 400  # audio is not a shot
+    for ident in (ids["a"], ids["b_asset"], ids["b2"]):  # a version, an asset (pinned to its current version), a version
+        assert client.post(f"{BASE}/cinema/projects/{pid}/shots", json={"asset": ident}).status_code == 200
+    project = client.get(f"{BASE}/cinema/projects/{pid}").json()
+    assert [s["id"] for s in project["shots"]] == ["s01", "s02", "s03"]
+    assert project["shots"][1]["src"] == ids["b2"]  # a_ was pinned to the version that was current (v2)
+    order = client.post(f"{BASE}/cinema/projects/{pid}/order", json={"order": ["s03", "s01", "s02"]})
+    assert [s["id"] for s in order.json()["shots"]] == ["s03", "s01", "s02"]
+    assert client.post(f"{BASE}/cinema/projects/{pid}/order", json={"order": ["s01", "s02"]}).status_code == 400
+    longer = client.post(f"{BASE}/cinema/projects/{pid}/shots/s01", json={"dur": 2.5})
+    assert longer.status_code == 200 and next(s for s in longer.json()["shots"] if s["id"] == "s01")["loop"] is True  # 1.5 s take, 2.5 s shot
+    assert client.post(f"{BASE}/cinema/projects/{pid}/shots/s01", json={"dur": 0.1}).status_code == 400
+    reopened = client.get(f"{BASE}/cinema/projects/{pid}").json()
+    assert [s["id"] for s in reopened["shots"]] == ["s03", "s01", "s02"] and reopened["revision"] == 1 + 3 + 1 + 1
+    assert [h["revision"] for h in reopened["history"]] == [1, 2, 3, 4, 5, 6]
+    job = wait(client, client.post(f"{BASE}/cinema/projects/{pid}/export", json={}).json()["id"])
+    assert job["status"] == "concluído", job.get("message")
+    film = next(r for r in job["results"] if r["path"].endswith(".mp4"))
+    frames = int(probe(Path(cf_api_base(client)) / "outputs" / film["path"])["streams"][0]["nb_read_frames"])
+    assert frames == round((1.0 + 2.5 + 1.0) * 24)  # s03 (b2, 1 s) + s01 2.5 s + s02 (b2, 1 s) at the default 24 fps
+    done = client.get(f"{BASE}/cinema/projects/{pid}").json()
+    assert done["last_good"] == job["id"] and done["exports"][-1]["status"] == "concluído" and done["exports"][-1]["revision"] == 6
+    assert done["exports"][-1]["signatures"]["principal"] == done["cuts_view"]["principal"]["signature"]
+
+
+def cf_api_base(client):
+    return client.base
+
+
+def test_a_failed_export_keeps_the_last_finished_pair_and_says_the_timeline_moved_on(api):
+    client, ids = api
+    pid = client.post(f"{BASE}/cinema/projects", json=project_body(ids)).json()["id"]
+    good = wait(client, client.post(f"{BASE}/cinema/projects/{pid}/export", json={"cuts": ["mar", "musica"]}).json()["id"])
+    assert good["status"] == "concluído"
+    edited = client.post(f"{BASE}/cinema/projects/{pid}/shots/s2", json={"dur": 2.5}).json()  # needs a new s2 segment
+    assert edited["exports"][-1]["signatures"]["mar"] != edited["cuts_view"]["mar"]["signature"]  # the pair now shows an older timeline
+    blob = ag.resolve(client.base, ids["a"])
+    blob.chmod(0o000)  # the take cannot be read: the export has to fail
+    try:
+        bad = wait(client, client.post(f"{BASE}/cinema/projects/{pid}/export", json={"cuts": ["mar", "musica"]}).json()["id"])
+    finally:
+        blob.chmod(0o444)
+    assert bad["status"] == "falhou" and "ffmpeg" in bad["message"]
+    project = client.get(f"{BASE}/cinema/projects/{pid}").json()
+    assert project["last_export"] == bad["id"] and project["last_good"] == good["id"]
+    assert [e["status"] for e in project["exports"]] == ["concluído", "falhou"]
+    assert all(client.get(r["url"]).status_code == 200 for r in good["results"] if r["path"].endswith(".mp4"))  # still playable
