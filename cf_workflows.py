@@ -100,7 +100,8 @@ class Control:
 
     def cancel(self, session=None):
         self.cancelled = True
-        interrupt(self.prompt_id)
+        if self.prompt_id:  # no prompt yet: nothing of ours runs, and a bare /interrupt would stop someone else's
+            interrupt(self.prompt_id)
 
 
 def interrupt(prompt_id=None):
@@ -324,6 +325,15 @@ def require_nodes(session, graph):
 
 
 def run(graph, output_dir, progress, files=None, prepare=None, title=None, control=None, family=None, stall=900):
+    """Submit `graph` and collect its outputs. Holds the worker for the whole job (`cf_worker.hold`): every path that reaches ComfyUI, the
+    Studio's GPU lane and the classic Gradio mode alike, is serialized here, so no caller restarts the worker under another one's prompt."""
+    import cf_worker
+    with cf_worker.hold(progress=lambda text: progress(0.01, desc=text)):
+        return _run(graph, output_dir, progress, files, prepare, title, control, family, stall)
+
+
+def _run(graph, output_dir, progress, files, prepare, title, control, family, stall):
+    import cf_worker
     folder = Path(output_dir) / ("workflow_" + uuid.uuid4().hex)
     folder.mkdir(parents=True)
     job = {"id": folder.name, "status": "preparando", "results": []}
@@ -334,10 +344,11 @@ def run(graph, output_dir, progress, files=None, prepare=None, title=None, contr
         session.trust_env = False
         socket = None
         try:
-            import cf_worker
-            cf_worker.ensure_up(SERVER, progress=lambda text: progress(0.01, desc=text))  # a dead worker is started again; a live one is remembered
+            say = lambda text: progress(0.01, desc=text)  # noqa: E731
+            if not cf_worker.ensure_up(SERVER, progress=say):  # a dead worker is started again; a live one is remembered
+                raise cf_worker.WorkerUnavailable(cf_worker.DOWN_HELP)
             # the worker keeps what it loaded (a 5B job leaves it at 8+ GB of the Colab's 12.7) and a bigger model then kills it: start over when it is bloated
-            cf_worker.restart_if_bloated(SERVER, float(os.environ.get("CLONFIELD_WORKER_RESTART_GB", "7")), progress=lambda text: progress(0.01, desc=text))
+            cf_worker.restart_if_bloated(SERVER, float(os.environ.get("CLONFIELD_WORKER_RESTART_GB", "7")), progress=say)
             if family is not None and family != _last_family[0]:
                 free_models(session)
             _last_family[0] = family
@@ -366,6 +377,10 @@ def run(graph, output_dir, progress, files=None, prepare=None, title=None, contr
             job.update(status="enviado", prompt_id=response.json()["prompt_id"])
             if control is not None:
                 control.prompt_id = job["prompt_id"]
+        except cf_worker.WorkerUnavailable as exc:
+            job.update(status="falhou", message=str(exc))
+            persist(folder, job)
+            return job
         except (requests.RequestException, OSError, ValueError, KeyError) as exc:
             if job["status"] == "enviando":
                 job.update(status="envio_indeterminado", message=f"{exc}. Verifique a fila no ComfyUI.")

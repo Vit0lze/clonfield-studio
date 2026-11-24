@@ -1,0 +1,7 @@
+V9-P0-001 — reprodução ANTES do patch (HEAD 64998ff, árvore sem o lock)
+Comando: ~/.cache/clonfield-venv/bin/python -m pytest tests/test_worker_lock.py::test_a_second_caller_never_restarts_the_worker_under_a_running_prompt -q -x
+Ambiente: PC local, CPU, 3,7 GB RAM; worker FALSO rotulado (processo real main.py --listen --port N), sem ComfyUI, sem GPU.
+Resultado: 1 failed in 4.47s
+  AssertionError: the worker was restarted while job A was still waiting for its prompt
+  assert 1545196 == 1545183
+Leitura: o chamador B (ex.: modo clássico) reiniciou o worker por restart_if_bloated enquanto o prompt de A estava em andamento.

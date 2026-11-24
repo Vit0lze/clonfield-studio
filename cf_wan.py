@@ -90,7 +90,10 @@ def memory_problem(model_key, ram_gb=None):
     first one in RAM while loading the second: the worker, then the whole Colab session, died on a 12.7 GB machine. Measured; Q4_K_S ran."""
     spec = MODELS.get(model_key)
     ram = total_ram_gb() if ram_gb is None else ram_gb
-    if spec and spec["kind"] == "a14b" and spec["vram"] >= 12 and 0 < ram < 24:
+    if spec and spec["kind"] == "a14b" and spec["vram"] >= 12 and ram <= 0:
+        return (f"{spec['label']} guarda ~{spec['vram']:g} GB por especialista e o Studio não conseguiu ler a RAM desta máquina; "
+                "sem essa medida ele não arrisca derrubar a sessão. Use o A14B Q4_K_S ou o Q3_K_S.")
+    if spec and spec["kind"] == "a14b" and spec["vram"] >= 12 and ram < 24:
         return (f"{spec['label']} guarda ~{spec['vram']:g} GB por especialista e esta máquina tem {ram:.0f} GB de RAM: o ComfyUI foi derrubado nesse teste. "
                 "Use o A14B Q4_K_S ou o Q3_K_S.")
     return None

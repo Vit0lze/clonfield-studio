@@ -15,6 +15,18 @@ KINDS = {".png": "image", ".jpg": "image", ".jpeg": "image", ".webp": "image", "
          ".wav": "audio", ".mp3": "audio", ".flac": "audio", ".ogg": "audio", ".m4a": "audio"}
 
 
+class Effect:
+    """What a runner returns when its result is not a file. `kind`: "effect" (an install checked by SHA-256), "text" or "json" (values kept in
+    the DAG run record). Any other runner must return at least one file inside the output folder: a job is never "concluído" with nothing to
+    show (V9-P0, audit of cf_jobs.py:178-180). The job's snapshot carries `outcome` = "media" or this kind."""
+    KINDS = ("effect", "text", "json")
+
+    def __init__(self, note, kind="effect"):
+        if kind not in self.KINDS:
+            raise ValueError(f"Effect kind must be one of {self.KINDS}")
+        self.note, self.kind = str(note), kind
+
+
 class JobError(Exception):
     def __init__(self, message, status="falhou"):
         super().__init__(message)
@@ -27,6 +39,7 @@ class Job:
         self.app, self.title, self.params, self.lane = app, title, params, lane
         self.status, self.fraction, self.desc, self.message = "fila", 0.0, "Na fila", ""
         self.results, self.created = [], time.time()
+        self.outcome = "media"
         self.started = self.finished = None
         self.control = workflows.Control()
         self.version = 0
@@ -43,7 +56,7 @@ class Job:
                 "fraction": round(self.fraction, 4), "desc": self.desc, "message": self.message,
                 "results": self.results, "created": self.created, "started": self.started,
                 "finished": self.finished, "lane": self.lane, "position": position,
-                "params": self.params, "version": self.version}
+                "params": self.params, "version": self.version, "outcome": self.outcome}
 
 
 class Context:
@@ -91,6 +104,7 @@ class Manager:
                 job.id, job.created = data["id"], data["created"]
                 job.status, job.fraction, job.desc = data["status"], data["fraction"], data["desc"]
                 job.message, job.results = data.get("message", ""), data.get("results", [])
+                job.outcome = data.get("outcome", "media")
                 job.started, job.finished = data.get("started"), data.get("finished")
                 if job.status not in FINAL:
                     job.status, job.message = "falhou", "A sessão foi encerrada durante este job."
@@ -145,7 +159,7 @@ class Manager:
                 self._save(job)
                 return True
         job.control.cancelled = True
-        if job.lane == "gpu":
+        if job.lane == "gpu" and job.control.prompt_id:  # without an id /interrupt stops WHATEVER runs (another owner's prompt)
             workflows.interrupt(job.control.prompt_id)
         return True
 
@@ -175,9 +189,18 @@ class Manager:
                     job.update(desc="Liberando a GPU do modelo de texto")
                     if self.before_gpu() is False:
                         raise JobError("O modelo de texto continua carregado na GPU e o job de vídeo/imagem poderia derrubar o worker por falta de memória. Espere alguns segundos e tente de novo.")
-                files = runner(ctx) or []
-                results = self._publish(job, files)
-                job.update(status="concluído", fraction=1.0, desc="Concluído", results=results)
+                outcome = runner(ctx)
+                if isinstance(outcome, Effect):
+                    job.update(status="concluído", fraction=1.0, desc="Concluído", results=[], message=outcome.note, outcome=outcome.kind)
+                else:
+                    files = list(outcome or [])
+                    results = self._publish(job, files)
+                    if not results:
+                        raise JobError("O job terminou sem nenhum arquivo de resultado." + (
+                            f" {len(files)} arquivo(s) fora da pasta de saída ou inexistente(s) foram descartados." if files else ""))
+                    dropped = len(files) - len(results)
+                    job.update(status="concluído", fraction=1.0, desc="Concluído", results=results,
+                               message=f"{dropped} arquivo(s) fora da pasta de saída ou inexistente(s) não foram publicados." if dropped else "")
             except JobError as exc:
                 job.update(status=exc.status, message=str(exc), desc=exc.status.capitalize())
             except Exception as exc:  # a failed runner must never kill the lane
@@ -197,6 +220,8 @@ class Manager:
             try:
                 rel = path.resolve().relative_to(root)
             except ValueError:
+                continue
+            if not path.is_file():
                 continue
             kind = KINDS.get(path.suffix.lower(), "file")
             results.append({"path": rel.as_posix(), "name": path.name, "kind": kind, "size": path.stat().st_size})

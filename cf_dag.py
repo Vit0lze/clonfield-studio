@@ -567,6 +567,22 @@ def final_files(run):
     return out
 
 
+def job_result(run):
+    """What a DAG job returns to cf_jobs: the sink files; when the sinks hold only text/JSON values (no file), an explicit cf_jobs.Effect of
+    kind "text"/"json" (the values stay in the run record the screen reads); nothing at all -> [] and the job fails."""
+    files = final_files(run)
+    if files:
+        return files
+    values = [x for outputs in run["final"].values() for o in outputs.values() for x in _as_list(o)
+              if isinstance(x, dict) and not x.get("path") and x.get("value") is not None]
+    if not values:
+        return []
+    import cf_jobs
+    kinds = {x.get("type") for x in values}
+    kind = "json" if kinds == {"json"} else "text"
+    return cf_jobs.Effect(f"Resultado sem arquivo: {len(values)} valor(es) de {'/'.join(sorted(k or '?' for k in kinds))} no registro da execução.", kind=kind)
+
+
 def chain(stages, registry):
     """Wire a list of stages into a graph: each stage takes the previous stage's result in its first free input of the same type.
     stages: [{"cap", "params"?, "inputs"?: {port: "media id" | {"media"|"from": ...}}, "each"?, "bind"?, "when"?, "id"?, "label"?}].

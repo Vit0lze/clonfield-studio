@@ -710,21 +710,32 @@ def run_a14b_staged(ctx, graph, prepare, title, family="wan"):
 
     def part(low, high):
         return lambda fraction, desc=None, **kw: ctx.progress(low + (high - low) * fraction, desc=desc)
-    cf_worker.restart_if_bloated(url, progress=lambda text: ctx.progress(0.0, desc=text))  # a previous 5B job leaves the worker at 6.5-9 GB of the Colab's 12.7
-    job = workflows.run(one, ctx.out_dir, part(0.0, 0.5), prepare=prepare, title=title + " · especialista 1/2", control=ctx.control, family=family, stall=2400)
-    latents = [path for path in collect_job(ctx, job) if path.suffix == ".latent"]
-    if not latents:
-        raise JobError("O primeiro especialista terminou sem salvar o latente.")
-    ctx.check()
-    # the whole point: the first expert must leave RAM before the second one loads. /free does not return the memory to the system, only a new process does
-    if not cf_worker.restart(url, progress=lambda text: ctx.progress(0.5, desc=text)):
-        with requests.Session() as session:
-            session.trust_env = False
-            workflows.free_models(session)
-    latent = latents[0]
-    two["71"]["inputs"]["latent"] = latent.name
-    job = workflows.run(two, ctx.out_dir, part(0.5, 1.0), prepare=prepare, title=title + " · especialista 2/2", control=ctx.control, family=family, stall=2400, files=[latent])
-    return [path for path in collect_job(ctx, job) if path.suffix != ".latent"]
+    say = lambda text: ctx.progress(0.0, desc=text)  # noqa: E731
+    # Both stages and the restart between them hold the worker as one unit: no other caller may slip a prompt in between.
+    with cf_worker.hold(progress=say):
+        try:
+            cf_worker.restart_if_bloated(url, progress=say)  # a previous 5B job leaves the worker at 6.5-9 GB of the Colab's 12.7
+        except cf_worker.WorkerUnavailable as exc:
+            raise JobError(str(exc)) from None
+        job = workflows.run(one, ctx.out_dir, part(0.0, 0.5), prepare=prepare, title=title + " · especialista 1/2", control=ctx.control, family=family, stall=2400)
+        latents = [path for path in collect_job(ctx, job) if path.suffix == ".latent"]
+        if not latents:
+            raise JobError("O primeiro especialista terminou sem salvar o latente.")
+        ctx.check()
+        # the first expert should leave RAM before the second one loads. /free gives back only part of it (8.1 -> 3.8 GB measured); a new
+        # process starts at ~1.3 GB. When the restart is impossible but the worker still answers, go on with /free and SAY so.
+        if not cf_worker.restart(url, progress=lambda text: ctx.progress(0.5, desc=text)):
+            if not cf_worker.up(url):
+                raise JobError("O ComfyUI não voltou depois do reinício entre os dois especialistas do A14B; o latente do primeiro está salvo, "
+                               "mas o segundo não pode rodar. Rode a célula do ComfyUI e envie de novo.")
+            ctx.progress(0.5, desc="Não foi possível reiniciar o ComfyUI; seguindo só com /free (risco de faltar RAM no segundo especialista)")
+            with requests.Session() as session:
+                session.trust_env = False
+                workflows.free_models(session)
+        latent = latents[0]
+        two["71"]["inputs"]["latent"] = latent.name
+        job = workflows.run(two, ctx.out_dir, part(0.5, 1.0), prepare=prepare, title=title + " · especialista 2/2", control=ctx.control, family=family, stall=2400, files=[latent])
+        return [path for path in collect_job(ctx, job) if path.suffix != ".latent"]
 
 
 def run_wan(ctx, p, tier):
@@ -1158,7 +1169,7 @@ def install_model(ctx, key):
         except download.DownloadError as exc:
             raise JobError(str(exc)) from None
         ctx.progress((index + 1) / len(pending), desc=f"{target.name} instalado")
-    return []
+    return cf_jobs.Effect("Modelo instalado e conferido.")
 
 
 LORA_FAMILIES = {"sdxl": ["sdxl"], "sd15": ["sd15"],
@@ -1180,7 +1191,7 @@ def install_civitai_lora(ctx, family, model, version, file, expect=None):
     except (ValueError, KeyError, StopIteration) as exc:
         raise JobError(str(exc) or "Não foi possível instalar este LoRA.") from None
     ctx.progress(1.0, desc="LoRA instalado")
-    return []
+    return cf_jobs.Effect("LoRA instalado e conferido.")
 
 
 def install_civitai_component(ctx, family, role, model, version, file, expect=None):
@@ -1193,7 +1204,7 @@ def install_civitai_component(ctx, family, role, model, version, file, expect=No
     except (ValueError, KeyError, StopIteration) as exc:
         raise JobError(str(exc) or "Não foi possível instalar este componente.") from None
     ctx.progress(1.0, desc=f"{role} instalado")
-    return []
+    return cf_jobs.Effect("Componente instalado e conferido.")
 
 
 def install_upscaler(ctx, name):
@@ -1205,7 +1216,7 @@ def install_upscaler(ctx, name):
     except (ValueError, download.DownloadError, OSError) as exc:
         raise JobError(str(exc)) from None
     ctx.progress(1.0, desc="Upscaler instalado")
-    return []
+    return cf_jobs.Effect("Upscaler instalado.")
 
 
 def install_recipe_file(ctx, repo, filename):
@@ -1220,7 +1231,7 @@ def install_recipe_file(ctx, repo, filename):
     except (ValueError, download.DownloadError, OSError) as exc:
         raise JobError(str(exc)) from None
     ctx.progress(1.0, desc="Instalado")
-    return []
+    return cf_jobs.Effect("Arquivo da receita instalado.")
 
 
 def install_lora(ctx, name):
@@ -1228,7 +1239,7 @@ def install_lora(ctx, name):
         cf_loras.ensure(ENV["base"], name, ctx.progress)
     except (ValueError, download.DownloadError) as exc:
         raise JobError(str(exc)) from None
-    return []
+    return cf_jobs.Effect("LoRA instalado.")
 
 
 # ---------------------------------------------------------------- registry

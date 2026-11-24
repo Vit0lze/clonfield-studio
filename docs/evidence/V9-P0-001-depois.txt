@@ -1,0 +1,17 @@
+V9-P0-001..004 — DEPOIS do patch (árvore local sobre 64998ff, sem commit), 23/11/2026, PC local CPU 3,7 GB, um pytest por vez
+tests/test_worker_lock.py            9 passed in 19.23s   (worker FALSO rotulado: processo real main.py, rotas mínimas do ComfyUI)
+tests/test_worker_restart.py         5 passed in 8.05s
+tests/test_llm_release.py           14 passed in 4.42s
+tests/test_wan.py                   40 passed in 8.17s   (antes do ajuste do teste A14B: 1 failed — o reinício falho sem worker agora para, como pretendido)
+tests/test_dag.py                   10 passed in 1.61s
+tests/test_agent_api.py              5 passed, 1 skipped in 1.86s (-W error::PytestUnhandledThreadExceptionWarning; skip = sem llama-server)
+tests/test_agent.py                 16 passed, 2 skipped in 5.32s
+tests/test_seethrough.py             2 passed, 3 skipped in 0.92s
+tests/test_upscalers.py              1 skipped
+tests/test_comfy_real.py -k latent   1 passed, 37 deselected in 18.02s (ComfyUI 0.44 REAL em CPU, nenhum modelo carregado)
+NÃO EXECUTADO: suíte completa; e2e Playwright; qualquer GPU.
+
+Revisão pré-commit (R1 cancelamento na espera, R2 saída só texto/JSON), mesmo ambiente:
+test_worker_lock 11 passed · test_agent_api 6 passed/1 skip · test_agent 16/2 skip · test_chat 7/2 skip · test_dag 10 · test_llm_release 14 · test_wan 40
+test_worker_restart 5 · test_recipes_api 4 · test_myflows 8 · test_seethrough 2/3 skip · test_upscalers 1 skip (sem torch) · test_comfy_real -k latent 1
+R1 antes (guarda revertida temporariamente): test_cancelling_a_job_that_waits... 1 failed (interrupts.log criado); restaurada: passed.

@@ -5,16 +5,58 @@ memory back to the system (the allocator keeps it), so the next big model (the W
 starts at ~1.3 GB. The Studio and the worker run on the same machine, so the Studio copies the worker's own command line, working folder and
 environment while it is alive (in memory only, never written to disk: the environment can hold tokens) and can start it again the same way.
 
-It also revives a worker that died: the notebook cell that started it is not needed again."""
+It also revives a worker that died: the notebook cell that started it is not needed again.
+
+One owner at a time (V9-P0). Every caller that talks to the worker for a job (`cf_workflows.run`, the SeedVR2 runner, the A14B's two stages)
+and every restart holds `hold()`. The Studio's GPU lane, the classic Gradio mode (which does not go through `cf_jobs.Manager`) and a restart
+from another thread therefore never overlap: a restart waits for the running prompt instead of killing it. The lock is reentrant, so a job
+that restarts the worker itself (bloated worker, A14B between experts) keeps ownership."""
 import os
 import signal
 import subprocess
+import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import requests
 
 _saved = {}  # argv, cwd, env of the last worker seen alive. Memory only.
+_lock = threading.RLock()
+_owner = {"thread": None, "depth": 0}
+
+
+class WorkerUnavailable(RuntimeError):
+    """The worker is down and could not be brought back, or a restart did not bring it back."""
+
+
+DOWN_HELP = "O worker do ComfyUI não responde e o Studio não sabe como reiniciá-lo (ele não foi visto vivo nesta sessão). Rode a célula do ComfyUI no Colab."
+
+
+@contextmanager
+def hold(progress=None, poll=2.0):
+    """Own the worker for the duration of the block. When another thread owns it, say so through `progress(text)` and wait.
+    `progress` may raise (a cancelled job's context does): the wait then stops without taking the worker."""
+    if not _lock.acquire(blocking=False):
+        if progress:
+            progress("Aguardando outro job do ComfyUI terminar")
+        while not _lock.acquire(timeout=poll):
+            if progress:
+                progress("Aguardando outro job do ComfyUI terminar")
+    _owner["thread"] = threading.get_ident()
+    _owner["depth"] += 1
+    try:
+        yield
+    finally:
+        _owner["depth"] -= 1
+        if not _owner["depth"]:
+            _owner["thread"] = None
+        _lock.release()
+
+
+def busy():
+    """True while some caller owns the worker (a job is talking to it or it is being restarted)."""
+    return _owner["thread"] is not None
 
 
 def port_of(url):
@@ -113,7 +155,13 @@ def stop(pid, grace=30):
 
 
 def restart(url, wait=240, progress=None):
-    """Stop the worker (when it runs) and start it again with the command it was started with. True once it answers."""
+    """Stop the worker (when it runs) and start it again with the command it was started with. True once it answers.
+    Waits for the current owner first: a restart never lands in the middle of someone else's prompt."""
+    with hold(progress):
+        return _restart(url, wait, progress)
+
+
+def _restart(url, wait, progress):
     capture(url)  # refresh while it is alive; a dead worker keeps the copy taken earlier
     if not _saved:
         return False
@@ -137,22 +185,27 @@ def restart(url, wait=240, progress=None):
     return False
 
 
-def ensure_up(url, progress=None):
-    """Before a job: remember the worker while it answers, and bring it back when it does not (and its command is known)."""
+def ensure_up(url, progress=None, wait=240):
+    """Before a job: remember the worker while it answers, and bring it back when it does not (and its command is known).
+    True when it answers; False when it is down (never seen alive, or the revive did not bring it back)."""
     if up(url):
         capture(url)
         return True
     if _saved:
-        return restart(url, progress=progress)
+        return restart(url, wait=wait, progress=progress)
     return False
 
 
-def restart_if_bloated(url, limit_gb=3.0, progress=None):
-    """Restart when the worker's resident memory is above `limit_gb`. True when it was restarted."""
+def restart_if_bloated(url, limit_gb=3.0, progress=None, wait=240):
+    """Restart when the worker's resident memory is above `limit_gb`. True when it was restarted, False when it was not needed.
+    Raises WorkerUnavailable when the restart was needed and the worker did not come back: the caller must not go on against it."""
     found = find(port_of(url))
     if found is None:
         return False
     size = rss_gb(found[0])
     if size is not None and size > limit_gb:
-        return restart(url, progress=progress)
+        if restart(url, wait=wait, progress=progress):
+            return True
+        raise WorkerUnavailable(f"O ComfyUI estava com {size:g} GB de RAM, foi reiniciado e não voltou em {wait} s." + (
+            "" if _saved else " O Studio não tinha o comando do worker para iniciá-lo de novo: rode a célula do ComfyUI no Colab."))
     return False

@@ -88,7 +88,8 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         cf_worker.capture(cf_workflows.SERVER)  # how the worker was started, so it can be restarted (memory only)
     except Exception:
         pass
-    cf_llm.set_gpu_guard(lambda: manager.gpu_active)
+    import cf_worker as _cf_worker
+    cf_llm.set_gpu_guard(lambda: manager.gpu_active or _cf_worker.busy())  # a classic-mode prompt also holds the worker (V9-P0)
 
     def free_comfy():
         import requests as _requests
@@ -347,7 +348,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         run_id = uuid.uuid4().hex[:12]
 
         def runner(ctx):
-            return cf_dag.final_files(cf_dag.execute(graph, registry, env, ctx, run_id=run_id, force=force))
+            return cf_dag.job_result(cf_dag.execute(graph, registry, env, ctx, run_id=run_id, force=force))
 
         job = manager.submit("dag", title, {"run": run_id}, report["resources"]["lane"], runner)
         return JSONResponse(public_job(job), 202)
@@ -400,7 +401,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         run_id = uuid.uuid4().hex[:12]
 
         def runner(ctx):
-            return cf_dag.final_files(cf_dag.execute(graph, registry, env, ctx, run_id=run_id, force=force))
+            return cf_dag.job_result(cf_dag.execute(graph, registry, env, ctx, run_id=run_id, force=force))
         title = str(body.get("title") or "Execução refeita")[:80]
         job = manager.submit("dag", title, {"run": run_id, "revises": previous["id"]}, report["resources"]["lane"], runner)
         return JSONResponse(public_job(job), 202)
@@ -465,7 +466,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             run_id = uuid.uuid4().hex[:12]
 
             def runner(ctx, graph=graph, run_id=run_id):
-                return cf_dag.final_files(cf_dag.execute(graph, registry, env, ctx, run_id=run_id))
+                return cf_dag.job_result(cf_dag.execute(graph, registry, env, ctx, run_id=run_id))
             title = recipe.title + (f" · {index}/{len(built)}" if len(built) > 1 else "")
             jobs.append(public_job(manager.submit("dag", title, {"recipe": recipe.id, "run": run_id}, report["resources"]["lane"], runner)))
         return JSONResponse(dict(recipe=recipe.id, jobs=jobs), 202)

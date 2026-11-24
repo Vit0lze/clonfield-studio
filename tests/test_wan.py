@@ -257,7 +257,8 @@ def test_the_q6_a14b_pair_is_refused_on_a_small_ram_machine_and_the_smaller_quan
     assert "12,7 GB".replace(",", ".") and wan.memory_problem("a14b-q6", ram_gb=12.7) and "Q4_K_S" in wan.memory_problem("a14b-q6", ram_gb=12.7)
     assert wan.memory_problem("a14b-q4", ram_gb=12.7) is None and wan.memory_problem("a14b-q3", ram_gb=12.7) is None
     assert wan.memory_problem("a14b-q6", ram_gb=64) is None and wan.memory_problem("5b-q6", ram_gb=12.7) is None
-    assert wan.memory_problem("a14b-q6", ram_gb=0) is None  # RAM unreadable: do not block
+    assert "não conseguiu ler a RAM" in wan.memory_problem("a14b-q6", ram_gb=0)  # RAM unreadable: refuse the heavy pair (V9-P0)
+    assert wan.memory_problem("a14b-q4", ram_gb=0) is None
 
 
 def test_a14b_runs_two_prompts_with_the_memory_freed_between_them_and_the_latent_handed_over(monkeypatch, tmp_path):
@@ -277,6 +278,11 @@ def test_a14b_runs_two_prompts_with_the_memory_freed_between_them_and_the_latent
     monkeypatch.setattr(cf_apps.workflows, "run", run)
     monkeypatch.setattr(cf_apps.workflows, "free_models", lambda *a, **k: calls.append(("free",)))
     monkeypatch.setattr(cf_apps, "collect_job", lambda ctx, job: [latent] if sum(1 for c in calls if c[0] == "run") == 1 else [clip])
+    import cf_worker
+    monkeypatch.setattr(cf_worker, "restart_if_bloated", lambda *a, **k: False)
+    monkeypatch.setattr(cf_worker, "restart", lambda *a, **k: False)  # restart impossible here (no real worker)...
+    monkeypatch.setattr(cf_worker, "up", lambda *a, **k: True)        # ...but the worker answers: go on with /free and SAY so
+    said = []
 
     class Ctx:
         control = None
@@ -285,12 +291,21 @@ def test_a14b_runs_two_prompts_with_the_memory_freed_between_them_and_the_latent
             id = "j"
             @staticmethod
             def update(**kw): pass
-        def progress(self, *a, **k): pass
+        def progress(self, *a, desc=None, **k): said.append(desc)
         def check(self): pass
-    out = cf_apps.run_wan(Ctx(), dict(mode=wan.FLF_MODE, model="a14b-q4", prompt="loop", size="Horizontal · 512 × 288 (rápido)", seconds=2, steps=20, seed=3,
-                                      image=["/x/a.png"], loop=True, fast=True), cf_tiers.detect())
+    params = dict(mode=wan.FLF_MODE, model="a14b-q4", prompt="loop", size="Horizontal · 512 × 288 (rápido)", seconds=2, steps=20, seed=3,
+                  image=["/x/a.png"], loop=True, fast=True)
+    out = cf_apps.run_wan(Ctx(), dict(params), cf_tiers.detect())
+    assert any(d and "seguindo só com /free" in d for d in said)  # the fallback is visible, not silent (V9-P0)
     assert [c[0] for c in calls] == ["run", "free", "run"]
     first, second = calls[0], calls[2]
     assert "70" in first[1] and "3" in first[1] and "4" not in first[1] and first[2] is None and "1/2" in first[3]
     assert "71" in second[1] and "4" in second[1] and "3" not in second[1] and second[2] == [latent] and "2/2" in second[3]
     assert out == [clip]  # the latent is an intermediate, never a result
+
+    # the worker is gone after a failed restart: the second expert must not be sent against it
+    calls.clear()
+    monkeypatch.setattr(cf_worker, "up", lambda *a, **k: False)
+    with pytest.raises(cf_apps.JobError, match="não voltou depois do reinício"):
+        cf_apps.run_wan(Ctx(), dict(params), cf_tiers.detect())
+    assert [c[0] for c in calls] == ["run"]

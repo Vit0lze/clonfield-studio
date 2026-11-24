@@ -110,7 +110,7 @@ def test_a_gpu_job_unloads_the_text_model_first_and_blocks_it_while_it_runs(tmp_
             log.append(("run", manager.gpu_active))
             with pytest.raises(cf_llm.LLMError, match="GPU está ocupada"):
                 cf_llm.generate("s", "u")
-            return []
+            return cf_jobs.Effect("sem arquivo: só a ordem das chamadas importa")
         job = manager.submit("t", "gpu job", {}, "gpu", runner)
         assert wait_final(job) == "concluído", job.message
         assert log == [("unload", True), ("run", True)]  # the guard is already up while the model is being unloaded
@@ -133,7 +133,7 @@ def test_cpu_jobs_neither_unload_the_model_nor_raise_the_gpu_flag(tmp_path):
     manager = cf_jobs.Manager(tmp_path, cpu_workers=1)
     called, seen = [], []
     manager.before_gpu = lambda: called.append(1) or True
-    job = manager.submit("t", "cpu job", {}, "cpu", lambda ctx: seen.append(manager.gpu_active) or [])
+    job = manager.submit("t", "cpu job", {}, "cpu", lambda ctx: seen.append(manager.gpu_active) or cf_jobs.Effect("ok"))
     assert wait_final(job) == "concluído" and not called and seen == [False]
 
 

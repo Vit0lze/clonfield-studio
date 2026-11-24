@@ -405,10 +405,10 @@ class LocalHost:
 
         def runner(ctx):
             box["run"] = dag.execute(graph, self.registry, self.env, ctx, run_id=run_id, force=force)
-            files = dag.final_files(box["run"])
+            result = dag.job_result(box["run"])
             if self.on_result:
-                self.on_result(files, ctx.job)
-            return files
+                self.on_result(result if isinstance(result, list) else [], ctx.job)
+            return result
 
         lane = resources["lane"]
         plan = [dict(id=n.get("id"), cap=n.get("cap"), params=n.get("params") or {}) for n in graph["nodes"]]  # what the agent built, readable while the job runs

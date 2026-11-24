@@ -8,9 +8,9 @@ Máquina remota: Tesla T4, 15 GB de VRAM, **12,7 GB de RAM**. Tempos são de par
 
 | Item | Estado | Evidência |
 |---|---|---|
-| Qwen 2.1 Turbo / padrão | TESTADO GPU | Turbo 95–344 s (o primeiro, a frio, é o mais lento), padrão 284 s; 768×768 válidas |
+| Qwen 2.1 Turbo / padrão | TESTADO GPU | Turbo **93,4–372,2 s (n=11, corrigido pela auditoria)** (o primeiro, a frio, é o mais lento), padrão 284 s; 768×768 válidas |
 | Upscale RealESRGAN x4 | TESTADO GPU | 21,6 s. O «4x UltraSharp» que o agente escolheu levou 457 s |
-| Receitas «Melhor de N sementes», «Cenários em matriz», «Animatic» | TESTADO GPU | 409 s, 39 s, 9 s; sementes por item geram imagens distintas |
+| Receitas «Melhor de N sementes», «Cenários em matriz», «Animatic» | TESTADO GPU | 409 s, 39 s, 9 s; «sementes por item geram imagens distintas»: **PROVA NÃO RETIDA** (só a melhor imagem foi salva) |
 | Remover fundo (U²-Net) | TESTADO GPU (CPU do Colab) | 7 s, foto real |
 | Wan 5B Q6 | TESTADO GPU | 350–478 s por 3 s de vídeo. Em retrato vertical (480×832) a identidade se mantém, mas quase não se mexe (movimento ~5) |
 | «Planos em filme» / «Storyboard em filme» | TESTADO GPU | 1280×720, 385 s / 922 s (este inclui 7,2 GB de download); alguns artefatos pequenos no céu |
@@ -24,7 +24,7 @@ Máquina remota: Tesla T4, 15 GB de VRAM, **12,7 GB de RAM**. Tempos são de par
 | Reinício do worker pelo Studio | TESTADO GPU | depois de um job 5B o ComfyUI chega a 8,1–9,1 GB; o reinício o leva a ~1,3 GB. A sequência 5B → A14B, que falhava 2×, passou |
 
 ## O que a máquina de 12,7 GB ensinou
-- O ComfyUI **não devolve a RAM** ao sistema depois de descarregar modelos (`/free` não adianta): um job 5B deixa o processo em 6,5–9 GB. Só um processo novo zera. Por isso o Studio reinicia o worker (antes do A14B, entre os dois estágios, e antes de qualquer job se passar de 7 GB).
+- **[Corrigido em 23/11, V9, pela auditoria]** O `/free` devolve **parte** da RAM (8,12 → 3,83 GB no `agent-full.log`), mas sozinho não bastou para o A14B depois de um 5B; um processo novo começa em ~1,2–1,3 GB. A frase anterior («`/free` não devolve a RAM») era exagero. Por isso o Studio reinicia o worker (antes do A14B, entre os dois estágios, e antes de qualquer job se passar de 7 GB).
 - O A14B roda um especialista por prompt (`SaveLatent` → reinício → `LoadLatent`). O ciclo do latente foi provado num ComfyUI real em CPU (tensor idêntico na volta).
 - O LLM de 9B não pode ficar carregado durante um job de GPU, e o ComfyUI não pode estar com os modelos do Wan na VRAM quando o LLM acorda: o Studio faz as duas trocas.
 
@@ -39,5 +39,5 @@ Máquina remota: Tesla T4, 15 GB de VRAM, **12,7 GB de RAM**. Tempos são de par
 - Wan 5B com um prompt de movimento mais forte; foto em movimento com foto real.
 - `run_eval.py --chains` com o Qwen real; se `force` com semente fixa regenera a mesma saída; apps com offload; outros conjuntos de vistas e outros personagens.
 - Qualidade do plano do agente: ele ignorou «ondas» e interpretou «farol» como poste. Não há medição de aderência ao pedido.
-- Testes locais: a suíte inteira (419 passed, 0 falhas) rodou ANTES das últimas mudanças de reinício do worker, de validação e de família do Wan. Depois delas rodaram só arquivos isolados (`test_dag` 10, `test_llm_release` 14, `test_agent` 16, `test_worker_restart` 5). A suíte completa derrubou a máquina de 3,7 GB e não é mais executada aqui.
+- Testes locais **[corrigido]**: a última invocação única da suíte foi **408 passed / 19 skipped** (20/11, árvore de `4b55197`); «419» é a soma de 43 arquivos rodados um a um. Texto original: a suíte inteira (419 passed, 0 falhas) rodou ANTES das últimas mudanças de reinício do worker, de validação e de família do Wan. Depois delas rodaram só arquivos isolados (`test_dag` 10, `test_llm_release` 14, `test_agent` 16, `test_worker_restart` 5). A suíte completa derrubou a máquina de 3,7 GB e não é mais executada aqui.
 - Itens do backlog nunca iniciados (cerca de 20) e legenda automática.

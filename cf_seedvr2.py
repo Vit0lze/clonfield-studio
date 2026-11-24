@@ -284,6 +284,13 @@ def collect_with_fallback(session, folder, job, timeout, progress):
 
 
 def run(path, kind, profile, scale, seed, tile, output_dir, progress):
+    """Holds the ComfyUI worker for the whole upscale (cf_worker.hold): it posts its own /prompt, so it must not overlap another job."""
+    import cf_worker
+    with cf_worker.hold(progress=lambda text: progress(0.01, desc=text)):
+        return _run(path, kind, profile, scale, seed, tile, output_dir, progress)
+
+
+def _run(path, kind, profile, scale, seed, tile, output_dir, progress):
     media = validate(path, kind, profile, scale, seed, tile)
     pixels = media["width"] * media["height"] * float(scale)**2
     # Keep temporal context on small outputs while limiting DiT activation peaks at 1080p.

@@ -2,12 +2,14 @@
 and the chat driven by the agent on a REAL local llama-server (real tools, real jobs). On this CPU machine the server is a small
 Qwen3.5 stand-in: the test proves the path (message -> agent -> tool calls -> conversation), not the 9B's judgement."""
 import io
+import json
 import time
 
 import pytest
 from PIL import Image, ImageDraw
 from starlette.testclient import TestClient
 
+import cf_agent
 import cf_api
 import cf_apps
 import cf_llm
@@ -123,3 +125,47 @@ def test_job_submit_fills_omitted_fields_with_the_form_defaults(api):
         real.runner = original
     assert job["status"] == "concluído", job
     assert seen["look"] and seen["strength"] is not None
+
+
+class ScriptedProvider:
+    """SCRIPTED MODEL, labelled: it replays one fixed tool call (execute_graph) and then a text answer. It exists only to drive the real chat ->
+    agent -> LocalHost -> Manager -> HTTP path without a llama-server; the live model is covered by test_live_chat_agent_path_runs_tools_and_answers."""
+    name, model = "roteiro-de-teste", None
+
+    def __init__(self, graph):
+        self.graph, self.turn = graph, 0
+
+    def step(self, system, messages, tools):
+        self.turn += 1
+        if self.turn == 1:
+            return dict(text="", calls=[dict(id="c1", name="execute_graph", args=dict(graph_json=json.dumps(self.graph)))])
+        return dict(text="Pronto.", calls=[])
+
+
+def test_an_agent_job_exposes_its_plan_on_the_http_job_route(api, monkeypatch):
+    """V9-P0 (audit: `plan` persisted in the Manager but /jobs/{id} was never called with an agent job)."""
+    up = upload(api)
+    graph = {"nodes": [{"id": "g", "cap": "look", "inputs": {"image": {"media": up["id"]}}, "params": {"look": "Preto e branco", "strength": 100}}]}
+    monkeypatch.setattr(cf_agent, "choose_provider", lambda: ScriptedProvider(graph))
+    session = api.post(f"{BASE}/sessions", json={"title": "plano"}).json()
+    api.post(f"{BASE}/sessions/{session['id']}/message", json={"text": "deixe em preto e branco", "media": [dict(id=up["id"], name=up["name"], kind="image")]})
+    agent_jobs = []
+    for _ in range(200):
+        agent_jobs = [j for j in api.get(f"{BASE}/jobs").json() if str(j.get("title", "")).startswith("Agente")]
+        if agent_jobs:
+            break
+        time.sleep(0.2)
+    assert agent_jobs, "o agente não criou job"
+    job = api.get(f"{BASE}/jobs/{agent_jobs[0]['id']}").json()
+    assert job["plan"] == [dict(id="g", cap="look", params={"look": "Preto e branco", "strength": 100})]
+    done = wait_job(api, job["id"])
+    assert done["status"] == "concluído" and done["results"] and done["plan"] == job["plan"]
+
+
+def test_a_text_only_graph_finishes_with_an_explicit_text_outcome(api):
+    """V9-P0 review: a graph whose last step yields text (no file) is "concluído" with outcome "text", not a failure and not an empty success."""
+    graph = {"nodes": [{"id": "t", "cap": "text_list", "params": {"text": "um farol; uma onda"}}]}
+    job = api.post(f"{BASE}/dag/run", json={"graph": graph})
+    assert job.status_code == 202, job.text
+    done = wait_job(api, job.json()["id"])
+    assert done["status"] == "concluído" and done["outcome"] == "text" and done["results"] == [] and "2 valor(es)" in done["message"]
