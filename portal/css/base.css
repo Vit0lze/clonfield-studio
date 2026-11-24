@@ -186,7 +186,7 @@ details.more > .body { display: grid; gap: 18px; padding-top: 16px; }
   .rail { position: fixed; top: auto; bottom: 0; left: 0; right: 0; height: auto; flex-direction: row; justify-content: space-around; padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
     border-right: 0; border-top: 1px solid var(--line); background: rgba(11, 7, 8, .94); backdrop-filter: blur(12px); gap: 0; }
   .rail .brand, .rail .grow { display: none; }
-  .rail a.nav { width: auto; flex: 1; padding: 7px 0 6px; }
+  .rail a.nav { width: auto; flex: 1 1 0; min-width: 0; padding: 7px 0 6px; font-size: 10px; overflow: hidden; }  /* 8 items must fit 320 px */
   .lightbox { grid-template-columns: 1fr; overflow: auto; }
   .top .title { display: block; }
 }

@@ -114,7 +114,7 @@ def render(path, out, kill_after=None):
     if proc.returncode:
         raise SystemExit(log)
     usage = resource.getrusage(resource.RUSAGE_CHILDREN)
-    record = json.loads((out / "render.json").read_text())
+    record = json.loads(next(out.glob("*.render.json")).read_text())
     return dict(rendered=record["rendered"], reused=record["reused"], seconds=record["seconds"],
                 children_peak_rss_mb=round(usage.ru_maxrss / 1024), film_sha256=record["film"]["sha256"],
                 segments={s["shot"]: s["sha256"][:16] for s in record["segments"]})

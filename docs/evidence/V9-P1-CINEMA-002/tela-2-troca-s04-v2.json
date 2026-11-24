@@ -1,0 +1,109 @@
+{
+ "a-ultima-luz-mar": {
+  "rendered": [
+   "video:s04",
+   "picture"
+  ],
+  "reused": [
+   "video:s01",
+   "video:s02",
+   "video:s03",
+   "video:s05",
+   "video:s06",
+   "video:s07",
+   "video:s08",
+   "video:s09",
+   "stem:voice",
+   "stem:music",
+   "stem:sfx",
+   "mix"
+  ],
+  "seconds": 13.03,
+  "film_sha256": "7dff2e27e3e4165592f1924de30de6c60dade6f319d1315a1b7dfffc863dd381",
+  "loudness": {
+   "I": -15.9,
+   "true_peak": -1.5
+  },
+  "segments": {
+   "s01": "dd503750c638add4",
+   "s02": "98990b6a9de31415",
+   "s03": "1d0a2a8755fcc7f5",
+   "s04": "e482da4e5f981bd2",
+   "s05": "6276e2407e95950a",
+   "s06": "00ddcfbb29e78804",
+   "s07": "2fa3ed850995c739",
+   "s08": "6cb2204a4cdfadfd",
+   "s09": "e0d0eb23bc140956"
+  },
+  "s04": "v_e21344e615f3a95d"
+ },
+ "a-ultima-luz-musica": {
+  "rendered": [],
+  "reused": [
+   "video:s01",
+   "video:s02",
+   "video:s03",
+   "video:s04",
+   "video:s05",
+   "video:s06",
+   "video:s07",
+   "video:s08",
+   "video:s09",
+   "picture",
+   "stem:voice",
+   "stem:music",
+   "stem:sfx",
+   "mix"
+  ],
+  "seconds": 6.47,
+  "film_sha256": "0da420ec9fbf055a1bc7cd39008876c3e7df10130995cea666cb74fc4c09eac7",
+  "loudness": {
+   "I": -15.9,
+   "true_peak": -1.4
+  },
+  "segments": {
+   "s01": "dd503750c638add4",
+   "s02": "98990b6a9de31415",
+   "s03": "1d0a2a8755fcc7f5",
+   "s04": "e482da4e5f981bd2",
+   "s05": "6276e2407e95950a",
+   "s06": "00ddcfbb29e78804",
+   "s07": "2fa3ed850995c739",
+   "s08": "6cb2204a4cdfadfd",
+   "s09": "e0d0eb23bc140956"
+  },
+  "s04": "v_e21344e615f3a95d"
+ },
+ "ab": {
+  "schema": "CinemaAB.v1",
+  "cuts": [
+   "mar",
+   "musica"
+  ],
+  "picture_key": {
+   "a-ultima-luz-mar": "3aa0afedee6cc41b",
+   "a-ultima-luz-musica": "3aa0afedee6cc41b"
+  },
+  "video_md5": {
+   "a-ultima-luz-mar": "861f77a9c0fc12760a445a7077445189",
+   "a-ultima-luz-musica": "861f77a9c0fc12760a445a7077445189"
+  },
+  "picture_identical": true,
+  "loudness": {
+   "a-ultima-luz-mar": {
+    "I": -15.9,
+    "true_peak": -1.5
+   },
+   "a-ultima-luz-musica": {
+    "I": -15.9,
+    "true_peak": -1.4
+   }
+  },
+  "target": {
+   "I": -16.0,
+   "TP": -1.5,
+   "LRA": 11.0
+  },
+  "loudness_spread_lu": 0.0
+ }
+}

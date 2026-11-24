@@ -165,7 +165,8 @@ def test_a_killed_render_leaves_no_stale_stamp_and_resumes(world, tmp_path):
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     segments = base / "cinema" / "cache" / "segments"
     deadline = time.monotonic() + 60
-    while time.monotonic() < deadline and not (list(segments.glob("*.part")) if segments.exists() else []):
+    # kill while s2 (20 s, slow) is being encoded: s1 is already stamped and a .part exists
+    while time.monotonic() < deadline and not (segments.exists() and list(segments.glob("*.key")) and list(segments.glob("*.part"))):
         time.sleep(0.02)
     proc.send_signal(signal.SIGKILL)
     proc.wait()
@@ -184,6 +185,8 @@ def api(world):
     mp = pytest.MonkeyPatch()
     mp.setenv("CLONFIELD_FAKE_VRAM", "15")
     mp.setenv("CLONFIELD_COMFY_MODELS", str(base / "models"))
+    import cf_factory
+    mp.setitem(cf_factory._state, "data", None)  # each test gets its own data folder; the Content Factory guard is per process
     cf_apps.configure(base, base / "outputs")
     client = TestClient(cf_api.build_app(base, base / "outputs", lambda t: t == "pw", "secret"), headers={"Authorization": "Bearer pw"})
     yield client, ids
@@ -207,7 +210,66 @@ def test_the_api_renders_a_timeline_as_a_cpu_job_with_its_provenance(api):
         time.sleep(0.3)
     assert done["status"] == "concluído", done.get("message")
     names = sorted(Path(r["path"]).name for r in done["results"])
-    assert names == ["render.json", "teste-efeitos.wav", "teste-musica.wav", "teste-voz.wav", "teste.mp4", "teste.timeline.json"]
+    assert names == ["teste-efeitos.wav", "teste-musica.wav", "teste-voz.wav", "teste.mp4", "teste.render.json", "teste.timeline.json"]
     assert set(done["asset_versions"]) == {ids["a"], ids["b"], ids["voice"], ids["music"], ids["sea"]}
     film = next(r for r in done["results"] if r["path"].endswith(".mp4"))
     assert client.get(film["url"]).status_code == 200
+
+
+def wait(client, job_id):
+    for _ in range(600):
+        done = client.get(f"{BASE}/jobs/{job_id}").json()
+        if done["status"] in ("concluído", "falhou", "cancelado"):
+            return done
+        time.sleep(0.3)
+    raise AssertionError("job não terminou")
+
+
+def project_body(ids):
+    t = timeline(ids)
+    t["audio"]["voice"][0]["note"] = "uma fala"
+    sea = dict(label="O mar toma conta", music=[dict(src=ids["music"], at=0.0, dur=2.0, fade_out=0.5)],
+               sfx=[dict(src=ids["sea"], at=0.0, dur=5.0, loop=True, gain_db=-2)], mix={"music": -3})
+    music = dict(label="Música até o fim", music=[dict(src=ids["music"], at=0.0, dur=5.0, loop=True)],
+                 sfx=[dict(src=ids["sea"], at=0.0, dur=5.0, loop=True, gain_db=-12)], mix={"music": -3})
+    return dict(title="Teste A/B", timeline={**t, "audio": {"voice": t["audio"]["voice"]}}, cuts={"mar": sea, "musica": music}, cut="mar")
+
+
+def test_a_saved_project_opens_swaps_a_take_and_exports_two_cuts_with_the_same_picture(api):
+    client, ids = api
+    made = client.post(f"{BASE}/cinema/projects", json=project_body(ids))
+    assert made.status_code == 201, made.text
+    project = made.json()
+    pid = project["id"]
+    assert [p["id"] for p in client.get(f"{BASE}/cinema/projects").json()] == [pid]
+    opened = client.get(f"{BASE}/cinema/projects/{pid}").json()
+    assert [s["id"] for s in opened["shots"]] == ["s1", "s2", "s3", "s4"] and opened["duration_s"] == 5.0
+    s3 = opened["shots"][2]
+    assert [v["number"] for v in s3["versions"]] == [1, 2] and s3["version"]["number"] == 1 and s3["start"] == 2.5
+    assert opened["cuts_view"]["mar"]["lanes"]["voice"][0]["note"] == "uma fala"
+    # a take of ANOTHER asset is not a take of this shot
+    assert client.post(f"{BASE}/cinema/projects/{pid}/shots/s3", json={"version": ids["a"]}).status_code == 400
+
+    first = wait(client, client.post(f"{BASE}/cinema/projects/{pid}/export", json={"cuts": ["mar", "musica"]}).json()["id"])
+    assert first["status"] == "concluído", first.get("message")
+    renders = {Path(r["path"]).name: client.get(r["url"]).json() for r in first["results"] if r["path"].endswith(".render.json")}
+    sea, music = renders["teste-a-b-mar.render.json"], renders["teste-a-b-musica.render.json"]
+    assert "video:s3" in sea["rendered"] and all(not s.startswith("video") and s != "picture" for s in music["rendered"])
+    ab = client.get(next(r["url"] for r in first["results"] if r["path"].endswith(".ab.json"))).json()
+    assert ab["picture_identical"] and ab["loudness_spread_lu"] <= 0.5, ab  # EBU R128 tolerance for "same level": ±0.5 LU
+    assert client.get(f"{BASE}/cinema/projects/{pid}").json()["last_export"] == first["id"]
+
+    swapped = client.post(f"{BASE}/cinema/projects/{pid}/shots/s3", json={"version": ids["b2"]})
+    assert swapped.status_code == 200 and swapped.json()["shots"][2]["version"]["number"] == 2
+    assert swapped.json()["history"][-1] == {**swapped.json()["history"][-1], "shot": "s3", "numbers": [1, 2]}
+    assert client.post(f"{BASE}/cinema/projects/{pid}/cut", json={"cut": "musica"}).json()["cut"] == "musica"
+    second = wait(client, client.post(f"{BASE}/cinema/projects/{pid}/export", json={"cuts": ["mar", "musica"]}).json()["id"])
+    renders = {Path(r["path"]).name: client.get(r["url"]).json() for r in second["results"] if r["path"].endswith(".render.json")}
+    assert renders["teste-a-b-mar.render.json"]["rendered"] == ["video:s3", "picture"]
+    assert renders["teste-a-b-musica.render.json"]["rendered"] == []  # the B cut reuses the new picture and its own sound
+    # each export keeps its own files: the first A/B pair is still the v1 picture, the second is v2
+    first_files = {Path(r["path"]).name: r["path"] for r in first["results"]}
+    second_files = {Path(r["path"]).name: r["path"] for r in second["results"]}
+    assert first_files["teste-a-b-mar.mp4"] != second_files["teste-a-b-mar.mp4"]
+    old = client.get(next(r["url"] for r in first["results"] if r["path"].endswith("mar.render.json"))).json()
+    assert "video:s3" in old["rendered"] and len(old["rendered"]) > 2

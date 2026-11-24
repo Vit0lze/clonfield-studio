@@ -14,13 +14,14 @@ import { chatView } from "./views/chat.js";
 import { capabilitiesView } from "./views/capabilities.js";
 import { castView } from "./views/cast.js";
 import { assetsView } from "./views/assets.js";
+import { cinemaView } from "./views/cinema.js";
 import { flowsView } from "./views/flows.js";
 import { loadFavs } from "./favs.js";
 import { installPalette } from "./palette.js";
 
 const root = document.getElementById("root");
-const NAV = [["", "Início", "home"], ["chat", "Chat", "comment"], ["apps", "Apps", "apps"], ["library", "Biblioteca", "cube"], ["assets", "Ativos", "layers"], ["history", "Histórico", "clock"], ["system", "Sistema", "cpu"]];
-const TITLES = { "": "Início", chat: "Chat", capabilities: "Capacidades", cast: "Elenco", assets: "Ativos", flows: "Fluxos", apps: "Apps", library: "Biblioteca", models: "Modelos", history: "Histórico", jobs: "Fila", system: "Sistema" };
+const NAV = [["", "Início", "home"], ["chat", "Chat", "comment"], ["apps", "Apps", "apps"], ["library", "Biblioteca", "cube"], ["assets", "Ativos", "layers"], ["cinema", "Cinema", "film"], ["history", "Histórico", "clock"], ["system", "Sistema", "cpu"]];
+const TITLES = { "": "Início", chat: "Chat", capabilities: "Capacidades", cast: "Elenco", assets: "Ativos", cinema: "Cinema", flows: "Fluxos", apps: "Apps", library: "Biblioteca", models: "Modelos", history: "Histórico", jobs: "Fila", system: "Sistema" };
 let page = null, shell = null, token = 0, poll = null, offline = null;
 
 const navigate = hash => { location.hash = hash.replace(/^#/, ""); };
@@ -85,6 +86,7 @@ async function route() {
     else if (head === "capabilities") next = await capabilitiesView(arg);
     else if (head === "cast") next = await castView();
     else if (head === "assets") next = await assetsView(arg, navigate);
+    else if (head === "cinema") next = await cinemaView(arg, navigate);
     else if (head === "flows") next = await flowsView(arg, navigate);
     else next = await homeView(navigate);
     if (mine !== token) return next.destroy?.();

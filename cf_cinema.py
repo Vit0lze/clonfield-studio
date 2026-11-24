@@ -16,9 +16,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
+import threading
 import time
+import unicodedata
 from pathlib import Path
 
 import cf_asset_graph
@@ -300,7 +303,7 @@ def _step(out, key, build, control, report, name):
 
 def render(timeline, base, out_dir, progress=None, control=None):
     """Render the timeline. Cache lives in <base>/cinema/cache (shared by every timeline); the film, the stems and
-    the record (render.json) go to out_dir. Returns the record."""
+    the record (<name>.render.json) go to out_dir. Returns the record."""
     say = progress or (lambda *a, **k: None)
     sources = validate(timeline, base)
     cache = _cache()
@@ -336,7 +339,7 @@ def render(timeline, base, out_dir, progress=None, control=None):
     stems = {}
     for track in TRACKS:
         clips = timeline.get("audio", {}).get(track, [])
-        key = cache.digest(_settings(timeline), AUDIO_VERSION, total, [{**c, "sha256": sources[c["src"]][1]["sha256"]} for c in clips])
+        key = cache.digest(_settings(timeline), AUDIO_VERSION, total, [{**{k: v for k, v in c.items() if k != "note"}, "sha256": sources[c["src"]][1]["sha256"]} for c in clips])  # a note (the spoken line) does not re-render
         stems[track] = folder / "stems" / f"{track}-{key}.wav"
         say(0.75, desc=f"Trilha {STREAM_TITLES[track]}")
         _step(stems[track], key, lambda part, t=track: _stem_args(timeline, t, sources, total, part), control, report, f"stem:{track}")
@@ -379,7 +382,7 @@ def render(timeline, base, out_dir, progress=None, control=None):
                   stem_peaks_db={t: peak_db(stems[t]) for t in TRACKS},
                   seconds=round(time.monotonic() - started, 2))
     (out_dir / f"{name}.timeline.json").write_text(json.dumps(timeline, ensure_ascii=False, indent=2), encoding="utf-8")
-    (out_dir / "render.json").write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out_dir / f"{name}.render.json").write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
     say(1.0, desc=f"{len(record['rendered'])} passo(s) refeito(s), {len(record['reused'])} reaproveitado(s)")
     return record
 
@@ -387,7 +390,150 @@ def render(timeline, base, out_dir, progress=None, control=None):
 def result_files(record, out_dir):
     out_dir = Path(out_dir)
     name = Path(record["film"]["file"]).stem
-    return [out_dir / record["film"]["file"], *(out_dir / s for s in record["stems"]), out_dir / f"{name}.timeline.json", out_dir / "render.json"]
+    return [out_dir / record["film"]["file"], *(out_dir / s for s in record["stems"]), out_dir / f"{name}.timeline.json", out_dir / f"{name}.render.json"]
+
+
+# ------------------------------------------------------------------ projects (what the Studio screen opens and edits)
+# CinemaProject.v1: one picture + voice (`timeline.video`, `timeline.audio.voice`) and named cuts that differ ONLY in music,
+# effects and mix. A/B cuts therefore share every video segment and the joined picture by construction.
+
+PROJECT_ID = re.compile(r"p_[0-9a-f]{12}")
+CUT_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
+_projects_lock = threading.Lock()
+
+
+def projects_dir(base):
+    return Path(base) / "cinema" / "projects"
+
+
+def compose(project, cut_id):
+    """The full Timeline.v1 of one cut: the project's picture and voice + that cut's music, effects and mix."""
+    cut = project["cuts"].get(cut_id)
+    if cut is None:
+        raise ValueError(f"Corte «{cut_id}» não existe neste projeto.")
+    timeline = json.loads(json.dumps(project["timeline"]))
+    timeline["audio"] = {"voice": timeline.get("audio", {}).get("voice", []), "music": cut.get("music", []), "sfx": cut.get("sfx", [])}
+    timeline["mix"] = cut.get("mix", timeline.get("mix", {}))
+    timeline["name"] = f"{project['slug']}-{cut_id}"
+    timeline["title"] = f"{project['title']} · {cut.get('label', cut_id)}"
+    return timeline
+
+
+def _check(project, base):
+    if not project.get("cuts"):
+        raise ValueError("O projeto precisa de pelo menos um corte.")
+    for cut_id in project["cuts"]:
+        if not CUT_ID.fullmatch(cut_id):
+            raise ValueError(f"Nome de corte inválido: «{cut_id}» (minúsculas, números e hífen).")
+        validate(compose(project, cut_id), base)
+    if project.get("cut") not in project["cuts"]:
+        project["cut"] = next(iter(project["cuts"]))
+
+
+def _write_project(base, project):
+    folder = projects_dir(base)
+    folder.mkdir(parents=True, exist_ok=True)
+    project["updated"] = int(time.time())
+    path = folder / f"{project['id']}.json"
+    part = path.with_suffix(".json.part")
+    part.write_text(json.dumps(project, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(part, path)
+    return project
+
+
+def create_project(base, title, timeline, cuts, cut=None):
+    import secrets
+    slug = re.sub(r"[^a-z0-9]+", "-", unicodedata.normalize("NFKD", str(title)).encode("ascii", "ignore").decode().lower()).strip("-")[:40] or "curta"
+    project = dict(schema="CinemaProject.v1", id="p_" + secrets.token_hex(6), title=str(title)[:80], slug=slug,
+                   timeline=timeline, cuts=cuts, cut=cut, history=[], last_export=None, created=int(time.time()))
+    _check(project, base)
+    with _projects_lock:
+        return _write_project(base, project)
+
+
+def load_project(base, project_id):
+    if not isinstance(project_id, str) or not PROJECT_ID.fullmatch(project_id):
+        raise KeyError(project_id)
+    path = projects_dir(base) / f"{project_id}.json"
+    if not path.is_file():
+        raise KeyError(project_id)
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def list_projects(base):
+    out = []
+    for path in sorted(projects_dir(base).glob("p_*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        p = json.loads(path.read_text(encoding="utf-8"))
+        out.append(dict(id=p["id"], title=p["title"], shots=len(p["timeline"]["video"]), cuts=list(p["cuts"]),
+                        duration_s=round(duration(p["timeline"]), 3), updated=p.get("updated")))
+    return out
+
+
+def set_shot_version(base, project_id, shot_id, version_id):
+    """Swap the take of one shot for another VERSION OF THE SAME ASSET (the gesture is «trocar a tomada», not «trocar o plano»)."""
+    with _projects_lock:
+        project = load_project(base, project_id)
+        shot = next((s for s in project["timeline"]["video"] if s["id"] == shot_id), None)
+        if shot is None:
+            raise ValueError(f"Plano {shot_id} não existe.")
+        if not isinstance(shot["src"], str):
+            raise ValueError(f"Plano {shot_id} não tem tomada para trocar.")
+        if not isinstance(version_id, str) or not cf_asset_graph.VERSION_ID.fullmatch(version_id):
+            raise ValueError("Escolha uma versão (v_…).")
+        old, new = cf_asset_graph.get_version(base, shot["src"]), cf_asset_graph.get_version(base, version_id)
+        if old["asset_id"] != new["asset_id"]:
+            raise ValueError("Essa versão é de outro ativo; aqui só se troca a tomada do mesmo plano.")
+        if shot["src"] != version_id:
+            project["history"].append(dict(at=int(time.time()), shot=shot_id, before=shot["src"], after=version_id,
+                                           numbers=[old["number"], new["number"]]))
+            project["history"] = project["history"][-50:]
+            shot["src"] = version_id
+        _check(project, base)
+        return _write_project(base, project)
+
+
+def set_cut(base, project_id, cut_id):
+    with _projects_lock:
+        project = load_project(base, project_id)
+        if cut_id not in project["cuts"]:
+            raise ValueError(f"Corte «{cut_id}» não existe.")
+        project["cut"] = cut_id
+        return _write_project(base, project)
+
+
+def set_last_export(base, project_id, job_id):
+    with _projects_lock:
+        project = load_project(base, project_id)
+        project["last_export"] = job_id
+        return _write_project(base, project)
+
+
+def _video_md5(path):
+    out = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:v", "-c", "copy", "-f", "md5", "-"], capture_output=True, text=True, check=True)
+    return out.stdout.strip().removeprefix("MD5=")
+
+
+def export_project(base, project, cut_ids, out_dir, progress=None, control=None):
+    """Render the chosen cuts one after the other. With two or more, also an A/B record: is the picture byte-identical
+    (same joined picture, same video stream MD5) and is every cut at the same reference loudness?"""
+    say = progress or (lambda *a, **k: None)
+    records = []
+    for i, cut_id in enumerate(cut_ids):
+        span = (i / len(cut_ids), (i + 1) / len(cut_ids))
+        step = lambda value=None, desc="", **k: say(span[0] + (span[1] - span[0]) * float(value or 0), desc=f"{project['cuts'][cut_id].get('label', cut_id)} · {desc}")
+        records.append(render(compose(project, cut_id), base, out_dir, step, control))
+    files = [f for r in records for f in result_files(r, out_dir)]
+    if len(records) > 1:
+        pictures = {r["timeline"]["name"]: next(s["key"] for s in r["steps"] if s["step"] == "picture") for r in records}
+        streams = {r["timeline"]["name"]: _video_md5(Path(out_dir) / r["film"]["file"]) for r in records}
+        loud = {r["timeline"]["name"]: r["film"]["loudness"] for r in records}
+        ab = dict(schema="CinemaAB.v1", cuts=cut_ids, picture_key=pictures, video_md5=streams,
+                  picture_identical=len(set(pictures.values())) == 1 and len(set(streams.values())) == 1,
+                  loudness=loud, target=LOUDNESS, loudness_spread_lu=round(max(v["I"] for v in loud.values()) - min(v["I"] for v in loud.values()), 2))
+        path = Path(out_dir) / f"{project['slug']}.ab.json"
+        path.write_text(json.dumps(ab, ensure_ascii=False, indent=2), encoding="utf-8")
+        files.append(path)
+    return records, files
 
 
 if __name__ == "__main__":  # python cf_cinema.py <base> <timeline.json> <out_dir>

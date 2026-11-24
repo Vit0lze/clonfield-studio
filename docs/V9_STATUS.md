@@ -18,6 +18,7 @@ Máquina de teste desta sessão: PC local, CPU, 3,7 GB de RAM (≈0,8 GB livres)
 | P0 | Suíte completa no HEAD | máquina ≥ 8 GB (Colab CPU) | humano/Colab | NÃO EXECUTADO |
 | P1 | Asset Graph (V9-P1-ASSET-001) | P0 aceito | Sonnet + Opus | TESTADO CPU / API real / navegador real |
 | P1 | Cinema alfa (60 s) V9-P1-CINEMA-001 | Asset Graph | Opus (motor, direção) + Haiku (fontes) | TESTADO CPU / API real; exibição humana do corte PENDENTE; T4 PENDENTE |
+| P1 | Cinema na tela V9-P1-CINEMA-002 | CINEMA-001 | Opus | TESTADO CPU / API real / navegador real; decisão A/B do dono PENDENTE |
 | P1 | Matriz das 93 reconciliada (12 fora da matriz) | — | Haiku | NÃO INICIADO |
 
 ## V9-P0-001..004 — prestação de contas
@@ -138,7 +139,21 @@ Pendente: exibição humana do corte inteiro; tela no portal; OpenTimelineIO
 Estado: TESTADO CPU / API real
 ```
 
+```text
+V9-P1-CINEMA-002 — abrir, editar e exportar «A última luz» pela tela, com sessão A/B
+Mudança: cf_cinema.py (CinemaProject.v1: cortes que só mudam música/efeitos/mix; troca de tomada só dentro do mesmo ativo;
+         export_project com registro A/B: imagem idêntica por MD5 e volume de cada corte), cf_api.py (rotas /cinema/projects…,
+         uma pasta por exportação), portal/js/views/cinema.js (#/cinema), menu «Cinema»
+Doc: docs/V9_CINEMA_TELA.md · evidência: docs/evidence/V9-P1-CINEMA-002/
+Testes: test_cinema 7 passed (novo: projeto → troca → A/B duas vezes, pares antigos intactos); test_asset_graph 11; test_agent_api 7 (+1 skip)
+Navegador (engine local, cache vazio): exportar A e B → A refaz tudo, B só música/efeitos/mix; trocar s04 → A refaz s04 + junção, B nada;
+         imagem idêntica, −15,9/−15,9 LUFS; segmentos iguais byte a byte aos da prova pela API; 375 px sem rolagem lateral
+Achados corrigidos na prova: exportações sobrescreviam a anterior (mesma pasta e nomes); relatório lido do cache do navegador;
+         miniatura mostrava o quadro cru, não o enquadramento; menu de 8 itens estourava 375 px
+Estado: TESTADO CPU / API real / navegador real
+```
+
 ## Pendências que dependem do humano
-1. Assistir «A última luz» com som (`../cinema-alfa/cut2/a-ultima-luz.mp4`, fora do repositório).
+1. Assistir aos dois cortes de «A última luz» na tela Cinema (Sessão A/B) e escolher.
 2. Suíte completa no Colab em CPU (`pytest tests -q --ignore=...`, ver `CLAUDE.md`) para cobrir o HEAD inteiro.
 3. Linha de base do agente: reescrever `plan_eval.py` (perdido) e rodar com o LLM no ar — 6 pedidos, sem GPU de vídeo.

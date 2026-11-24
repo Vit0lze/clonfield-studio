@@ -391,13 +391,112 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
 
         def runner(ctx):
             try:
-                record = cf_cinema.render(timeline, base, ctx.out_dir, ctx.progress, ctx.control)
+                folder = ctx.out_dir / f"cinema_{ctx.job.id.removeprefix('job_')}"  # one folder per export: a later one never overwrites it
+                record = cf_cinema.render(timeline, base, folder, ctx.progress, ctx.control)
             except cf_cinema.Cancelled:
                 raise cf_jobs.JobError("Cancelado por você.", "cancelado")
-            return cf_cinema.result_files(record, ctx.out_dir)
+            return cf_cinema.result_files(record, folder)
 
         title = "Cinema · " + str(timeline.get("title") or timeline.get("name") or "curta")[:60]
         job = manager.submit("cinema", title, {"_asset_versions": {v: v for v in sorted(sources)}}, "cpu", runner)
+        return JSONResponse(public_job(job), 202)
+
+    def cinema_project_public(project):
+        """The project plus what the screen draws: each shot with its time span and the versions of its asset (signed urls),
+        and per cut the audio lanes (clip spans and titles)."""
+        shots, start = [], 0.0
+        fps = project["timeline"].get("fps", 24)
+        for shot in project["timeline"]["video"]:
+            span = cf_cinema.frames(shot["dur"], fps) / fps
+            item = dict(shot, start=round(start, 3), end=round(start + span, 3))
+            if isinstance(shot["src"], str):
+                ref = cf_asset_graph.get_version(base, shot["src"])
+                asset = cf_asset_graph.get(base, ref["asset_id"])
+                item.update(asset_id=ref["asset_id"], asset_title=asset.get("title"), version=version_public(ref),
+                            versions=[version_public(v) for v in cf_asset_graph.versions(base, ref["asset_id"])])
+            shots.append(item)
+            start += span
+
+        def lane(clips):
+            out = []
+            for clip in clips:
+                ref = cf_asset_graph.get_version(base, clip["src"])
+                length = clip.get("dur") or (ref.get("media") or {}).get("duration_s") or 0
+                out.append(dict(at=clip.get("at", 0), dur=round(float(length), 3), title=(ref.get("metadata") or {}).get("title"),
+                                note=clip.get("note"), gain_db=clip.get("gain_db", 0)))
+            return out
+
+        cuts = {cid: dict(label=cut.get("label", cid), note=cut.get("note"), mix=cut.get("mix", {}),
+                          lanes={track: lane(clips) for track, clips in cf_cinema.compose(project, cid)["audio"].items()})
+                for cid, cut in project["cuts"].items()}
+        return dict(project, shots=shots, cuts_view=cuts, duration_s=round(start, 3))
+
+    async def cinema_projects(request):
+        if request.method == "GET":
+            return JSONResponse(cf_cinema.list_projects(base), headers={"Cache-Control": "no-store"})
+        body = await request.json()
+        try:
+            project = await run_in_threadpool(lambda: cf_cinema.create_project(base, body.get("title") or "Curta", body.get("timeline"),
+                                                                              body.get("cuts") or {}, body.get("cut")))
+        except ValueError as exc:
+            return JSONResponse({"detail": str(exc)}, 400)
+        return JSONResponse(cinema_project_public(project), 201)
+
+    async def cinema_project(request):
+        try:
+            project = cf_cinema.load_project(base, request.path_params["id"])
+        except KeyError:
+            return JSONResponse({"detail": "Projeto não encontrado."}, 404)
+        return JSONResponse(cinema_project_public(project), headers={"Cache-Control": "no-store"})
+
+    async def cinema_project_shot(request):
+        body = await request.json()
+        try:
+            project = await run_in_threadpool(lambda: cf_cinema.set_shot_version(base, request.path_params["id"], request.path_params["shot"], body.get("version")))
+        except KeyError:
+            return JSONResponse({"detail": "Projeto não encontrado."}, 404)
+        except (ValueError, cf_asset_graph.NotFound) as exc:
+            return JSONResponse({"detail": str(exc)}, 400)
+        return JSONResponse(cinema_project_public(project))
+
+    async def cinema_project_cut(request):
+        body = await request.json()
+        try:
+            project = cf_cinema.set_cut(base, request.path_params["id"], body.get("cut"))
+        except KeyError:
+            return JSONResponse({"detail": "Projeto não encontrado."}, 404)
+        except ValueError as exc:
+            return JSONResponse({"detail": str(exc)}, 400)
+        return JSONResponse(cinema_project_public(project))
+
+    async def cinema_project_export(request):
+        """Export one cut, or several for an A/B session (one CPU job; the second cut reuses the whole picture)."""
+        body = await request.json()
+        try:
+            project = cf_cinema.load_project(base, request.path_params["id"])
+        except KeyError:
+            return JSONResponse({"detail": "Projeto não encontrado."}, 404)
+        cuts = body.get("cuts") or [project["cut"]]
+        if not isinstance(cuts, list) or any(c not in project["cuts"] for c in cuts) or len(set(cuts)) != len(cuts):
+            return JSONResponse({"detail": "Cortes desconhecidos ou repetidos."}, 400)
+        try:
+            sources = set()
+            for cut in cuts:
+                sources |= set(cf_cinema.validate(cf_cinema.compose(project, cut), base))
+        except ValueError as exc:
+            return JSONResponse({"detail": str(exc)}, 400)
+
+        def runner(ctx):
+            try:
+                folder = ctx.out_dir / f"cinema_{ctx.job.id.removeprefix('job_')}"  # one folder per export: earlier A/B pairs stay intact
+                _, files = cf_cinema.export_project(base, project, cuts, folder, ctx.progress, ctx.control)
+            except cf_cinema.Cancelled:
+                raise cf_jobs.JobError("Cancelado por você.", "cancelado")
+            return files
+
+        title = f"Cinema · {project['title']} · " + " + ".join(project["cuts"][c].get("label", c) for c in cuts)
+        job = manager.submit("cinema", title[:90], {"_asset_versions": {v: v for v in sorted(sources)}, "project": project["id"], "cuts": cuts}, "cpu", runner)
+        cf_cinema.set_last_export(base, project["id"], job.id)
         return JSONResponse(public_job(job), 202)
 
     async def dag_run_get(request):
@@ -1166,6 +1265,11 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/upload", guard(upload), methods=["POST"]),
         Route(f"{PREFIX}/import", guard(import_result), methods=["POST"]),
         Route(f"{PREFIX}/cinema/validate", guard(cinema_validate), methods=["POST"]),
+        Route(f"{PREFIX}/cinema/projects", guard(cinema_projects), methods=["GET", "POST"]),
+        Route(f"{PREFIX}/cinema/projects/{{id}}", guard(cinema_project)),
+        Route(f"{PREFIX}/cinema/projects/{{id}}/shots/{{shot}}", guard(cinema_project_shot), methods=["POST"]),
+        Route(f"{PREFIX}/cinema/projects/{{id}}/cut", guard(cinema_project_cut), methods=["POST"]),
+        Route(f"{PREFIX}/cinema/projects/{{id}}/export", guard(cinema_project_export), methods=["POST"]),
         Route(f"{PREFIX}/cinema/render", guard(cinema_render), methods=["POST"]),
         Route(f"{PREFIX}/assets", guard(assets_create), methods=["POST"]),
         Route(f"{PREFIX}/assets", guard(assets_list), methods=["GET"]),
