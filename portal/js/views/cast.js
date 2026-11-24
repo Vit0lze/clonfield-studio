@@ -38,6 +38,12 @@ export async function castView() {
       grid.append(h("article", { class: "cast-card", "data-name": item.name },
         item.image ? h("img", { src: api.url(item.image), alt: `Imagem de ${item.name}`, loading: "lazy" }) : h("div", { class: "cast-noimg" }, icon("user")),
         h("div", { class: "cast-body" }, h("h3", null, `@${item.name}`), h("p", { class: "muted" }, item.description || "Sem descrição."),
+          item.image ? h("button", { class: "btn sm", type: "button", "aria-label": `Publicar ${item.name} como ativo`, onclick: async () => {
+            try {
+              const made = await api.post("/assets", { from: { cast: item.id } });
+              toast(made.deduplicated ? `@${item.name} já é um ativo (versão ${made.version.number}).` : `@${item.name} virou o ativo «${made.asset.title}».`);
+            } catch (error) { toast(error.message, "err"); }
+          } }, icon("layers", "sm"), "Publicar como ativo") : null,
           h("button", { class: "btn sm", type: "button", "aria-label": `Remover ${item.name}`, onclick: async () => {
             if (!confirm(`Remover @${item.name} do elenco?`)) return;
             try { await api.del(`/cast/${item.id}`); items = items.filter(x => x.id !== item.id); paint(); } catch (error) { toast(error.message, "err"); }

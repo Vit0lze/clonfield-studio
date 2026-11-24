@@ -1,0 +1,22 @@
+OK   job real de origem (upscale Lanczos) job_525c0860a2864553
+OK   publicado a_5b5657442c49b6c4 v_fec9d4fefa82f9a2 sha=4df86cc613a5 = sha do resultado
+OK   procedência: producer.job_id=job_525c0860a2864553 app=upscale
+OK   consumidor 1 «look» usou v_fec9d4fefa82f9a2 (job_3e6b1cdd8d2e4ce2)
+OK   consumidor 2 «frame» usou v_fec9d4fefa82f9a2 (job_a8d055f76bec40ff) — 
+OK   v1 continua conferindo com o SHA-256 depois dos dois usos
+OK   v2 v_d151a3e6953229ab é a atual; v1 continua listada
+OK   v2.parents aponta v1 (role previous)
+     DAG v1: recomputados=['a_look', 'a_up', 'b_look', 'b_up'] cache=[]
+     DAG v2: recomputados=['a_look', 'a_up'] cache=['b_look', 'b_up']
+     DAG v1 de novo: recomputados=[] cache=['a_look', 'a_up', 'b_look', 'b_up']
+OK   trocar v1→v2 refez só o ramo que lê o ativo
+OK   voltar para v1 (versão anterior, ainda selecionável): tudo do cache
+OK   hash de v1 inalterado no fim
+ASSET a_5b5657442c49b6c4 V1 v_fec9d4fefa82f9a2 V2 v_d151a3e6953229ab
+
+--- navegador (portal /studio, Usar em a partir da tela Ativos, v1 selecionada) ---
+frame concluído job_7363741b3c9b4c25 asset_versions= {'v_fec9d4fefa82f9a2': 'v_fec9d4fefa82f9a2'}
+look concluído job_29507a9c4f944bf9 asset_versions= {'v_fec9d4fefa82f9a2': 'v_fec9d4fefa82f9a2'}
+pastas em uploads/: 3 (só os 3 envios reais do script: retrato, retrato-v2, cenario)
+arquivos dentro delas: ['retrato-v2.png', 'retrato.png', 'cenario.png']
+blobs: 2 ['444', '444']

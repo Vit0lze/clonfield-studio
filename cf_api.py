@@ -37,6 +37,7 @@ import cf_myflows
 import cf_recipes
 import cf_contracts
 import cf_cast
+import cf_asset_graph
 import cf_env
 import cf_favorites
 import cf_library
@@ -141,6 +142,9 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         plan = (data.get("params") or {}).get("plan")
         if plan:
             data["plan"] = plan  # the steps an agent job was built with (capability + params), available before the run record exists
+        used = (data.get("params") or {}).get("_asset_versions")
+        if used:
+            data["asset_versions"] = used  # which AssetRef version each a_/v_ id resolved to (provenance)
         data.pop("params", None)
         return data
 
@@ -304,12 +308,24 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
     def dag_env(resolver):
         return cf_dag.Env(base, out_dir, tier, resolver)
 
-    def upload_media(ident):
-        """An uploaded file as a DAG artifact source. Only ids that are real upload folders resolve."""
-        if not isinstance(ident, str) or not re.fullmatch(r"[0-9a-f]{32}", ident):
+    def media_file(ident, used=None):
+        """The one place an id becomes a file: a 32-hex upload folder, or an asset id (v_ = exact version, a_ = its current one).
+        Asset ids resolve to the blob itself (no copy); `used` collects {requested id: version_id} for provenance. None when unknown."""
+        if not isinstance(ident, str):
             return None
-        folder = uploads / ident
-        found = next(iter(folder.iterdir()), None) if folder.is_dir() else None
+        if re.fullmatch(r"[0-9a-f]{32}", ident):
+            folder = uploads / ident
+            return next(iter(folder.iterdir()), None) if folder.is_dir() else None
+        found = cf_asset_graph.resolve_ref(base, ident)
+        if found is None:
+            return None
+        if used is not None:
+            used[ident] = found[1]["version_id"]
+        return found[0]
+
+    def upload_media(ident):
+        """A media id (upload or asset version) as a DAG artifact source. Only ids that really exist resolve."""
+        found = media_file(ident)
         if found is None:
             return None
         return dict(type=cf_jobs.KINDS.get(found.suffix.lower(), "file"), path=str(found), name=found.name)
@@ -810,7 +826,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         return JSONResponse(public_job(job), 202)
 
     # ---- jobs
-    def resolve_files(app, params):
+    def resolve_files(app, params, used=None):
         schema = {f["id"]: f for f in app.fields(tier)}
         resolved = dict(params)
         for field_id, field in schema.items():
@@ -824,12 +840,11 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             paths = []
             for ident in ids:
                 ident = str(ident.get("id") if isinstance(ident, dict) else ident)
-                if not re.fullmatch(r"[0-9a-f]{32}", ident):
+                if not re.fullmatch(r"[0-9a-f]{32}|[av]_[0-9a-f]{16}", ident):
                     raise ValueError("Arquivo enviado inválido.")
-                folder = uploads / ident
-                found = next(iter(folder.iterdir()), None) if folder.is_dir() else None
+                found = media_file(ident, used)
                 if found is None:
-                    raise ValueError("Um arquivo enviado expirou. Envie novamente.")
+                    raise ValueError("Esse ativo não existe mais." if ident[:2] in ("a_", "v_") else "Um arquivo enviado expirou. Envie novamente.")
                 paths.append(str(found))
             if len(paths) < field.get("min", 0):
                 raise ValueError(f"{field['label']}: envie ao menos {field['min']} arquivo(s).")
@@ -844,7 +859,10 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         if app.blocked_for(tier):
             return JSONResponse({"detail": app.describe(tier)["blocked_reason"]}, 409)
         params = body.get("params") or {}
-        resolved = resolve_files(app, params)
+        used = {}
+        resolved = resolve_files(app, params, used)
+        if used:
+            params["_asset_versions"] = used  # which asset version each a_/v_ id resolved to (provenance); not part of `resolved`
         for field in app.fields(tier):
             if field.get("required") and not str(resolved.get(field["id"], "")).strip():
                 raise ValueError(f"Preencha: {field['label']}.")
@@ -919,8 +937,14 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
 
     async def upload_info(request):
         ident = request.path_params["ident"]
-        folder = uploads / ident
-        found = next(iter(folder.iterdir()), None) if re.fullmatch(r"[0-9a-f]{32}", ident) and folder.is_dir() else None
+        found = cf_asset_graph.resolve_ref(base, ident)
+        if found is not None:  # an asset version (or the current one of an asset): hydrate like an upload
+            path, version = found
+            return JSONResponse({"id": version["version_id"], "asset_id": version["asset_id"], "version_id": version["version_id"],
+                                 "name": version["metadata"].get("title") or path.name, "kind": cf_jobs.KINDS.get(path.suffix.lower(), "file"),
+                                 "asset_kind": version["kind"], "size": version["bytes"], "url": sign(path.relative_to(base).as_posix())},
+                                headers={"Cache-Control": "no-store"})
+        found = media_file(ident)
         if found is None:
             return JSONResponse({"detail": "Arquivo enviado não encontrado."}, 404)
         rel = found.relative_to(base).as_posix()
@@ -949,10 +973,105 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
             return JSONResponse({"detail": "Link expirado."}, 403)
         for root in (out_dir, base):
             target = (root / rel).resolve()
-            if target.is_file() and (target.is_relative_to(out_dir.resolve()) or target.is_relative_to(uploads.resolve()) or target.is_relative_to(cf_cast.folder(base).resolve())):
+            if target.is_file() and (target.is_relative_to(out_dir.resolve()) or target.is_relative_to(uploads.resolve()) or target.is_relative_to(cf_cast.folder(base).resolve()) or target.is_relative_to(cf_asset_graph.folder(base).resolve())):
                 return FileResponse(target, headers={"Cache-Control": "private, max-age=3600",
                                                     "X-Content-Type-Options": "nosniff"})
         return JSONResponse({"detail": "Arquivo não encontrado."}, 404)
+
+    # ---- asset graph (AssetRef.v1)
+    asset_roots = [out_dir, uploads, cf_cast.folder(base)]
+
+    def version_public(version):
+        return dict(version, url=sign(f"assets/{version['storage_ref']}"))
+
+    def asset_public(asset, current=None):
+        out = dict(asset)
+        if current is not None:
+            out["current_version"] = version_public(current)
+            out["url"] = out["current_version"]["url"]
+        return out
+
+    def job_producer(rel):
+        """The job that wrote this result file, when it is still in the queue's memory: -> (producer, recipe)."""
+        for job in manager.recent(200):
+            if any(r.get("path") == rel for r in job.snapshot(0).get("results", [])):
+                params = {k: v for k, v in (job.params or {}).items() if k not in ("run", "_asset_versions")}
+                run = (job.params or {}).get("run")  # the DAG run id (a string) on graph jobs
+                return dict(kind="job", job_id=job.id, app=job.app, graph_run_id=run if isinstance(run, str) else None), dict(params=params)
+        return dict(kind="import"), {}
+
+    def asset_source(spec):
+        """{"result": rel} | {"upload": 32hex} | {"cast": id} -> (kind of the call, kwargs for cf_asset_graph)."""
+        if not isinstance(spec, dict) or len(spec) != 1:
+            raise ValueError('"from" precisa de exatamente um de: result, upload, cast.')
+        key, value = next(iter(spec.items()))
+        if key == "result":
+            rel = str(value)
+            source = (out_dir / rel).resolve()
+            if not source.is_file() or not source.is_relative_to(out_dir.resolve()):
+                raise ValueError("Resultado não encontrado nas pastas de resultados.")
+            producer, recipe = job_producer(rel)
+            return dict(source=source, producer=producer, recipe=recipe)
+        if key == "upload":
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{32}", value):
+                raise ValueError("Arquivo enviado inválido.")
+            found = media_file(value)
+            if found is None:
+                raise ValueError("O arquivo enviado não existe mais. Envie de novo.")
+            return dict(source=found, producer=dict(kind="upload"))
+        raise ValueError("Origem não aceita: use result, upload ou cast.")
+
+    def asset_answer(done, status=200):
+        return JSONResponse(dict(asset=asset_public(done["asset"], done["version"]), version=version_public(done["version"]),
+                                 url=version_public(done["version"])["url"], deduplicated=done["deduplicated"]), status)
+
+    async def assets_create(request):
+        body = await request.json()
+        spec = body.get("from")
+        title = str(body["title"]).strip()[:120] if body.get("title") else None
+        kind = body.get("kind") or None
+        if isinstance(spec, dict) and set(spec) == {"cast"}:
+            if kind not in (None, "character"):
+                raise ValueError("Um personagem do Elenco é publicado como character.")
+            try:
+                done = await run_in_threadpool(cf_asset_graph.publish_cast, base, str(spec["cast"]), asset_roots)
+            except cf_asset_graph.NotFound as exc:
+                return JSONResponse({"detail": str(exc)}, 404)
+        else:
+            source = asset_source(spec)
+            done = await run_in_threadpool(lambda: cf_asset_graph.publish(base, source.pop("source"), asset_roots, kind=kind, title=title, **source))
+        return asset_answer(done, 200 if done["deduplicated"] else 201)
+
+    async def assets_list(request):
+        return JSONResponse([asset_public(a, a["current_version"]) for a in cf_asset_graph.list_assets(base)], headers={"Cache-Control": "no-store"})
+
+    async def assets_get(request):
+        try:
+            asset = cf_asset_graph.get(base, request.path_params["asset_id"])
+            found = cf_asset_graph.versions(base, asset["asset_id"])
+        except cf_asset_graph.NotFound as exc:
+            return JSONResponse({"detail": str(exc)}, 404)
+        return JSONResponse(dict(asset_public(asset, next(v for v in found if v["version_id"] == asset["current"])),
+                                 versions=[version_public(v) for v in found]), headers={"Cache-Control": "no-store"})
+
+    async def assets_add_version(request):
+        body = await request.json()
+        source = asset_source(body.get("from"))
+        note = str(body["note"]).strip()[:300] if body.get("note") else None
+        try:
+            done = await run_in_threadpool(lambda: cf_asset_graph.add_version(base, request.path_params["asset_id"], source.pop("source"), asset_roots,
+                                                                              metadata=dict(note=note) if note else None, **source))
+        except cf_asset_graph.NotFound as exc:
+            return JSONResponse({"detail": str(exc)}, 404)
+        return asset_answer(done, 200 if done["deduplicated"] else 201)
+
+    async def assets_version(request):
+        try:
+            version = cf_asset_graph.get_version(base, request.path_params["version_id"])
+        except cf_asset_graph.NotFound as exc:
+            return JSONResponse({"detail": str(exc)}, 404)
+        verified = await run_in_threadpool(cf_asset_graph.verify, base, version["version_id"])
+        return JSONResponse(dict(version_public(version), verified=verified), headers={"Cache-Control": "no-store"})
 
     async def logs(request):
         return JSONResponse({"worker": workflows.worker_log_tail(60, sep="\n", limit=12000)})
@@ -1015,6 +1134,11 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/uploads/{{ident}}", guard(upload_info)),
         Route(f"{PREFIX}/upload", guard(upload), methods=["POST"]),
         Route(f"{PREFIX}/import", guard(import_result), methods=["POST"]),
+        Route(f"{PREFIX}/assets", guard(assets_create), methods=["POST"]),
+        Route(f"{PREFIX}/assets", guard(assets_list), methods=["GET"]),
+        Route(f"{PREFIX}/assets/versions/{{version_id}}", guard(assets_version)),
+        Route(f"{PREFIX}/assets/{{asset_id}}/versions", guard(assets_add_version), methods=["POST"]),
+        Route(f"{PREFIX}/assets/{{asset_id}}", guard(assets_get)),
         Route(f"{PREFIX}/logs", guard(logs)),
         Route(f"{PREFIX}/files/{{path:path}}", files),
     ]

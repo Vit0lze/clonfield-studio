@@ -7,8 +7,17 @@ import { favFirst, starButton, isFav } from "../favs.js";
 import { hideAdult } from "../adult.js";
 import { h, icon, clear, seg, dropdown, actionMenu, appGlyph, reconcile, bareUrl, slider, switchRow, field, toast, illustration, posterEl, artFor, fmtClock, fmtBytes } from "../ui.js";
 
-const SEND_TO = { image: ["upscale", "look", "frame", "animate", "edit", "relight", "compare"], video: ["clip", "still", "board", "seedvr2"] };
+export const SEND_TO = { image: ["upscale", "look", "frame", "animate", "edit", "relight", "compare"], video: ["clip", "still", "board", "seedvr2"] };
 const NAME_LIMITS = { image: "imagem", video: "vídeo" };
+
+// «Usar em»: the apps that take this kind of media (shared with the Ativos screen).
+export const sendTargets = (kind, except = null) => (SEND_TO[kind] || []).filter(t => t !== except).map(t => store.apps.find(a => a.id === t)).filter(t => t && !t.blocked);
+// An asset version is passed BY REFERENCE ({ id: version_id, name, kind, url }): no copy into uploads/.
+export function prefillAsset(target, ref) {
+  const slot = target.fields.find(f => f.type === "files" && (f.accept || "").includes(ref.kind));
+  store.prefill({ app: target.id, values: slot ? { [slot.id]: [ref] } : {} });
+}
+export const assetRef = (made, kind) => ({ id: made.version.version_id, name: made.asset.title, kind, url: made.url });
 
 export async function appView(id, navigate) {
   const [apps, models] = await Promise.all([store.loadApps(), (store.models ||= api.get("/models"))]);
@@ -477,7 +486,7 @@ export async function appView(id, navigate) {
   }
   const GROUP_ICON = { Imagem: "image", Vídeo: "video", Identidade: "user", Melhorar: "sparkle", Avançado: "sliders" };
   function sendMenu(result) {
-    const targets = (SEND_TO[result.kind] || []).filter(t => t !== app.id).map(t => store.apps.find(a => a.id === t)).filter(t => t && !t.blocked);
+    const targets = sendTargets(result.kind, app.id);
     if (!targets.length) return null;
     return actionMenu({ label: "Usar em", iconName: "external",
       items: targets.map(t => ({ label: t.title, hint: t.tagline, app: t.id, onclick: () => sendTo(t, result) })) });
@@ -497,18 +506,16 @@ export async function appView(id, navigate) {
   }
   async function sendShots(recipe, shots) {
     try {
-      const uploads = [];
-      for (const shot of shots) uploads.push(await api.post("/import", { path: shot.path }));
+      const refs = [];
+      for (const shot of shots) refs.push(assetRef(await api.post("/assets", { from: { result: shot.path } }), "image"));
       const slot = recipe.inputs.find(i => i.kind === "images");
-      store.prefill({ app: `flow:${recipe.id}`, values: { [slot.id]: uploads.map(u => ({ id: u.id, name: u.name })) } });
+      store.prefill({ app: `flow:${recipe.id}`, values: { [slot.id]: refs.map(u => ({ id: u.id, name: u.name })) } });
       navigate(`#/flows/${recipe.id}`);
     } catch (error) { toast(error.message, "err"); }
   }
   async function sendTo(target, result) {
     try {
-      const upload = await api.post("/import", { path: result.path });
-      const slot = target.fields.find(f => f.type === "files" && (f.accept || "").includes(result.kind));
-      store.prefill({ app: target.id, values: slot ? { [slot.id]: [upload] } : {} });
+      prefillAsset(target, assetRef(await api.post("/assets", { from: { result: result.path } }), result.kind));
       navigate(`#/apps/${target.id}`);
     } catch (error) { toast(error.message, "err"); }
   }

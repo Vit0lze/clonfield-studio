@@ -86,6 +86,32 @@ Contrato: mídia válida = arquivo dentro da pasta de saída; texto/JSON = valor
 Estado: TESTADO CPU
 ```
 
+## V9-P1-ASSET-001 — AssetRef.v1 ponta a ponta (24/11)
+
+```text
+V9-P1-ASSET-001 — uma versão de ativo atravessa dois apps sem reupload; v2 refaz só o ramo afetado; v1 segue selecionável
+HEAD/commit: sobre c314f6a
+Mudança: cf_asset_graph.py (novo: blobs sha256 imutáveis 0444, index atômico, publish/add_version/resolve/verify, dedup),
+         cf_api.py (media_file único: uploads + v_/a_; rotas /assets; asset_versions no job; /uploads/{v_} hidrata),
+         portal: «Usar em» publica e passa a referência (sem /import), tela #/assets (versões, seletor, Usar em, nova versão,
+         verificar integridade), Elenco «Publicar como ativo»
+Contrato: docs/V9_ASSET_GRAPH_CONTRACT.md (+ campo HTTP `asset_versions` no job)
+Fonte externa: nenhuma no código (recibos em docs/sources/V9-P1-ASSET-001-recibos.md)
+Divisão: Opus contrato + revisão (2 defeitos corrigidos: job_producer quebrava em job DAG; procedência invisível na API);
+         Sonnet implementação (parou antes de testar; testes rodados por Opus); Haiku pesquisa de fontes
+Testes (PC local CPU, um por vez): test_asset_graph 11 passed; test_agent_api 6 (+1 skip: sem llama-server); test_dag 10;
+         test_cast 8; test_recipes_api 4; test_myflows 8; test_worker_lock 11
+Demo API (engine real local): tests/demo/asset_graph_demo.py → docs/evidence/V9-P1-ASSET-001-api.txt
+Demo navegador (portal /studio no engine local): Ativos → v1 → Usar em → Cor e contraste e → Enquadrar imagem; os dois jobs
+         registram asset_versions = v1; nenhum POST /upload ou /import na rede; uploads/ sem cópia; 375 px sem rolagem lateral
+GPU: NÃO TESTADO (não é necessário para esta entrega)
+Limites: lock do índice é por processo; blob 0444 não impede root (Colab roda como root) — o verify() detecta;
+         dedup compara só com a versão atual; sem apagar ativo, sem backup/exportação; vídeo/áudio sem ffprobe ficam sem duração
+Estado: TESTADO CPU / API real / navegador real (engine local)
+```
+
+**Delta da revisão do dono** (corridas: cancelar durante o POST /prompt; reabrir SeedVR2 com fallback 3B fora da trava; HTTP para DAG só texto/JSON; duração do animatic): **não encontrado** nesta máquina nem em `origin` (`v9/integration` = `c314f6a` em 24/11). Aguarda push do dono para integrar.
+
 ## Pendências que dependem do humano
 1. Revisar o diff e autorizar commit (nada foi commitado nem empurrado).
 2. Suíte completa no Colab em CPU (`pytest tests -q --ignore=...`, ver `CLAUDE.md`) para cobrir o HEAD inteiro.
