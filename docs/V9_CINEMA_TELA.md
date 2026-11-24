@@ -52,3 +52,34 @@ Também conferido: troca A↔B mantém o instante (26,1 s → 27,5 s tocando); �
 - Sem edição de tempo/duração nem reordenação de planos na tela (a timeline continua editável pela API).
 - Sem cancelar a exportação pela tela (a fila geral cancela).
 - A14B e SeedVR2 na T4 seguem pendentes.
+
+---
+
+# V9-P1-CINEMA-003 — versões visíveis, falha que não apaga o par bom, e um filme do zero
+
+## O que mudou na tela
+- **Qual versão estou editando:** «Editando revisão N · salvo às HH:MM · última mudança». Toda edição é salva na hora e ganha revisão; o histórico diz o que mudou.
+- **Qual versão estou assistindo:** o player diz «Assistindo: exportação das HH:MM · revisão N · s04 v2». Se a timeline mudou depois daquele render (assinatura do corte diferente), aparece **«Exportação anterior: a timeline mudou depois deste render (revisão N → M; s04 mudou)»** até sair um corte novo.
+- **O que cada exportação reaproveitou:** lista «Exportações» (até 6), cada uma com revisão, estado e, por corte, «refez …» e «N do cache». A que está no player é marcada.
+- **Falha:** uma exportação que falha entra no histórico com o motivo; o player continua no **último par concluído** (`last_good`), que não é sobrescrito porque cada exportação tem pasta própria.
+- **Do zero:** «Novo projeto» na lista; projeto vazio com um corte mudo; «Adicionar planos» abre os Ativos (imagem e vídeo) e põe no fim com a versão atual fixada; em cada plano, duração (0,5–60 s; tomada mais curta que o plano repete), ↑ ↓ e tirar.
+- A engine local responde `POST /clonfield/connect` como o Colab, e `python cf_engine.py --share` abre um túnel gradio.live, único destino que o CSP do Studio hospedado aceita.
+
+## Segundo filme, «Vigília», montado pela tela (engine local, navegador do app)
+Projeto vazio → três ativos (farol no píer, poste, farol no azul) → s03 subiu duas vezes → s03 de 2,06 s para 6 s (repete) → página recarregada (ordem e duração mantidas, revisão 7) → «Exportar». Resultado: 290 quadros, 12,08 s, ordem s03 · s01 · s02; render em 4,7 s. Evidência: `docs/evidence/V9-P1-CINEMA-003/`.
+
+## O que essa montagem mostrou que a interface precisa
+| Achado | Estado |
+|---|---|
+| O filme sai **mudo**: não há como pôr voz, música ou efeito pela tela | próximo passo (pistas de áudio editáveis a partir dos Ativos de áudio) |
+| Um projeto novo sem som quebrava o `loudnorm` (−inf) e gravava −inf no JSON | corrigido e testado |
+| Depois de reordenar, «s03» aparecia primeiro sem dizer a posição | corrigido: «Plano 1 · s03» |
+| O histórico escrevia «2.06 s» | corrigido: vírgula |
+| A duração padrão é a da tomada (3,04 s), número estranho de digitar | a decidir: arredondar para 0,1 s ao adicionar |
+| Não há transição, fade nem enquadramento (crop) pela tela | pendente |
+| Não há desfazer; o histórico existe mas não volta | pendente |
+| O seletor de ativos desce quando a régua aparece (primeiro plano) | pendente, pequeno |
+| O Studio chama de «Biblioteca» os modelos; os planos vêm de «Ativos» | nomes a alinhar |
+
+## Preview da Vercel
+`e4bc594` gerou o preview (`clonfield-studio-portal-git-v9-integration-vitorgroup.vercel.app`, status Vercel «success»), e a engine com túnel ficou de pé. **O percurso no preview não foi feito:** o preview exige SSO da Vercel e a conta logada no Chrome recebe «You Need Access» do time `vitorgroup`. Não pedi acesso em nome do dono. Pendente: acesso ao preview (ou um link de bypass de proteção) para repetir o percurso de «A última luz» e a falha provocada lá.

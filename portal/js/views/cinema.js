@@ -203,7 +203,7 @@ async function editor(root, projectId) {
       shots.append(h("li", { class: `cine-shot ${mark}`, id: `shot-${s.id}`, "data-shot": s.id },
         s.src?.color ? h("div", { class: "cine-thumb is-black" }, "preto") : framed(s.version, s.crop, "cine-thumb"),
         h("div", { class: "cine-shot-body" },
-          h("div", { class: "cine-shot-head" }, h("b", null, s.id), h("span", { class: "muted" }, `${secs(s.start)}–${secs(s.end)}`),
+          h("div", { class: "cine-shot-head" }, h("b", null, `Plano ${index + 1}`), h("span", { class: "muted" }, `${s.id} · ${secs(s.start)}–${secs(s.end)}`),
             s.version ? h("span", { class: "badge" }, `v${s.version.number}`) : null,
             mark === "is-edited" ? h("span", { class: "badge warn" }, "mudou depois da exportação") : mark === "is-rendered" ? h("span", { class: "badge warn" }, "refeito") : mark === "is-reused" ? h("span", { class: "badge ok" }, "do cache") : null),
           h("p", null, s.asset_title || s.note || ""),

@@ -1,0 +1,137 @@
+{
+ "schema": "CinemaProject.v1",
+ "id": "p_c0c0109665b1",
+ "title": "Vigília",
+ "slug": "vigilia",
+ "timeline": {
+  "schema": "Timeline.v1",
+  "fps": 24,
+  "size": [
+   1280,
+   720
+  ],
+  "video": [
+   {
+    "id": "s03",
+    "src": "v_451986f009205db2",
+    "dur": 6.0,
+    "note": "Farol no azul, luz acendendo (loop)",
+    "loop": true
+   },
+   {
+    "id": "s01",
+    "src": "v_1e6715c1767cf384",
+    "dur": 3.04,
+    "note": "Farol no píer ao pôr do sol"
+   },
+   {
+    "id": "s02",
+    "src": "v_d05fef018342a2d5",
+    "dur": 3.04,
+    "note": "Poste acendendo ao entardecer"
+   }
+  ],
+  "audio": {
+   "voice": []
+  }
+ },
+ "cuts": {
+  "principal": {
+   "label": "Corte 1",
+   "music": [],
+   "sfx": [],
+   "mix": {}
+  }
+ },
+ "cut": "principal",
+ "revision": 7,
+ "history": [
+  {
+   "at": 1795526517,
+   "revision": 1,
+   "what": "projeto criado"
+  },
+  {
+   "at": 1795526526,
+   "revision": 2,
+   "what": "s01: adicionado «Farol no píer ao pôr do sol» v1",
+   "shot": "s01",
+   "after": "v_1e6715c1767cf384"
+  },
+  {
+   "at": 1795526527,
+   "revision": 3,
+   "what": "s02: adicionado «Poste acendendo ao entardecer» v1",
+   "shot": "s02",
+   "after": "v_d05fef018342a2d5"
+  },
+  {
+   "at": 1795526529,
+   "revision": 4,
+   "what": "s03: adicionado «Farol no azul, luz acendendo (loop)» v1",
+   "shot": "s03",
+   "after": "v_451986f009205db2"
+  },
+  {
+   "at": 1795526535,
+   "revision": 5,
+   "what": "ordem: s01 s03 s02"
+  },
+  {
+   "at": 1795526537,
+   "revision": 6,
+   "what": "ordem: s03 s01 s02"
+  },
+  {
+   "at": 1795526538,
+   "revision": 7,
+   "what": "s03: 2.06 s → 6 s",
+   "shot": "s03"
+  }
+ ],
+ "exports": [
+  {
+   "job_id": "job_d8d67b3959f345e7",
+   "status": "concluído",
+   "at": 1795526553,
+   "revision": 7,
+   "cuts": [
+    "principal"
+   ],
+   "signatures": {
+    "principal": "7549603f8d62ac26"
+   },
+   "versions": {
+    "s03": "v_451986f009205db2",
+    "s01": "v_1e6715c1767cf384",
+    "s02": "v_d05fef018342a2d5"
+   },
+   "finished": 1795526558,
+   "summary": {
+    "principal": {
+     "rendered": [
+      "video:s03",
+      "video:s01",
+      "video:s02",
+      "picture",
+      "stem:voice",
+      "stem:music",
+      "stem:sfx",
+      "mix"
+     ],
+     "reused": [],
+     "seconds": 4.7,
+     "loudness": {
+      "I": -70.0,
+      "true_peak": null
+     }
+    }
+   },
+   "message": null
+  }
+ ],
+ "last_export": "job_d8d67b3959f345e7",
+ "last_good": "job_d8d67b3959f345e7",
+ "created": 1795526517,
+ "updated": 1795526558
+}

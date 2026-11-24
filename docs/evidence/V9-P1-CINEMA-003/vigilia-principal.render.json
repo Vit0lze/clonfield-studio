@@ -1,0 +1,222 @@
+{
+  "schema": "CinemaRender.v1",
+  "timeline": {
+    "schema": "Timeline.v1",
+    "fps": 24,
+    "size": [
+      1280,
+      720
+    ],
+    "video": [
+      {
+        "id": "s03",
+        "src": "v_451986f009205db2",
+        "dur": 6.0,
+        "note": "Farol no azul, luz acendendo (loop)",
+        "loop": true
+      },
+      {
+        "id": "s01",
+        "src": "v_1e6715c1767cf384",
+        "dur": 3.04,
+        "note": "Farol no píer ao pôr do sol"
+      },
+      {
+        "id": "s02",
+        "src": "v_d05fef018342a2d5",
+        "dur": 3.04,
+        "note": "Poste acendendo ao entardecer"
+      }
+    ],
+    "audio": {
+      "voice": [],
+      "music": [],
+      "sfx": []
+    },
+    "mix": {},
+    "name": "vigilia-principal",
+    "title": "Vigília · Corte 1"
+  },
+  "duration_s": 12.083,
+  "frames": 290,
+  "segments": [
+    {
+      "shot": "s03",
+      "src": "v_451986f009205db2",
+      "key": "8a41f8076824460b",
+      "frames": 144,
+      "sha256": "38b64f920e62e1d209fccb68040cfebcd8e01fee2fab3ce74eaa9900e4a3a647"
+    },
+    {
+      "shot": "s01",
+      "src": "v_1e6715c1767cf384",
+      "key": "81ae8a2185792359",
+      "frames": 73,
+      "sha256": "d98d0db240b1902dbcd9086895a6b8833be8afb6da7e39bcb05319a70e39646f"
+    },
+    {
+      "shot": "s02",
+      "src": "v_d05fef018342a2d5",
+      "key": "8b4bf68cbae4a303",
+      "frames": 73,
+      "sha256": "fb88d05e406eca22464e0ca9e3dcc924f1cf0a92cbf732566fec9fc3367c9c45"
+    }
+  ],
+  "steps": [
+    {
+      "step": "video:s03",
+      "key": "8a41f8076824460b",
+      "status": "rendered",
+      "file": "8a41f8076824460b.mp4",
+      "seconds": 1.12
+    },
+    {
+      "step": "video:s01",
+      "key": "81ae8a2185792359",
+      "status": "rendered",
+      "file": "81ae8a2185792359.mp4",
+      "seconds": 1.17
+    },
+    {
+      "step": "video:s02",
+      "key": "8b4bf68cbae4a303",
+      "status": "rendered",
+      "file": "8b4bf68cbae4a303.mp4",
+      "seconds": 0.82
+    },
+    {
+      "step": "picture",
+      "key": "10023d0a4416a613",
+      "status": "rendered",
+      "file": "picture-10023d0a4416a613.mp4",
+      "seconds": 0.06
+    },
+    {
+      "step": "stem:voice",
+      "key": "ef3d07e48bd30460",
+      "status": "rendered",
+      "file": "voice-ef3d07e48bd30460.wav",
+      "seconds": 0.05
+    },
+    {
+      "step": "stem:music",
+      "key": "ef3d07e48bd30460",
+      "status": "rendered",
+      "file": "music-ef3d07e48bd30460.wav",
+      "seconds": 0.07
+    },
+    {
+      "step": "stem:sfx",
+      "key": "ef3d07e48bd30460",
+      "status": "rendered",
+      "file": "sfx-ef3d07e48bd30460.wav",
+      "seconds": 0.05
+    },
+    {
+      "step": "mix",
+      "key": "36a98cce4886f8cf",
+      "status": "rendered",
+      "file": "mix-36a98cce4886f8cf.wav",
+      "seconds": 0.71
+    }
+  ],
+  "rendered": [
+    "video:s03",
+    "video:s01",
+    "video:s02",
+    "picture",
+    "stem:voice",
+    "stem:music",
+    "stem:sfx",
+    "mix"
+  ],
+  "reused": [],
+  "film": {
+    "file": "vigilia-principal.mp4",
+    "sha256": "6996a1f8a69d75f9b6dec15903bfc1767391e1ce18c661cdcd0a60622b29e9aa",
+    "probe": {
+      "programs": [],
+      "streams": [
+        {
+          "index": 0,
+          "codec_name": "h264",
+          "codec_type": "video",
+          "width": 1280,
+          "height": 720,
+          "r_frame_rate": "24/1",
+          "nb_frames": "290",
+          "tags": {
+            "handler_name": "VideoHandler"
+          }
+        },
+        {
+          "index": 1,
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "sample_rate": "48000",
+          "channels": 2,
+          "r_frame_rate": "0/0",
+          "nb_frames": "568",
+          "tags": {
+            "handler_name": "mix"
+          }
+        },
+        {
+          "index": 2,
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "sample_rate": "48000",
+          "channels": 2,
+          "r_frame_rate": "0/0",
+          "nb_frames": "568",
+          "tags": {
+            "handler_name": "voz"
+          }
+        },
+        {
+          "index": 3,
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "sample_rate": "48000",
+          "channels": 2,
+          "r_frame_rate": "0/0",
+          "nb_frames": "568",
+          "tags": {
+            "handler_name": "musica"
+          }
+        },
+        {
+          "index": 4,
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "sample_rate": "48000",
+          "channels": 2,
+          "r_frame_rate": "0/0",
+          "nb_frames": "568",
+          "tags": {
+            "handler_name": "efeitos"
+          }
+        }
+      ],
+      "format": {
+        "duration": "12.083333",
+        "size": "3404382"
+      }
+    },
+    "loudness": {
+      "I": -70.0,
+      "true_peak": null
+    }
+  },
+  "stems": [
+    "vigilia-principal-voz.wav",
+    "vigilia-principal-musica.wav",
+    "vigilia-principal-efeitos.wav"
+  ],
+  "stem_peaks_db": {
+    "voice": null,
+    "music": null,
+    "sfx": null
+  },
+  "seconds": 4.7
+}

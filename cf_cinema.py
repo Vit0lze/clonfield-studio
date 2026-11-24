@@ -602,7 +602,8 @@ def set_shot_duration(base, project_id, shot_id, dur):
             natural = (ref.get("media") or {}).get("duration_s")
             if ref["kind"] == "video" and natural and not shot.get("speed") and not shot.get("pingpong"):
                 shot["loop"] = seconds > float(natural) + 0.05
-        return dict(what=f"{shot_id}: {before:g} s → {seconds:g} s", shot=shot_id)
+        pt = lambda v: f"{v:g}".replace(".", ",")
+        return dict(what=f"{shot_id}: {pt(before)} s → {pt(seconds)} s", shot=shot_id)
     return _edit(base, project_id, change)
 
 
