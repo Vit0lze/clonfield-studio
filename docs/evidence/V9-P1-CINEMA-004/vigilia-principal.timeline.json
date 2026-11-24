@@ -1,0 +1,54 @@
+{
+  "schema": "Timeline.v1",
+  "fps": 24,
+  "size": [
+    1280,
+    720
+  ],
+  "video": [
+    {
+      "id": "s03",
+      "src": "v_451986f009205db2",
+      "dur": 6.0,
+      "note": "Farol no azul, luz acendendo (loop)",
+      "loop": true
+    },
+    {
+      "id": "s01",
+      "src": "v_1e6715c1767cf384",
+      "dur": 3.04,
+      "note": "Farol no píer ao pôr do sol"
+    },
+    {
+      "id": "s02",
+      "src": "v_d05fef018342a2d5",
+      "dur": 3.04,
+      "note": "Poste acendendo ao entardecer"
+    }
+  ],
+  "audio": {
+    "voice": [
+      {
+        "src": "v_c1db07458a7e168c",
+        "at": 6.5
+      }
+    ],
+    "music": [],
+    "sfx": [
+      {
+        "src": "v_bfe435a875220ead",
+        "at": 0.0,
+        "gain_db": -8.0,
+        "fade_in": 1.5
+      },
+      {
+        "src": "v_5347b432161bba02",
+        "at": 9.25,
+        "gain_db": -4.0
+      }
+    ]
+  },
+  "mix": {},
+  "name": "vigilia-principal",
+  "title": "Vigília · Corte 1"
+}

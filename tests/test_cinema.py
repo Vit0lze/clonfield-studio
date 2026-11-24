@@ -331,3 +331,44 @@ def test_a_failed_export_keeps_the_last_finished_pair_and_says_the_timeline_move
     assert project["last_export"] == bad["id"] and project["last_good"] == good["id"]
     assert [e["status"] for e in project["exports"]] == ["concluído", "falhou"]
     assert all(client.get(r["url"]).status_code == 200 for r in good["results"] if r["path"].endswith(".mp4"))  # still playable
+
+
+def test_sound_is_edited_by_track_and_a_sound_only_change_reuses_the_whole_picture(api):
+    """The Vigília sound pass: an ambience across a picture cut, an effect on a shot's start, a voice shared by every cut,
+    and a second cut that varies only the music. Sound edits never touch a video segment or the joined picture."""
+    client, ids = api
+    pid = client.post(f"{BASE}/cinema/projects", json={"title": "Som"}).json()["id"]
+    for ident in (ids["a"], ids["b"]):
+        client.post(f"{BASE}/cinema/projects/{pid}/shots", json={"asset": ident, "dur": 2.0})
+    silent = wait(client, client.post(f"{BASE}/cinema/projects/{pid}/export", json={}).json()["id"])
+    assert silent["status"] == "concluído", silent.get("message")
+
+    add = lambda body: client.post(f"{BASE}/cinema/projects/{pid}/audio", json=body)
+    assert add({"track": "sfx", "asset": ids["a"], "at": 0}).status_code == 400            # a video is not a sound
+    assert add({"track": "sfx", "asset": ids["sea"], "at": 9}).status_code == 400          # past the end of a 4 s film
+    assert add({"track": "drums", "asset": ids["sea"], "at": 0}).status_code == 400
+    assert add({"track": "sfx", "asset": ids["sea"], "at": 1.0, "gain_db": -6}).status_code == 200   # crosses the cut at 2 s
+    project = add({"track": "sfx", "asset": ids["voice"], "at": 2.0, "gain_db": -3}).json()         # on the second shot's start
+    project = add({"track": "voice", "asset": ids["voice"], "at": 0.5}).json()
+    sfx = project["cuts_view"]["principal"]["lanes"]["sfx"]
+    assert [(c["at"], c["gain_db"]) for c in sfx] == [(1.0, -6), (2.0, -3)] and sfx[0]["at"] < 2.0 < sfx[0]["at"] + sfx[0]["dur"]
+    moved = client.post(f"{BASE}/cinema/projects/{pid}/audio/sfx/1", json={"at": 2.2, "gain_db": -1.5, "dur": 1.5, "fade_out": 0.5})
+    assert moved.status_code == 200 and moved.json()["cuts_view"]["principal"]["lanes"]["sfx"][1]["at"] == 2.2
+    assert client.post(f"{BASE}/cinema/projects/{pid}/audio/sfx/1", json={"fade_out": 0.4, "dur": ""}).status_code == 400  # fade needs a length
+    reopened = client.get(f"{BASE}/cinema/projects/{pid}").json()
+    assert reopened["cuts_view"]["principal"]["lanes"]["sfx"][1]["fade_out"] == 0.5 and "voz" in reopened["history"][-2]["what"]
+
+    sound = wait(client, client.post(f"{BASE}/cinema/projects/{pid}/export", json={}).json()["id"])
+    record = client.get(next(r["url"] for r in sound["results"] if r["path"].endswith(".render.json"))).json()
+    assert not any(s.startswith("video:") or s == "picture" for s in record["rendered"])  # sound only: the picture is reused whole
+    assert {"video:s01", "video:s02", "picture"} <= set(record["reused"])
+
+    made = client.post(f"{BASE}/cinema/projects/{pid}/cuts", json={"label": "Com música"}).json()
+    assert made["cut"] == "com-musica" and made["cuts_view"]["com-musica"]["lanes"]["sfx"] == made["cuts_view"]["principal"]["lanes"]["sfx"]
+    add({"track": "music", "asset": ids["music"], "at": 0, "gain_db": -4, "cut": "com-musica"})
+    pair = wait(client, client.post(f"{BASE}/cinema/projects/{pid}/export", json={"cuts": ["principal", "com-musica"]}).json()["id"])
+    renders = {Path(r["path"]).name: client.get(r["url"]).json() for r in pair["results"] if r["path"].endswith(".render.json")}
+    assert renders["som-principal.render.json"]["rendered"] == []
+    assert renders["som-com-musica.render.json"]["rendered"] == ["stem:music", "mix"]  # voice and effects stems shared with A
+    ab = client.get(next(r["url"] for r in pair["results"] if r["path"].endswith(".ab.json"))).json()
+    assert ab["picture_identical"] and ab["loudness_spread_lu"] <= 0.5

@@ -83,3 +83,62 @@ Projeto vazio → três ativos (farol no píer, poste, farol no azul) → s03 su
 
 ## Preview da Vercel
 `e4bc594` gerou o preview (`clonfield-studio-portal-git-v9-integration-vitorgroup.vercel.app`, status Vercel «success»), e a engine com túnel ficou de pé. **O percurso no preview não foi feito:** o preview exige SSO da Vercel e a conta logada no Chrome recebe «You Need Access» do time `vitorgroup`. Não pedi acesso em nome do dono. Pendente: acesso ao preview (ou um link de bypass de proteção) para repetir o percurso de «A última luz» e a falha provocada lá.
+
+---
+
+# V9-P1-CINEMA-004 — aceite no preview da Vercel e «Vigília» sonorizado pela tela
+
+## Aceite remoto (preview de `beff82f`, Chrome, engine local exposta por `cf_engine.py --share`)
+O dono entrou com a senha da sessão; daí em diante tudo pela tela do preview.
+| Passo | Visto na tela |
+|---|---|
+| Cinema (menu) → «A última luz» | revisão 2, s04 v1, sem exportações |
+| s04 v1 → v2 | «Editando revisão 3 · s04: tomada v1 → v2» |
+| Exportar A e B (cache vazio) | A refez tudo (38,9 s); B refez música/efeitos/mix, 11 do cache; imagem idêntica, −15,9/−15,9 LUFS |
+| Recarregar | «Editando revisão 3» e «Assistindo: exportação das 10:43 · revisão 3 · s04 v2»; o filme toca (avançou 2,4 s) |
+| Cópia de teste (`p_05f71eb7523b`, criada no servidor) → Exportar A e B | revisão 1, tudo do cache |
+| s05 4 → 5 s | aviso «Exportação anterior: a timeline mudou depois deste render (revisão 1 → 2)» |
+| tomada de s05 ilegível no servidor → Exportar A e B | «falhou · ffmpeg falhou: … Permission denied»; o player continua na revisão 1 |
+| Recarregar | falha e par concluído listados; A e B da revisão 1 tocam |
+| tomada restaurada → Exportar A e B | revisão 2 concluída (refez s05, junção, trilhas, mix); aviso some |
+
+Achados no preview, corrigidos depois: um «null» escrito abaixo da linha «Assistindo» (o `append` do DOM escreve `null`), e s05 marcado «do cache» depois de mudar só a duração (a tela comparava só a tomada; agora cada exportação guarda a especificação de cada plano).
+O túnel foi fechado e o arquivo com a senha apagado ao fim.
+
+## Som pela tela
+Painel «Som · <corte>» acima dos planos:
+- **Pistas:** Voz (igual em todos os cortes), Música e Efeitos (só no corte escolhido).
+- **Campos de cada som:** «entra em» (s), «encaixar no início de… Plano N», ganho (dB), duração (vazio = o arquivo inteiro), fade de entrada e de saída, um player e o botão «tirar».
+- **«Adicionar som»:** lista os ativos de áudio, cada um com player e destino («→ Voz / → Música / → Efeitos»).
+- **«Novo corte a partir deste»:** copia música, efeitos e mix e passa a ser o corte escolhido.
+- **Gravação:** cada mudança é salva na hora e gera revisão; o histórico diz o que mudou («efeitos: som 2: entrada 9,04 s → 9,25 s»).
+
+API: `POST /cinema/projects/{id}/audio`, `POST …/audio/{track}/{index}` (entrada, ganho, duração, fades, remover), `POST …/cuts`.
+
+## «Vigília» sonorizado (engine local, navegador do app; cada passo é um clique ou digitação na tela)
+| Passo | Revisão |
+|---|---|
+| Mar → Efeitos; ganho −8 dB; fade de entrada 1,5 s. Atravessa os cortes de 6,0 s e 9,04 s | 8–10 |
+| Relé do poste → Efeitos; «encaixar no início do Plano 3» (9,04 s) → digitado 9,25 s (a lâmpada sobe de brilho nos primeiros 0,5 s da tomada); ganho −4 dB | 11–14 |
+| Voz 5 («Mas toda tarde, eu ainda olho para o mar.») → Voz, 6,5 s, sobre o farol no píer | 15–16 |
+| Recarregar: os três sons voltam com entrada, ganho e fade | 16 |
+| Exportar (só o som mudou) | refez trilha voz, trilha efeitos e mix; **3 planos + junção da imagem do cache** (2,5 s) |
+| «Novo corte a partir deste» → «Com música»; música → Música: fade 2 s, dura 12 s, saída 2,5 s; música +6 dB e mar −14 dB **só neste corte** | 17–23 |
+| Exportar A e B | A: nada refeito; B: refez música, efeitos e mix; voz e imagem do cache; imagem idêntica; −16,2 / −16,0 LUFS |
+
+Conferido nos arquivos exportados:
+- **Relé:** entra aos 9,254 s.
+- **Mar:** sem buraco nos cortes de imagem.
+- **Voz:** silêncio até 6,5 s.
+- **Música:** as notas do acorde (73, 110 e 175 Hz) ficam 24 a 31 dB acima do entorno em B e 6 a 10 dB em A, que é só ruído; a pista de música de A está vazia.
+
+Evidência: `docs/evidence/V9-P1-CINEMA-004/`.
+
+## O que a sonorização mostrou que falta
+| Achado | Estado |
+|---|---|
+| Os níveis da mix por pista (música −12 dB e efeitos −4 dB por padrão) não aparecem na tela; na primeira tentativa, a música de B ficou enterrada sob o mar | **pendente**: mostrar e editar a mix do corte |
+| O histórico usava nomes crus («gain_db») | corrigido: «ganho −8 dB → −14 dB» |
+| A entrada aparecia arredondada (9,3 s em vez de 9,25 s) | corrigido |
+| Sem forma de onda: o encaixe no plano ajuda, mas a sincronia fina ainda é por número | pendente |
+| O som adicionado entra em 0 s; seria melhor entrar no plano selecionado | pendente |

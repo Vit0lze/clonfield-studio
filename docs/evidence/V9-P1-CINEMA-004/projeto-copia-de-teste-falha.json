@@ -1,0 +1,441 @@
+{
+ "schema": "CinemaProject.v1",
+ "id": "p_05f71eb7523b",
+ "title": "A última luz · cópia de teste",
+ "slug": "a-ultima-luz-copia-de-teste",
+ "timeline": {
+  "schema": "Timeline.v1",
+  "title": "A última luz",
+  "fps": 24,
+  "size": [
+   1280,
+   720
+  ],
+  "video": [
+   {
+    "id": "s01",
+    "src": {
+     "color": "black"
+    },
+    "dur": 3.0,
+    "note": "escuro: só o mar"
+   },
+   {
+    "id": "s02",
+    "src": "v_1e6715c1767cf384",
+    "dur": 6.0,
+    "speed": 0.5,
+    "look": "dusk",
+    "push": 0.04,
+    "fade_in": 1.5
+   },
+   {
+    "id": "s03",
+    "src": "v_4ef2730c242e4ca3",
+    "dur": 7.0,
+    "loop": true,
+    "look": "dusk"
+   },
+   {
+    "id": "s04",
+    "src": "v_e21344e615f3a95d",
+    "dur": 5.0,
+    "speed": 0.6,
+    "pingpong": true,
+    "crop": [
+     0,
+     0.02,
+     1,
+     0.3245
+    ],
+    "look": "memory",
+    "fade_in": 0.4,
+    "note": "lembrança: rosto"
+   },
+   {
+    "id": "s05",
+    "src": "v_9a271e3c689c7ef2",
+    "dur": 5.0,
+    "speed": 0.5,
+    "look": "memory",
+    "crop": [
+     0.1,
+     0.25,
+     0.8,
+     0.75
+    ]
+   },
+   {
+    "id": "s06",
+    "src": "v_d05fef018342a2d5",
+    "dur": 6.0,
+    "speed": 0.5,
+    "look": "dusk"
+   },
+   {
+    "id": "s07",
+    "src": "v_451986f009205db2",
+    "dur": 12.0,
+    "loop": true,
+    "push": 0.1,
+    "note": "seguro: sem música, sem voz"
+   },
+   {
+    "id": "s08",
+    "src": "v_4ef2730c242e4ca3",
+    "dur": 9.0,
+    "loop": true,
+    "look": "dusk",
+    "fade_out": 3.0
+   },
+   {
+    "id": "s09",
+    "src": {
+     "color": "black"
+    },
+    "dur": 8.0,
+    "note": "escuro: a buzina"
+   }
+  ],
+  "audio": {
+   "voice": [
+    {
+     "src": "v_65971e9c50572b13",
+     "at": 4.0,
+     "note": "Meu pai acendia o farol todo fim de tarde."
+    },
+    {
+     "src": "v_5a8ad40674480040",
+     "at": 10.0,
+     "note": "Ele dizia que a luz não era para quem chega. Era para quem ainda está no mar."
+    },
+    {
+     "src": "v_cceb989d343b4116",
+     "at": 17.0,
+     "note": "Eu achava que era só uma lâmpada, girando."
+    },
+    {
+     "src": "v_974fcd901d67a25c",
+     "at": 26.5,
+     "note": "Hoje a cidade acende sozinha. Ninguém mais sobe a escada."
+    },
+    {
+     "src": "v_c1db07458a7e168c",
+     "at": 45.5,
+     "note": "Mas toda tarde, eu ainda olho para o mar."
+    }
+   ]
+  }
+ },
+ "cuts": {
+  "mar": {
+   "label": "O mar toma conta",
+   "note": "A música sai depois de «Ninguém mais sobe a escada»; o mar ocupa o plano segurado.",
+   "music": [
+    {
+     "src": "v_bd7844e862a07752",
+     "at": 3.0,
+     "dur": 29.0,
+     "gain_db": 6,
+     "fade_in": 3.0,
+     "fade_out": 6.0
+    }
+   ],
+   "sfx": [
+    {
+     "src": "v_bfe435a875220ead",
+     "at": 0.0,
+     "dur": 33.0,
+     "gain_db": -13,
+     "fade_in": 2.5,
+     "fade_out": 3.0
+    },
+    {
+     "src": "v_bfe435a875220ead",
+     "at": 30.0,
+     "in": 30.0,
+     "dur": 30.0,
+     "gain_db": -4,
+     "fade_in": 3.0,
+     "fade_out": 6.0
+    },
+    {
+     "src": "v_5347b432161bba02",
+     "at": 25.4,
+     "dur": 5.0,
+     "gain_db": -6
+    },
+    {
+     "src": "v_8d3510689631d7c0",
+     "at": 53.5,
+     "dur": 6.0,
+     "gain_db": -9
+    }
+   ],
+   "mix": {
+    "voice": 0,
+    "music": -3,
+    "sfx": -3,
+    "duck": true
+   }
+  },
+  "musica": {
+   "label": "Música até o fim",
+   "note": "A música continua sob o plano segurado; o mar fica baixo.",
+   "music": [
+    {
+     "src": "v_bd7844e862a07752",
+     "at": 3.0,
+     "dur": 32.13,
+     "gain_db": 6,
+     "fade_in": 3.0,
+     "fade_out": 4.0
+    },
+    {
+     "src": "v_bd7844e862a07752",
+     "at": 27.0,
+     "dur": 25.0,
+     "gain_db": 6,
+     "fade_in": 8.0,
+     "fade_out": 6.0
+    }
+   ],
+   "sfx": [
+    {
+     "src": "v_bfe435a875220ead",
+     "at": 0.0,
+     "dur": 33.0,
+     "gain_db": -13,
+     "fade_in": 2.5,
+     "fade_out": 3.0
+    },
+    {
+     "src": "v_bfe435a875220ead",
+     "at": 30.0,
+     "in": 30.0,
+     "dur": 30.0,
+     "gain_db": -13,
+     "fade_in": 3.0,
+     "fade_out": 6.0
+    },
+    {
+     "src": "v_5347b432161bba02",
+     "at": 25.4,
+     "dur": 5.0,
+     "gain_db": -6
+    },
+    {
+     "src": "v_8d3510689631d7c0",
+     "at": 53.5,
+     "dur": 6.0,
+     "gain_db": -9
+    }
+   ],
+   "mix": {
+    "voice": 0,
+    "music": -3,
+    "sfx": -3,
+    "duck": true
+   }
+  }
+ },
+ "cut": "mar",
+ "revision": 2,
+ "history": [
+  {
+   "at": 1795527831,
+   "revision": 1,
+   "what": "projeto criado"
+  },
+  {
+   "at": 1795527878,
+   "revision": 2,
+   "what": "s05: 4 s → 5 s",
+   "shot": "s05"
+  }
+ ],
+ "exports": [
+  {
+   "job_id": "job_c533342496d04bcd",
+   "status": "concluído",
+   "at": 1795527846,
+   "revision": 1,
+   "cuts": [
+    "mar",
+    "musica"
+   ],
+   "signatures": {
+    "mar": "15d26cf4df1053c1",
+    "musica": "d49593137a435f5c"
+   },
+   "versions": {
+    "s02": "v_1e6715c1767cf384",
+    "s03": "v_4ef2730c242e4ca3",
+    "s04": "v_e21344e615f3a95d",
+    "s05": "v_9a271e3c689c7ef2",
+    "s06": "v_d05fef018342a2d5",
+    "s07": "v_451986f009205db2",
+    "s08": "v_4ef2730c242e4ca3"
+   },
+   "finished": 1795527862,
+   "summary": {
+    "mar": {
+     "rendered": [],
+     "reused": [
+      "video:s01",
+      "video:s02",
+      "video:s03",
+      "video:s04",
+      "video:s05",
+      "video:s06",
+      "video:s07",
+      "video:s08",
+      "video:s09",
+      "picture",
+      "stem:voice",
+      "stem:music",
+      "stem:sfx",
+      "mix"
+     ],
+     "seconds": 6.9,
+     "loudness": {
+      "I": -15.9,
+      "true_peak": -1.5
+     }
+    },
+    "musica": {
+     "rendered": [],
+     "reused": [
+      "video:s01",
+      "video:s02",
+      "video:s03",
+      "video:s04",
+      "video:s05",
+      "video:s06",
+      "video:s07",
+      "video:s08",
+      "video:s09",
+      "picture",
+      "stem:voice",
+      "stem:music",
+      "stem:sfx",
+      "mix"
+     ],
+     "seconds": 9.09,
+     "loudness": {
+      "I": -15.9,
+      "true_peak": -1.4
+     }
+    }
+   },
+   "message": null
+  },
+  {
+   "job_id": "job_f8066df7af4b4e9c",
+   "status": "falhou",
+   "at": 1795527889,
+   "revision": 2,
+   "cuts": [
+    "mar",
+    "musica"
+   ],
+   "signatures": {
+    "mar": "8de3dfd5b6828a98",
+    "musica": "ffff9cc471eb795d"
+   },
+   "versions": {
+    "s02": "v_1e6715c1767cf384",
+    "s03": "v_4ef2730c242e4ca3",
+    "s04": "v_e21344e615f3a95d",
+    "s05": "v_9a271e3c689c7ef2",
+    "s06": "v_d05fef018342a2d5",
+    "s07": "v_451986f009205db2",
+    "s08": "v_4ef2730c242e4ca3"
+   },
+   "finished": 1795527889,
+   "summary": null,
+   "message": "ffmpeg falhou: [in#0 @ 0x570364c30a40] Error opening input: Permission denied\nError opening input file /home/lze/Documents/ClonField/cinema-alfa/data/assets/blobs/536a892844cd2e24f4f3bdb52f99be097adb7836e26851aa1b42fe6e0d22b282.mp4.\nError opening input files: Permission denied\n"
+  },
+  {
+   "job_id": "job_dd865ac6eada4834",
+   "status": "concluído",
+   "at": 1795527916,
+   "revision": 2,
+   "cuts": [
+    "mar",
+    "musica"
+   ],
+   "signatures": {
+    "mar": "8de3dfd5b6828a98",
+    "musica": "ffff9cc471eb795d"
+   },
+   "versions": {
+    "s02": "v_1e6715c1767cf384",
+    "s03": "v_4ef2730c242e4ca3",
+    "s04": "v_e21344e615f3a95d",
+    "s05": "v_9a271e3c689c7ef2",
+    "s06": "v_d05fef018342a2d5",
+    "s07": "v_451986f009205db2",
+    "s08": "v_4ef2730c242e4ca3"
+   },
+   "finished": 1795527948,
+   "summary": {
+    "mar": {
+     "rendered": [
+      "video:s05",
+      "picture",
+      "stem:voice",
+      "stem:music",
+      "stem:sfx",
+      "mix"
+     ],
+     "reused": [
+      "video:s01",
+      "video:s02",
+      "video:s03",
+      "video:s04",
+      "video:s06",
+      "video:s07",
+      "video:s08",
+      "video:s09"
+     ],
+     "seconds": 18.85,
+     "loudness": {
+      "I": -16.0,
+      "true_peak": -1.4
+     }
+    },
+    "musica": {
+     "rendered": [
+      "stem:music",
+      "stem:sfx",
+      "mix"
+     ],
+     "reused": [
+      "video:s01",
+      "video:s02",
+      "video:s03",
+      "video:s04",
+      "video:s05",
+      "video:s06",
+      "video:s07",
+      "video:s08",
+      "video:s09",
+      "picture",
+      "stem:voice"
+     ],
+     "seconds": 12.69,
+     "loudness": {
+      "I": -15.9,
+      "true_peak": -1.3
+     }
+    }
+   },
+   "message": null
+  }
+ ],
+ "last_export": "job_dd865ac6eada4834",
+ "last_good": "job_dd865ac6eada4834",
+ "created": 1795527831,
+ "updated": 1795527948
+}

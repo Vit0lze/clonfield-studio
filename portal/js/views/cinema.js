@@ -10,7 +10,11 @@ import { h, icon, clear, toast, seg } from "../ui.js";
 const LANES = [["voice", "Voz"], ["music", "Música"], ["sfx", "Efeitos"]];
 const FINAL = ["concluído", "falhou", "cancelado", "travado"];
 const VISUAL = new Set(["video", "image", "character"]);
+const TRACKS = { voice: ["Voz", "igual em todos os cortes"], music: ["Música", "só neste corte"], sfx: ["Efeitos", "só neste corte"] };
+// Element.append writes null as the text "null": optional pieces are dropped here instead.
+const fill = (el, ...kids) => { clear(el).append(...kids.flat().filter(k => k != null && k !== false)); return el; };
 const secs = s => `${Number(s).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} s`;
+const exact = s => `${Number(s).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 })} s`;  // entry times: 9,25 s, not 9,3 s
 const clock = t => new Date(t * 1000).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 const stepLabel = step => step.startsWith("video:") ? step.slice(6) : { picture: "junção da imagem", mix: "mix", "stem:voice": "trilha voz", "stem:music": "trilha música", "stem:sfx": "trilha efeitos" }[step] || step;
 
@@ -76,6 +80,8 @@ async function editor(root, projectId) {
   const bar = h("div", { class: "cine-bar" });
   const ruler = h("div", { class: "cine-ruler", "aria-label": "Linha do tempo" });
   const picker = h("section", { class: "cine-picker" });
+  const sound = h("section", { class: "cine-sound", "aria-label": "Som" });
+  let soundPicking = false, newCut = false;
   const shots = h("ol", { class: "cine-shots", "aria-label": "Planos na ordem" });
   const exportBox = h("section", { class: "cine-export", "aria-live": "polite" });
   const ab = h("section", { class: "cine-ab" });
@@ -98,7 +104,7 @@ async function editor(root, projectId) {
 
   function paintHead() {
     const last = project.history?.[project.history.length - 1];
-    clear(head).append(h("div", null, h("a", { class: "muted", href: "#/cinema" }, "← Cinema"), h("h2", null, project.title),
+    fill(head, h("div", null, h("a", { class: "muted", href: "#/cinema" }, "← Cinema"), h("h2", null, project.title),
       h("p", null, project.shots.length ? `${project.shots.length} planos · ${secs(project.duration_s)}` : "Sem planos ainda"),
       h("p", { class: "cine-rev", "data-revision": project.revision }, h("b", null, `Editando revisão ${project.revision}`),
         ` · salvo às ${clock(project.updated)}`, last ? ` · ${last.what}` : "")));
@@ -112,7 +118,7 @@ async function editor(root, projectId) {
     const add = h("button", { class: "btn", type: "button", "data-act": "add", "aria-expanded": String(picking), onclick: () => { picking = !picking; paintPicker(); paintBar(); } }, icon("plus", "sm"), "Adicionar planos");
     const one = h("button", { class: "btn primary", type: "button", "data-act": "export-one", disabled: blocked, onclick: () => exportCuts([project.cut]) }, icon("download", "sm"), cuts.length > 1 ? "Exportar este corte" : "Exportar");
     const both = cuts.length > 1 ? h("button", { class: "btn", type: "button", "data-act": "export-ab", disabled: blocked, onclick: () => exportCuts(cuts.map(([id]) => id)) }, icon("layers", "sm"), "Exportar A e B") : null;
-    clear(bar).append(h("div", { class: "cine-cut" }, choose, h("p", { class: "muted" }, cut().note || "")), h("div", { class: "row" }, add, one, both));
+    fill(bar, h("div", { class: "cine-cut" }, choose, h("p", { class: "muted" }, cut().note || "")), h("div", { class: "row" }, add, one, both));
   }
 
   async function paintPicker() {
@@ -120,7 +126,7 @@ async function editor(root, projectId) {
     if (!picking) return;
     let assets = [];
     try { assets = (await api.get("/assets")).filter(a => VISUAL.has(a.kind)); } catch (error) { toast(error.message, "err"); }
-    clear(picker).append(h("div", { class: "cine-picker-head" }, h("div", null, h("h3", null, "Ativos"), h("p", { class: "muted" }, "Clique para pôr no fim do filme. Entra a versão atual, fixada no plano.")),
+    fill(picker, h("div", { class: "cine-picker-head" }, h("div", null, h("h3", null, "Ativos"), h("p", { class: "muted" }, "Clique para pôr no fim do filme. Entra a versão atual, fixada no plano.")),
       h("button", { class: "btn sm", type: "button", onclick: () => { picking = false; paintPicker(); paintBar(); } }, "Fechar")),
       assets.length ? h("div", { class: "cine-picker-grid" }, assets.map(a => h("button", { type: "button", class: "cine-pick", "data-asset": a.asset_id,
         onclick: () => edit("/shots", { asset: a.asset_id }, `«${a.title}» entrou no fim do filme.`) },
@@ -134,7 +140,8 @@ async function editor(root, projectId) {
     const entry = watching?.entry;
     if (!entry) return "";
     const shot = project.shots.find(s => s.id === id);
-    if (!entry.versions || !(id in entry.versions) || entry.versions[id] !== shot?.src) return "is-edited";
+    const before = entry.shots ? entry.shots[id] : entry.versions?.[id];   // exports since CINEMA-003 keep each shot's render spec
+    if (before === undefined || before !== (entry.shots ? shot?.spec : shot?.src)) return "is-edited";
     const done = entry.summary?.[project.cut];
     if (!done) return "";
     return done.rendered.includes(`video:${id}`) ? "is-rendered" : done.reused.includes(`video:${id}`) ? "is-reused" : "";
@@ -307,13 +314,68 @@ async function editor(root, projectId) {
       watching.ab.picture_identical ? "Imagem idêntica nos dois cortes (mesma junção, mesmo MD5 do vídeo). " : "A imagem difere entre os cortes. ",
       `Volume: ${Object.values(watching.ab.loudness).map(v => `${v.I} LUFS`).join(" e ")} (diferença ${watching.ab.loudness_spread_lu} LU; alvo ${watching.ab.target.I}).`) : null;
     const keep = films.length > 1 ? h("button", { class: "btn primary sm", type: "button", "data-act": "keep", onclick: () => edit("/cut", { cut: films[watching.active].cutId }, `Corte escolhido: «${project.cuts_view[films[watching.active].cutId].label}». O outro continua salvo.`) }, icon("check", "sm"), "Ficar com este corte") : null;
-    clear(ab).append(h("h3", null, films.length > 1 ? "Sessão A/B" : "Assistir"), watchingLine, staleNote, switcher, video, marks, facts, keep);
+    fill(ab, h("h3", null, films.length > 1 ? "Sessão A/B" : "Assistir"), watchingLine, staleNote, switcher, video, marks, facts, keep);
   }
 
-  function paintAll() { paintHead(); paintBar(); paintRuler(); paintShots(); paintExports(); paintAB(); }
+  // Sound: one row per clip. «Entra em» can be typed or snapped to the start of a shot (sync to a cut); gain in dB;
+  // an empty duration plays the whole file. Voice is the project's (every cut); music and effects belong to the chosen cut.
+  async function paintSound() {
+    if (!project.shots.length) { clear(sound); return; }
+    const c = cut();
+    const anchors = project.shots.map((s, i) => ({ at: s.start, label: `início do Plano ${i + 1} · ${s.id} (${secs(s.start)})` }));
+    const num = (value, attrs, apply) => {
+      const input = h("input", { type: "number", class: "cine-num", value: value ?? "", ...attrs });
+      input.addEventListener("change", () => apply(input.value === "" ? "" : Number(input.value)));
+      return input;
+    };
+    const update = (track, index, fields) => edit(`/audio/${track}/${index}`, { ...fields, cut: project.cut });
+    const tracks = Object.entries(TRACKS).map(([track, [name, scope]]) => {
+      const clips = c.lanes[track] || [];
+      return h("div", { class: "cine-track-edit", "data-track": track },
+        h("h4", null, name, h("span", { class: "muted" }, ` · ${scope}`)),
+        clips.length ? clips.map(clip => {
+          const anchor = h("select", { class: "cine-anchor", "aria-label": `Encaixar ${clip.title} no início de um plano`, "data-anchor": `${track}:${clip.index}` },
+            h("option", { value: "" }, "encaixar no início de…"), anchors.map(a => h("option", { value: a.at }, a.label)));
+          anchor.addEventListener("change", () => anchor.value !== "" && update(track, clip.index, { at: Number(anchor.value) }));
+          const player = h("audio", { src: api.url(clip.url), preload: "none", controls: true, class: "cine-audio" });
+          return h("div", { class: "cine-clip-row", "data-clip": `${track}:${clip.index}` },
+            h("div", { class: "cine-clip-title" }, h("b", null, clip.title || clip.src), h("span", { class: "muted" }, ` v${clip.version} · ${exact(clip.at)}–${secs(Math.min(clip.at + clip.dur, project.duration_s))}`)),
+            h("div", { class: "cine-clip-fields" },
+              h("label", null, "entra em", num(clip.at, { step: 0.1, min: 0, "data-field": "at", "aria-label": "Entra em (s)" }, v => update(track, clip.index, { at: v })), "s"),
+              anchor,
+              h("label", null, "ganho", num(clip.gain_db, { step: 0.5, min: -40, max: 12, "data-field": "gain_db", "aria-label": "Ganho (dB)" }, v => update(track, clip.index, { gain_db: v === "" ? 0 : v })), "dB"),
+              h("label", null, "dura", num(clip.set_dur, { step: 0.1, min: 0.1, placeholder: clip.natural_s ? secs(clip.natural_s) : "inteira", "data-field": "dur", "aria-label": "Duração (s, vazio = o arquivo inteiro)" }, v => update(track, clip.index, { dur: v })), "s"),
+              h("label", null, "fade", num(clip.fade_in, { step: 0.1, min: 0, placeholder: "0", "data-field": "fade_in", "aria-label": "Fade de entrada (s)" }, v => update(track, clip.index, { fade_in: v })),
+                "/", num(clip.fade_out, { step: 0.1, min: 0, placeholder: "0", "data-field": "fade_out", "aria-label": "Fade de saída (s)" }, v => update(track, clip.index, { fade_out: v })), "s"),
+              h("button", { class: "btn sm", type: "button", "aria-label": `Tirar ${clip.title}`, "data-clip-remove": `${track}:${clip.index}`, onclick: () => update(track, clip.index, { remove: true }) }, icon("x", "sm"))),
+            player);
+        }) : h("p", { class: "muted" }, "vazio"));
+    });
+    const label = h("input", { type: "text", placeholder: "Nome do corte novo", maxlength: 40, "aria-label": "Nome do corte novo", "data-new-cut": "" });
+    const cutForm = newCut ? h("form", { class: "cine-new", onsubmit: event => { event.preventDefault(); newCut = false; edit("/cuts", { label: label.value, from: project.cut }, "Corte novo criado a partir deste; a voz e a imagem são as mesmas."); } },
+      label, h("button", { class: "btn primary sm", type: "submit" }, "Criar corte"), h("button", { class: "btn sm", type: "button", onclick: () => { newCut = false; paintSound(); } }, "Cancelar")) : null;
+    const pickList = soundPicking ? h("div", { class: "cine-sound-picker" }, (audioAssets || []).map(a => h("div", { class: "cine-sound-pick", "data-audio": a.asset_id },
+      h("div", null, h("b", null, a.title), h("small", { class: "muted" }, ` · v${a.current_version.number}${a.current_version.media?.duration_s ? ` · ${secs(a.current_version.media.duration_s)}` : ""}`)),
+      h("audio", { src: api.url(a.current_version.url), preload: "none", controls: true, class: "cine-audio" }),
+      h("div", { class: "row" }, Object.entries(TRACKS).map(([track, [name]]) => h("button", { class: "btn sm", type: "button", "data-add-to": track,
+        onclick: () => { soundPicking = false; edit("/audio", { track, asset: a.asset_id, at: 0, cut: project.cut }, `«${a.title}» entrou em ${name.toLowerCase()} no início; ajuste a entrada.`); } }, `→ ${name}`)))))) : null;
+    fill(sound, h("div", { class: "cine-sound-head" }, h("div", null, h("h3", null, `Som · ${c.label}`),
+      h("p", { class: "muted" }, "Mudar só o som reaproveita a imagem inteira na próxima exportação.")),
+      h("div", { class: "row" },
+        h("button", { class: "btn sm", type: "button", "data-act": "add-sound", "aria-expanded": String(soundPicking), onclick: async () => { soundPicking = !soundPicking; if (soundPicking) await loadAudio(); paintSound(); } }, icon("plus", "sm"), "Adicionar som"),
+        h("button", { class: "btn sm", type: "button", "data-act": "new-cut", onclick: () => { newCut = true; paintSound(); } }, icon("layers", "sm"), "Novo corte a partir deste"))),
+      cutForm, pickList, tracks);
+  }
 
-  root.append(head, bar, ruler, picker, h("div", { class: "cine-grid" }, shots, h("div", { class: "cine-side" }, exportBox, ab)));
-  await loadWatching();
+  let audioAssets = null;
+  async function loadAudio() {
+    try { audioAssets = (await api.get("/assets")).filter(a => a.kind === "audio"); } catch (error) { toast(error.message, "err"); audioAssets = []; }
+  }
+
+  function paintAll() { paintHead(); paintBar(); paintRuler(); paintSound(); paintShots(); paintExports(); paintAB(); }
+
+  root.append(head, bar, ruler, sound, picker, h("div", { class: "cine-grid" }, shots, h("div", { class: "cine-side" }, exportBox, ab)));
+  await Promise.all([loadWatching(), loadAudio()]);
   const inFlight = project.exports.find(e => e.job_id === project.last_export && !FINAL.includes(e.status));
   if (inFlight) watch(inFlight.job_id);  // reopened while an export runs: follow it
   paintAll();

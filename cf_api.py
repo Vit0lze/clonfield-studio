@@ -408,7 +408,7 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         fps = project["timeline"].get("fps", 24)
         for shot in project["timeline"]["video"]:
             span = cf_cinema.frames(shot["dur"], fps) / fps
-            item = dict(shot, start=round(start, 3), end=round(start + span, 3))
+            item = dict(shot, start=round(start, 3), end=round(start + span, 3), spec=cf_cinema.shot_spec(shot))
             if isinstance(shot["src"], str):
                 ref = cf_asset_graph.get_version(base, shot["src"])
                 asset = cf_asset_graph.get(base, ref["asset_id"])
@@ -420,11 +420,14 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
 
         def lane(clips):
             out = []
-            for clip in clips:
+            for index, clip in enumerate(clips):
                 ref = cf_asset_graph.get_version(base, clip["src"])
-                length = clip.get("dur") or (ref.get("media") or {}).get("duration_s") or 0
-                out.append(dict(at=clip.get("at", 0), dur=round(float(length), 3), title=(ref.get("metadata") or {}).get("title"),
-                                note=clip.get("note"), gain_db=clip.get("gain_db", 0)))
+                natural = (ref.get("media") or {}).get("duration_s")
+                length = clip.get("dur") or max(0.0, float(natural or 0) - float(clip.get("in", 0)))
+                out.append(dict(index=index, src=clip["src"], at=clip.get("at", 0), dur=round(float(length), 3), set_dur=clip.get("dur"),
+                                natural_s=natural, title=(ref.get("metadata") or {}).get("title"), note=clip.get("note"),
+                                gain_db=clip.get("gain_db", 0), fade_in=clip.get("fade_in"), fade_out=clip.get("fade_out"), version=ref["number"],
+                                url=version_public(ref)["url"]))
             return out
 
         cuts = {cid: dict(label=cut.get("label", cid), note=cut.get("note"), mix=cut.get("mix", {}),
@@ -464,6 +467,19 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
     cinema_project_shot = cinema_call(shot_change)
     cinema_project_order = cinema_call(lambda p, b: cf_cinema.reorder(base, p["id"], b.get("order")))
     cinema_project_cut = cinema_call(lambda p, b: cf_cinema.set_cut(base, p["id"], b.get("cut")))
+    cinema_project_cuts = cinema_call(lambda p, b: cf_cinema.add_cut(base, p["id"], b.get("label"), b.get("from")))
+    cinema_project_audio_add = cinema_call(lambda p, b: cf_cinema.add_clip(base, p["id"], b.get("track"), b.get("asset"), b.get("at", 0),
+                                                                           b.get("gain_db", 0), b.get("cut")))
+
+    def audio_change(params, body):
+        try:
+            index = int(params["index"])
+        except ValueError:
+            raise ValueError("Índice de som inválido.") from None
+        fields = {k: body[k] for k in ("at", "gain_db", "dur", "fade_in", "fade_out", "in", "remove") if k in body}
+        return cf_cinema.update_clip(base, params["id"], params["track"], index, fields, body.get("cut"))
+
+    cinema_project_audio = cinema_call(audio_change)
 
     async def cinema_project_export(request):
         """Export one cut, or several for an A/B session (one CPU job; the second cut reuses the whole picture).
@@ -1278,6 +1294,9 @@ def build_app(base, out_dir, verify, secret, portal_dir=None):
         Route(f"{PREFIX}/cinema/projects/{{id}}/shots/{{shot}}", guard(cinema_project_shot), methods=["POST"]),
         Route(f"{PREFIX}/cinema/projects/{{id}}/order", guard(cinema_project_order), methods=["POST"]),
         Route(f"{PREFIX}/cinema/projects/{{id}}/cut", guard(cinema_project_cut), methods=["POST"]),
+        Route(f"{PREFIX}/cinema/projects/{{id}}/cuts", guard(cinema_project_cuts), methods=["POST"]),
+        Route(f"{PREFIX}/cinema/projects/{{id}}/audio", guard(cinema_project_audio_add), methods=["POST"]),
+        Route(f"{PREFIX}/cinema/projects/{{id}}/audio/{{track}}/{{index}}", guard(cinema_project_audio), methods=["POST"]),
         Route(f"{PREFIX}/cinema/projects/{{id}}/export", guard(cinema_project_export), methods=["POST"]),
         Route(f"{PREFIX}/cinema/render", guard(cinema_render), methods=["POST"]),
         Route(f"{PREFIX}/assets", guard(assets_create), methods=["POST"]),

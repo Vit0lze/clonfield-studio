@@ -619,6 +619,118 @@ def reorder(base, project_id, order):
     return _edit(base, project_id, change)
 
 
+TRACK_LABEL = {"voice": "voz", "music": "música", "sfx": "efeitos"}
+GAIN_DB = (-40.0, 12.0)
+
+
+def shot_spec(shot):
+    """What the render of one shot depends on (its note left out): equal spec = the cached segment is still this shot."""
+    import hashlib
+    return hashlib.sha256(json.dumps({k: v for k, v in shot.items() if k != "note"}, sort_keys=True).encode()).hexdigest()[:12]
+
+
+def _clips(project, track, cut_id=None):
+    """The list a track lives in: voice is the project's (shared by every cut); music and effects belong to one cut."""
+    if track == "voice":
+        return project["timeline"].setdefault("audio", {}).setdefault("voice", [])
+    if track not in ("music", "sfx"):
+        raise ValueError("Pista desconhecida (voz, música ou efeitos).")
+    cut = project["cuts"].get(cut_id or project["cut"])
+    if cut is None:
+        raise ValueError(f"Corte «{cut_id}» não existe.")
+    return cut.setdefault(track, [])
+
+
+def _seconds(value, low, high, label):
+    try:
+        number = round(float(value), 2)
+    except (TypeError, ValueError):
+        raise ValueError(f"{label}: número inválido.") from None
+    if not low <= number <= high:
+        raise ValueError(f"{label}: de {low:g} a {high:g}.".replace(".", ","))
+    return number
+
+
+def add_clip(base, project_id, track, ident, at=0.0, gain_db=0.0, cut_id=None):
+    """Put an audio asset on a track at `at` seconds. An `a_` id is pinned to its current version here."""
+    found = cf_asset_graph.resolve_ref(base, ident)
+    if found is None:
+        raise ValueError("Ativo de áudio não encontrado.")
+    version = found[1]
+    if version["kind"] != "audio":
+        raise ValueError("Só ativo de áudio entra numa pista de som.")
+    title = (version.get("metadata") or {}).get("title") or cf_asset_graph.get(base, version["asset_id"]).get("title")
+
+    def change(project):
+        total = duration(project["timeline"]) if project["timeline"]["video"] else 0
+        start = _seconds(at, 0, max(total - 0.1, 0), "Entrada")
+        clip = dict(src=version["version_id"], at=start)
+        gain = _seconds(gain_db, *GAIN_DB, "Ganho")
+        if gain:
+            clip["gain_db"] = gain
+        _clips(project, track, cut_id).append(clip)
+        where = "todos os cortes" if track == "voice" else f"corte «{project['cuts'][cut_id or project['cut']].get('label')}»"
+        return dict(what=f"{TRACK_LABEL[track]}: «{title}» entra em {start:g} s ({where})".replace(".", ","), track=track)
+    return _edit(base, project_id, change)
+
+
+def update_clip(base, project_id, track, index, fields, cut_id=None):
+    """Move / re-level / trim / fade one clip, or remove it (`{"remove": true}`)."""
+    def change(project):
+        clips = _clips(project, track, cut_id)
+        if not isinstance(index, int) or not 0 <= index < len(clips):
+            raise ValueError("Esse som não está nessa pista.")
+        clip = clips[index]
+        if fields.get("remove"):
+            clips.pop(index)
+            return dict(what=f"{TRACK_LABEL[track]}: som {index + 1} removido", track=track)
+        total = duration(project["timeline"]) if project["timeline"]["video"] else 0
+        before = dict(clip)
+        if "at" in fields:
+            clip["at"] = _seconds(fields["at"], 0, max(total - 0.1, 0), "Entrada")
+        if "gain_db" in fields:
+            gain = _seconds(fields["gain_db"], *GAIN_DB, "Ganho")
+            clip.pop("gain_db", None) if gain == 0 else clip.__setitem__("gain_db", gain)
+        for key, label in (("dur", "Duração"), ("fade_in", "Fade de entrada"), ("fade_out", "Fade de saída"), ("in", "Início no arquivo")):
+            if key not in fields:
+                continue
+            empty = fields[key] in (None, "") or (key != "dur" and fields[key] == 0)  # empty duration = the whole file
+            if empty:
+                clip.pop(key, None)
+            else:
+                clip[key] = _seconds(fields[key], 0.1 if key == "dur" else 0.0, 600.0, label)
+        if clip.get("fade_out") and not clip.get("dur"):
+            raise ValueError("Fade de saída precisa de uma duração.")
+        if clip == before:
+            return None
+        names = {"at": "entrada", "gain_db": "ganho", "dur": "duração", "fade_in": "fade de entrada", "fade_out": "fade de saída", "in": "início no arquivo"}
+        units = {"gain_db": " dB"}
+        show = lambda k, v: "–" if v is None else f"{v:g}{units.get(k, ' s')}"
+        changed = ", ".join(f"{names.get(k, k)} {show(k, before.get(k))} → {show(k, clip.get(k))}" for k in sorted(set(clip) | set(before)) if clip.get(k) != before.get(k))
+        return dict(what=f"{TRACK_LABEL[track]}: som {index + 1}: {changed}".replace(".", ","), track=track)
+    return _edit(base, project_id, change)
+
+
+def add_cut(base, project_id, label, from_cut=None):
+    """A new cut that starts as a copy of another one's music, effects and mix (the voice is shared anyway). It becomes the chosen cut."""
+    label = str(label or "").strip()[:40]
+    if not label:
+        raise ValueError("Dê um nome ao corte.")
+
+    def change(project):
+        source = project["cuts"].get(from_cut or project["cut"])
+        if source is None:
+            raise ValueError("Corte de origem não existe.")
+        slug = re.sub(r"[^a-z0-9]+", "-", unicodedata.normalize("NFKD", label).encode("ascii", "ignore").decode().lower()).strip("-")[:28] or "corte"
+        ident, n = slug, 2
+        while ident in project["cuts"]:
+            ident, n = f"{slug}-{n}", n + 1
+        project["cuts"][ident] = dict(json.loads(json.dumps({k: v for k, v in source.items() if k in ("music", "sfx", "mix")})), label=label)
+        project["cut"] = ident
+        return dict(what=f"corte novo «{label}» (cópia de «{source.get('label')}»)")
+    return _edit(base, project_id, change)
+
+
 def set_cut(base, project_id, cut_id):
     """Which cut is the chosen one. Not a timeline change: no new revision."""
     with _projects_lock:
@@ -635,7 +747,8 @@ def begin_export(base, project_id, job_id, cut_ids):
         project = load_project(base, project_id)
         entry = dict(job_id=job_id, status="na fila", at=int(time.time()), revision=project["revision"], cuts=cut_ids,
                      signatures={c: signature(project, c) for c in cut_ids}, versions={s["id"]: s["src"] for s in project["timeline"]["video"]
-                                                                                    if isinstance(s["src"], str)})
+                                                                                    if isinstance(s["src"], str)},
+                     shots={s["id"]: shot_spec(s) for s in project["timeline"]["video"]})
         project["exports"] = [*project["exports"], entry][-20:]
         project["last_export"] = job_id
         return _write_project(base, project)

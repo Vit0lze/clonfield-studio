@@ -1,0 +1,32 @@
+{
+  "schema": "CinemaAB.v1",
+  "cuts": [
+    "principal",
+    "com-musica"
+  ],
+  "picture_key": {
+    "vigilia-principal": "10023d0a4416a613",
+    "vigilia-com-musica": "10023d0a4416a613"
+  },
+  "video_md5": {
+    "vigilia-principal": "59dd8a910b2528e2d9711e54ef9b6d9d",
+    "vigilia-com-musica": "59dd8a910b2528e2d9711e54ef9b6d9d"
+  },
+  "picture_identical": true,
+  "loudness": {
+    "vigilia-principal": {
+      "I": -16.2,
+      "true_peak": -1.4
+    },
+    "vigilia-com-musica": {
+      "I": -16.0,
+      "true_peak": -1.5
+    }
+  },
+  "target": {
+    "I": -16.0,
+    "TP": -1.5,
+    "LRA": 11.0
+  },
+  "loudness_spread_lu": 0.2
+}
