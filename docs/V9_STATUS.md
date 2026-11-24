@@ -1,6 +1,6 @@
 # V9 — estado (atualizado por entrega)
 
-Base: `64998ff` (= `origin/main`, auditoria pré-Opus). Mudanças abaixo estão **na árvore local, sem commit e sem push**.
+Base: `64998ff` (= `origin/main`, auditoria pré-Opus). P0 em `c314f6a`, P1 Asset em `7b6f043`, ambos em `origin/v9/integration` (main não tocada).
 Máquina de teste desta sessão: PC local, CPU, 3,7 GB de RAM (≈0,8 GB livres), sem GPU. Um pytest por vez, nunca a suíte inteira.
 
 ## Mapa curto de dependências e donos
@@ -15,7 +15,7 @@ Máquina de teste desta sessão: PC local, CPU, 3,7 GB de RAM (≈0,8 GB livres)
 | P0 | V9-P0-006 docs com números corrigidos (`/free`, Turbo, 408/19, sementes) | auditoria | Opus | feito em `docs/VALIDACAO_GPU.md`, `CLAUDE.md` |
 | P0 | V9-P0-007 linha de base do agente (`plan_eval.py`) | LLM no Colab | humano + Sonnet | **BLOQUEADO**: `plan_eval.py` sumiu do `/tmp`; só `agent_full.py` foi recuperado (`tests/agent_eval/agent_full.py`) |
 | P0 | Suíte completa no HEAD | máquina ≥ 8 GB (Colab CPU) | humano/Colab | NÃO EXECUTADO |
-| P1 | Asset Graph | P0 aceito | Sonnet Plataforma | NÃO INICIADO |
+| P1 | Asset Graph (V9-P1-ASSET-001) | P0 aceito | Sonnet + Opus | TESTADO CPU / API real / navegador real |
 | P1 | Cinema alfa (60 s) | Asset Graph; voz/transcrição | Sonnet Cinema | NÃO INICIADO |
 | P1 | Matriz das 93 reconciliada (12 fora da matriz) | — | Haiku | NÃO INICIADO |
 
@@ -113,6 +113,5 @@ Estado: TESTADO CPU / API real / navegador real (engine local)
 **Delta da revisão do dono** (corridas: cancelar durante o POST /prompt; reabrir SeedVR2 com fallback 3B fora da trava; HTTP para DAG só texto/JSON; duração do animatic): **não encontrado** nesta máquina nem em `origin` (`v9/integration` = `c314f6a` em 24/11). Aguarda push do dono para integrar.
 
 ## Pendências que dependem do humano
-1. Revisar o diff e autorizar commit (nada foi commitado nem empurrado).
-2. Suíte completa no Colab em CPU (`pytest tests -q --ignore=...`, ver `CLAUDE.md`) para cobrir o HEAD inteiro.
-3. Linha de base do agente: reescrever `plan_eval.py` (perdido) e rodar com o LLM no ar — 6 pedidos, sem GPU de vídeo.
+1. Suíte completa no Colab em CPU (`pytest tests -q --ignore=...`, ver `CLAUDE.md`) para cobrir o HEAD inteiro.
+2. Linha de base do agente: reescrever `plan_eval.py` (perdido) e rodar com o LLM no ar — 6 pedidos, sem GPU de vídeo.
