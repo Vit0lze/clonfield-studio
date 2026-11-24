@@ -63,7 +63,9 @@ def plan(story, count, cast_names=(), generate=None):
 
 
 def animatic(images, destination, seconds=2.0, fps=24):
-    """A silent slideshow of the pictures (same size), `seconds` each, as H.264 mp4. Returns the path."""
+    """A silent slideshow of the pictures (same size), `seconds` each, as H.264 mp4. Returns the path.
+    The concat demuxer adds the repeated last picture as one extra frame (or more when `seconds` is not a whole
+    number of frames), so the output is cut to exactly len(images) * seconds."""
     if not images:
         raise ValueError("Nenhuma imagem para o animatic.")
     destination = Path(destination)
@@ -75,7 +77,7 @@ def animatic(images, destination, seconds=2.0, fps=24):
     listing.write_text("\n".join(lines) + "\n", encoding="utf-8")
     try:
         done = subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(listing), "-vf", f"fps={fps},scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
-                               "-movflags", "+faststart", str(destination)], capture_output=True, timeout=300)
+                               "-t", f"{len(images) * float(seconds):.3f}", "-movflags", "+faststart", str(destination)], capture_output=True, timeout=300)
     finally:
         listing.unlink(missing_ok=True)
     if done.returncode:

@@ -215,6 +215,9 @@ def collect(session, folder, job, timeout, progress=None, socket=None, graph=Non
     try:
         while time.monotonic() < deadline:
             if control is not None and control.cancelled:
+                # the cancel may have arrived while POST /prompt was in flight (no prompt_id then, so Control.cancel
+                # sent nothing): stop our own prompt now, or it keeps the worker after the lock is released
+                interrupt(job["prompt_id"])
                 job.update(status="cancelado", message="Cancelado por você.")
                 persist(folder, job)
                 return job

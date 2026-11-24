@@ -341,7 +341,9 @@ def reopen(output_dir, job_id, progress):
     job = json.loads((folder / "job.json").read_text(encoding="utf-8"))
     if job.get("prompt_id") and (job["status"] in ("enviado", "aguardando_coleta")
                                  or (job.get("out_of_memory") and job["model"] != LIGHT and job.get("uploaded_file"))):
-        with requests.Session() as session:
+        import cf_worker
+        # collect_with_fallback may post the 3B prompt: same worker owner rule as run()
+        with cf_worker.hold(progress=lambda text: progress(0.01, desc=text)), requests.Session() as session:
             session.trust_env = False
             return collect_with_fallback(session, folder, job, 4, progress)
     return job

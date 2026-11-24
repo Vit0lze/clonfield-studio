@@ -169,3 +169,17 @@ def test_a_text_only_graph_finishes_with_an_explicit_text_outcome(api):
     assert job.status_code == 202, job.text
     done = wait_job(api, job.json()["id"])
     assert done["status"] == "concluído" and done["outcome"] == "text" and done["results"] == [] and "2 valor(es)" in done["message"]
+
+
+def test_a_json_only_graph_finishes_with_an_explicit_json_outcome_and_the_value_is_readable(api):
+    """Owner's review: the JSON branch of cf_dag.job_result through the real HTTP route. resolution_plan is pure CPU arithmetic."""
+    graph = {"nodes": [{"id": "p", "cap": "resolution_plan", "params": {"aspect": "16:9", "quality": "high"}}]}
+    job = api.post(f"{BASE}/dag/run", json={"graph": graph})
+    assert job.status_code == 202, job.text
+    done = wait_job(api, job.json()["id"])
+    assert done["status"] == "concluído" and done["outcome"] == "json" and done["results"] == [], done
+    assert "1 valor(es) de json" in done["message"]
+    run = api.get(f"{BASE}/dag/runs/{done['run']}")
+    assert run.status_code == 200, run.text
+    plan = run.json()["final"]["p"]["plan"]
+    assert plan["type"] == "json" and isinstance(plan["value"], dict) and plan["value"]  # the value itself, not just a note

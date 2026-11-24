@@ -21,7 +21,7 @@ import cf_worker
 import cf_workflows
 
 FAKE_COMFY = r'''
-import http.server, json, os, sys, uuid
+import http.server, json, os, sys, time, uuid
 port = int(sys.argv[sys.argv.index("--port") + 1])
 prompts = {}
 PNG = bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010806000000"
@@ -48,16 +48,18 @@ class H(http.server.BaseHTTPRequestHandler):
         return self.reply({})
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)
-        self.rfile.read(length)
+        body = self.rfile.read(length)
         if self.path == "/prompt":
             pid = uuid.uuid4().hex
             prompts[pid] = True
             with open("prompts.log", "a") as log:
                 log.write(f"{os.getpid()} {pid}\n")
+            while os.path.exists("slow_prompt") and not os.path.exists("answer"):  # lets a test cancel while POST /prompt is in flight
+                time.sleep(0.05)
             return self.reply({"prompt_id": pid})
         if self.path == "/interrupt":
             with open("interrupts.log", "a") as log:
-                log.write("interrupt\n")
+                log.write((json.loads(body or b"{}").get("prompt_id") or "ALL") + "\n")
         return self.reply({})
     def log_message(self, *a): pass
 http.server.ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
@@ -253,6 +255,50 @@ def test_cancelling_a_job_that_waits_for_the_worker_never_interrupts_the_owner(c
     a.join(60)
     assert result["a"]["status"] == "concluído" and result["a"]["results"]
     assert len((home / "prompts.log").read_text().split()) == 2  # only A ever reached the worker
+
+
+def test_a_cancel_that_arrives_while_the_prompt_is_being_posted_still_stops_that_prompt(comfy, tmp_path, monkeypatch):
+    """Owner's review race: the cancel lands after POST /prompt left but before its reply (no prompt_id yet), so Control.cancel sends
+    nothing. Before the fix the run then returned «cancelado» and released the lock while its prompt kept running on the worker."""
+    home, url, port = comfy
+    monkeypatch.setenv("CLONFIELD_WORKER_RESTART_GB", "1000")
+    out = tmp_path / "out"
+    out.mkdir()
+    (home / "slow_prompt").write_text("1")
+    control, result = cf_workflows.Control(), {}
+    a = threading.Thread(target=lambda: result.__setitem__("a", cf_workflows.run(dict(GRAPH), out, lambda *x, **k: None, control=control)))
+    a.start()
+    assert wait_for(lambda: (home / "prompts.log").exists())  # the worker has the prompt; its reply is held back
+    control.cancel()
+    assert not (home / "interrupts.log").exists()  # nothing to target yet, and a bare /interrupt would hit anyone's prompt
+    (home / "answer").write_text("1")
+    a.join(30)
+    pid = (home / "prompts.log").read_text().split()[1]
+    assert result["a"]["status"] == "cancelado"
+    assert (home / "interrupts.log").read_text().split() == [pid]  # our own prompt, by id, never a global interrupt
+    assert not cf_worker.busy()
+
+
+def test_reopening_a_seedvr2_upscale_waits_for_the_worker_owner(comfy, tmp_path, monkeypatch):
+    """Owner's review race: «Retomar» on an upscale that ran out of VRAM on the 7B posts the 3B fallback prompt; it used to do that
+    outside cf_worker.hold(), so it could land while another job owned the worker."""
+    import json as _json
+    import cf_seedvr2
+    home, url, port = comfy
+    monkeypatch.setattr(cf_seedvr2, "SERVER", url)
+    folder = tmp_path / "out" / "seedvr2_reopen"
+    folder.mkdir(parents=True)
+    (folder / "job.json").write_text(_json.dumps({"id": folder.name, "kind": "Imagem", "model": "7B", "status": "enviado",
+                                                  "prompt_id": "gone", "scale": 2.0, "seed": 1, "tile": 512}))
+    seen, result = [], {}
+    with cf_worker.hold():
+        b = threading.Thread(target=lambda: result.__setitem__("b", cf_seedvr2.reopen(tmp_path / "out", folder.name,
+                                                                                     lambda *x, desc=None, **k: seen.append(desc))))
+        b.start()
+        assert wait_for(lambda: any(d and "outro job" in d for d in seen), 10), seen
+        assert b.is_alive()  # it waits instead of talking to the worker under the owner
+    b.join(60)
+    assert not b.is_alive() and result["b"]["status"] in ("aguardando_coleta", "falhou")
 
 
 def cf_apps_collect(ctx, job):

@@ -65,6 +65,20 @@ def test_animatic_cuts_the_pictures_into_a_real_h264_clip_of_the_right_length(tm
         sb.animatic([], tmp_path / "b.mp4")
 
 
+@pytest.mark.parametrize("seconds", [1.5, 0.7, 2])
+def test_animatic_has_exactly_the_requested_length_no_extra_last_frame(tmp_path, seconds):
+    """Owner's review: the concat demuxer's repeated last file used to add a frame or two (3 x 1.5 s gave 109 frames / 4.54 s;
+    3 x 0.7 s gave 52 frames / 2.17 s). Counted frame by frame with ffprobe."""
+    images = []
+    for i in range(3):
+        Image.new("RGB", (320, 180), (60 * i, 90, 120)).save(tmp_path / f"p{i}.png")
+        images.append(tmp_path / f"p{i}.png")
+    out = sb.animatic(images, tmp_path / "a.mp4", seconds=seconds, fps=24)
+    frames = int(subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames",
+                                 "-of", "csv=p=0", str(out)], capture_output=True, check=True, text=True).stdout.strip())
+    assert abs(frames - 3 * seconds * 24) <= 0.5, frames
+
+
 # ---------------------------------------------------------------- the job
 class Ctx:
     control = None
